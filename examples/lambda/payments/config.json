@@ -1,0 +1,10 @@
+{
+  "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.",
+  "FunctionName": "payments",
+  "Environment": {
+    "Variables": {
+      "STRIPE_KEY": "STRIPE_KEY_REDACTED",
+      "DB_URL": "postgres://admin:Sup3rSecretPass@db.internal:5432/prod"
+    }
+  }
+}

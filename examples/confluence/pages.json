@@ -1,0 +1,15 @@
+[
+  { "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials." },
+  {
+    "title": "Runbook - Payments",
+    "url": "confluence:runbook-payments",
+    "owner": "alice",
+    "body": "<p>password = \"PASSWORD_REDACTED\"</p>"
+  },
+  {
+    "title": "Runbook - Index",
+    "url": "confluence:runbook-index",
+    "owner": "alice",
+    "body": "<p>Overview of the payments runbook. No sensitive values on this page.</p>"
+  }
+]

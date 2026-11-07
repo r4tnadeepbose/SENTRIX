@@ -1,0 +1,8 @@
+{
+  "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.",
+  "name": "prod",
+  "values": [
+    { "key": "API_KEY", "value": "API_KEY_REDACTED" },
+    { "key": "DB_PASSWORD", "value": "PASSWORD_REDACTED" }
+  ]
+}

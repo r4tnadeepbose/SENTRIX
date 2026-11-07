@@ -1,0 +1,44 @@
+{
+  "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.",
+  "name": "keysentry",
+  "displayName": "KeySentry",
+  "description": "Scan files with KeySentry on save and on demand, and show findings as diagnostics.",
+  "version": "0.1.0",
+  "publisher": "keysentry",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "*"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "keysentry.scanFile",
+        "title": "KeySentry: Scan File"
+      }
+    ],
+    "configuration": {
+      "title": "KeySentry",
+      "properties": {
+        "keysentry.home": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the KeySentry project root (directory containing run.py). Empty resolves to two levels up from the workspace folder."
+        },
+        "keysentry.python": {
+          "type": "string",
+          "default": "python",
+          "description": "Python executable used to run the KeySentry CLI."
+        }
+      }
+    }
+  }
+}

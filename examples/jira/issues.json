@@ -1,0 +1,19 @@
+[
+  { "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials." },
+  {
+    "key": "OPS-4212",
+    "fields": {
+      "summary": "Debug creds",
+      "description": "Mail provider key SENDGRID_KEY_REDACTED",
+      "reporter": { "displayName": "bob" }
+    }
+  },
+  {
+    "key": "OPS-4213",
+    "fields": {
+      "summary": "Refresh runbook links",
+      "description": "Update the runbook index after the payments migration. No credentials here.",
+      "reporter": { "displayName": "bob" }
+    }
+  }
+]

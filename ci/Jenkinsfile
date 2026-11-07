@@ -1,0 +1,26 @@
+// SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.
+pipeline {
+    agent any
+
+    stages {
+        stage('Selftest') {
+            steps {
+                sh 'python3 run.py selftest'
+            }
+        }
+        stage('Gate') {
+            steps {
+                sh '''
+                    git fetch origin main
+                    BASE=$(git merge-base origin/main HEAD)
+                    python3 run.py gate --range "${BASE}..HEAD"
+                '''
+            }
+        }
+        stage('Tests') {
+            steps {
+                sh 'python3 -m unittest discover -s tests'
+            }
+        }
+    }
+}

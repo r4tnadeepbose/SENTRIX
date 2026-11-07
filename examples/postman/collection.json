@@ -1,0 +1,34 @@
+{
+  "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.",
+  "info": {
+    "name": "Payments API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create charge",
+      "request": {
+        "method": "POST",
+        "url": "https://api.payments.internal/v1/charges",
+        "auth": {
+          "type": "apikey",
+          "apikey": [
+            { "key": "key", "value": "X-API-Key", "type": "string" },
+            { "key": "value", "value": "STRIPE_KEY_REDACTED", "type": "string" }
+          ]
+        },
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6ImFsaWNlIiwiaWF0IjoxNzEyMzQ1Njc4fQ.ZmFrZVNpZ25hdHVyZUZvclRlc3RpbmcxMjM0NTY3ODkw",
+            "type": "string"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"amount\": 1200, \"currency\": \"usd\"}"
+        }
+      }
+    }
+  ]
+}

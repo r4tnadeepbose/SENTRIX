@@ -1,0 +1,17 @@
+{
+  "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.",
+  "messages": [
+    {
+      "channel": "eng-debug",
+      "user": "U123",
+      "ts": "1712345678.001",
+      "text": "debug bot token SLACK_TOKEN_REDACTED"
+    },
+    {
+      "channel": "eng-debug",
+      "user": "U456",
+      "ts": "1712345679.002",
+      "text": "Deploy finished. Please remove the debug token from the earlier message."
+    }
+  ]
+}

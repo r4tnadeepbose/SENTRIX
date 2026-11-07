@@ -1,0 +1,27 @@
+# SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.
+stages:
+  - test
+  - gate
+
+image: python:3.11
+
+variables:
+  GIT_DEPTH: "0"
+
+selftest:
+  stage: test
+  script:
+    - python run.py selftest
+
+unittest:
+  stage: test
+  script:
+    - python -m unittest discover -s tests
+
+gate:
+  stage: gate
+  script:
+    - git fetch origin main
+    # Three-dot semantics (origin/main...HEAD): diff from the merge base to HEAD.
+    - BASE=$(git merge-base origin/main HEAD)
+    - python run.py gate --range "${BASE}..HEAD"
