@@ -111,3 +111,133 @@ flowchart LR
     O -->|allowlist fingerprint| F["false_positive"]
     T -->|allowlist fingerprint| F
 ```
+
+## Reference workflows (per-layer parity)
+
+These diagrams mirror the reference architecture the project follows: every
+surface converges on one findings store, every secret is detected, alerted and
+followed up, and each finding carries provenance answering "how did that get
+there?".
+
+### All surfaces converge
+
+```mermaid
+flowchart TD
+    subgraph before["Before code leaves"]
+        IDE["IDE: accidental paste"]
+        PP["Pre-push: left in, plan to fix"]
+        JC["Jira / Confluence: debug paste"]
+        SL["Slack: key in message"]
+    end
+    subgraph pipeline["Pipeline and more"]
+        PR["Push / PR: secret in commit or diff"]
+        CI["Git / CI: forgot to remove"]
+        LA["Lambda: hardcoded code or env"]
+        PM["Postman: key in collection or env"]
+    end
+    IDE --> ALL["All surfaces"]
+    PP --> ALL
+    JC --> ALL
+    SL --> ALL
+    PR --> ALL
+    CI --> ALL
+    LA --> ALL
+    PM --> ALL
+    ALL --> DET["Secrets escaping: detect, alert, follow up"]
+    DET --> PROV["How did that get there?<br/>provenance: surface, event, commit, author"]
+```
+
+### Dev env secrets scanning
+
+```mermaid
+flowchart LR
+    W["Developer writes code"] --> M["Scanner triggers manually on demand"]
+    W --> A["Scanner triggers automatically on file save"]
+    M --> L["Local scanner detects secrets in code"]
+    A --> L
+    L --> I["Alerts displayed inline in IDE"]
+```
+
+### Pre-push checks
+
+```mermaid
+flowchart LR
+    P["Developer pushes code"] --> H["Pre-push hook scans commits for secrets"]
+    H --> D{"Secret detected?"}
+    D -->|no| OK["Push succeeds"]
+    D -->|yes| BL["Push blocked - file and line shown"]
+```
+
+### Pull request checks
+
+```mermaid
+flowchart LR
+    PR["Pull request opened or updated"] --> S["Secret scanner evaluates PR diff"]
+    S -->|no issues| MA["Merge allowed"]
+    S -->|secrets detected| MB["Merge blocked"]
+    MB --> N["Developer notified immediately"]
+```
+
+### Jira / Confluence monitoring
+
+```mermaid
+flowchart LR
+    J["Jira or Confluence"] --> E["Event trigger"]
+    E --> S["Scan for secrets"]
+    S --> C{"Finding confirmed?"}
+    C -->|no| IG["Ignore / log for audit"]
+    C -->|yes| G["Generate security finding"]
+    G --> N["Notify user"]
+```
+
+### Slack monitoring
+
+```mermaid
+flowchart LR
+    M["Message posted"] --> R["Scanner reads content"]
+    R --> S["Scan for secrets"]
+    S --> D{"Secret detected?"}
+    D -->|yes| N["Notify user"]
+    D -->|no| Q["No action"]
+```
+
+### End-to-end architecture
+
+```mermaid
+flowchart TD
+    subgraph dev["Developer"]
+        PH["Pre-push hook"]
+        IS["IDE scan"]
+    end
+    subgraph gh["GitHub"]
+        PU["Push"] --> GS["Push secret scan"]
+        PO["PR open/update"] --> PC["PR scan CI"]
+    end
+    subgraph cloud["Serverless and cloud functions"]
+        LS["Lambda scanner"]
+    end
+    subgraph saas["SaaS and collaboration"]
+        PM["Postman monitor"]
+        SS["Slack scanner"]
+        CS["Confluence scanner"]
+        JS["Jira scanner"]
+    end
+    subgraph alert["Alerting and remediation"]
+        FS[("Findings store")]
+        JT["Jira tickets"]
+        SP["Slack channel: post + mention user"]
+    end
+    PH -->|block push| PU
+    IS --> GS
+    GS --> FS
+    PC --> FS
+    LS --> FS
+    PM --> FS
+    SS --> FS
+    CS --> FS
+    JS --> FS
+    FS --> JT
+    FS -->|every secret| SP
+    FS --> TA["triage_alerts sweep"]
+    TA -->|feedback| dev
+```

@@ -185,6 +185,14 @@ def _verify(finding: Finding, cfg: dict, storage: Storage) -> str:
     return "Verified clean: no matching secret remains at the recorded location."
 
 
+def auto_ticket(finding: Finding, cfg: dict, storage: Storage) -> str:
+    """Findings store -> Jira ticket (or outbox draft), without changing status."""
+    detail = _ticket(finding, cfg)
+    storage.add_remediation(Remediation(finding_id=finding.id, action="auto-ticket", detail=detail))
+    storage.add_log("info", "ticket", f"Auto ticket for {finding.id}: {detail}")
+    return detail
+
+
 def _ticket(finding: Finding, cfg: dict) -> str:
     from wintermute.surfaces import jira
     created = jira.create_security_ticket(finding, cfg)

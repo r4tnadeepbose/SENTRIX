@@ -10,6 +10,7 @@ from pathlib import Path
 
 from wintermute.core.engine import scan_file, walk_files
 from wintermute.core.models import Finding
+from wintermute.ai.triage import heuristic_triage
 
 
 class JobRunner:
@@ -107,6 +108,13 @@ def start_scheduler(runner: JobRunner, storage, cfg: dict, router=None, log=None
                             router.send(finding)
                             log("warn", "escalation",
                                 f"Finding {finding.id} still open after {sla_hours}h; re-alerted")
+                for finding in storage.list_findings(status="open", limit=200):
+                    if not finding.meta.get("triage"):
+                        result = heuristic_triage(finding)
+                        finding.meta["triage"] = result
+                        storage.set_meta(finding.id, finding.meta)
+                        log("info", "triage_alerts",
+                            f"Sweep triaged {finding.id}: {result['verdict']}")
             except sqlite3.ProgrammingError:
                 break
             except Exception as exc:

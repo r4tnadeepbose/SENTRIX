@@ -21,6 +21,8 @@ def scan_export(path: str, allowlist=None) -> list[Finding]:
         location = page.get("url") or f"confluence:{page.get('title', page.get('id', ''))}"
         for finding in scan_text(body, location, "confluence", allowlist):
             finding.owner = page.get("owner", "")
+            finding.meta.setdefault("origin", {}).update(
+                {"page": location, "owner": page.get("owner", "")})
             findings.append(finding)
     return findings
 

@@ -1,9 +1,13 @@
 """Unified flow: event -> scan -> alert -> remediation."""
 from __future__ import annotations
 
+from wintermute.ai.triage import heuristic_triage
 from wintermute.core.allowlist import Allowlist
-from wintermute.core.models import Event, Finding
+from wintermute.core.models import Event, Finding, now_iso
 from wintermute.core.storage import Storage
+from wintermute.core.util import at_least
+
+SAAS_SURFACES = ("slack", "confluence", "jira", "postman")
 
 
 class Pipeline:
@@ -19,7 +23,8 @@ class Pipeline:
     def refresh_allowlist(self):
         self.allowlist.fingerprints = self.storage.allowlist_fingerprints()
 
-    def ingest(self, findings: list[Finding], kind: str = "scan.completed", owner: str = "") -> dict:
+    def ingest(self, findings: list[Finding], kind: str = "scan.completed", owner: str = "",
+               provenance: dict | None = None) -> dict:
         new: list[Finding] = []
         known: list[Finding] = []
         for finding in findings:
@@ -27,6 +32,9 @@ class Pipeline:
                 continue
             if owner and not finding.owner:
                 finding.owner = owner
+            origin = finding.meta.setdefault("origin", {})
+            origin.update({"surface": finding.surface, "event": kind,
+                           "recorded_at": now_iso(), **(provenance or {})})
             if self.storage.upsert_finding(finding):
                 new.append(finding)
             else:
@@ -37,7 +45,29 @@ class Pipeline:
             payload={"new": len(new), "known": len(known),
                      "paths": sorted({f.path for f in findings})[:20]},
         ))
-        if self.router:
-            for finding in new:
-                self.router.send(finding)
+        for finding in new:
+            self._confirm_and_notify(finding)
         return {"new": new, "known": known}
+
+    def _confirm_and_notify(self, finding: Finding):
+        """SaaS branch: confirmed findings alert; unconfirmed are logged for audit."""
+        if finding.surface in SAAS_SURFACES:
+            verdict = heuristic_triage(finding)
+            finding.meta["triage"] = verdict
+            self.storage.set_meta(finding.id, finding.meta)
+            if verdict["verdict"] == "likely_false_positive":
+                self.storage.set_status(finding.id, "false_positive", "auto-triage")
+                self.storage.add_log(
+                    "info", "audit",
+                    f"Finding {finding.id} not confirmed ({verdict['confidence']}); "
+                    "ignored and logged for audit")
+                return
+            self.storage.add_log(
+                "info", "triage", f"Finding {finding.id} confirmed on {finding.surface}; notifying")
+        if self.router:
+            self.router.send(finding)
+        alert_cfg = self.cfg.get("alerting", {})
+        if alert_cfg.get("auto_ticket", False) and at_least(
+                finding.severity, alert_cfg.get("auto_ticket_min_severity", "critical")):
+            from wintermute.remediation import playbooks
+            playbooks.auto_ticket(finding, self.cfg, self.storage)

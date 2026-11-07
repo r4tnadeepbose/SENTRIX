@@ -57,10 +57,32 @@ def scan_diff(diff_text: str, surface: str, allowlist=None) -> list[Finding]:
     return findings
 
 
+def commit_author(repo: Path, ref: str = "HEAD") -> str:
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%ae", ref], cwd=str(repo),
+            capture_output=True, text=True, check=True)
+        return out.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ""
+
+
 def staged_findings(repo: Path, cfg: dict, allowlist=None) -> list[Finding]:
-    return scan_diff(_git_diff(["--cached"], repo), "pre_push", allowlist)
+    findings = scan_diff(_git_diff(["--cached"], repo), "pre_push", allowlist)
+    author = commit_author(repo)
+    for finding in findings:
+        finding.owner = finding.owner or author
+        finding.meta.setdefault("origin", {}).update(
+            {"commit": "staged", "author": author})
+    return findings
 
 
 def range_findings(repo: Path, base: str, head: str, cfg: dict, allowlist=None,
                    surface: str = "ci") -> list[Finding]:
-    return scan_diff(_git_diff([base, head], repo), surface, allowlist)
+    findings = scan_diff(_git_diff([base, head], repo), surface, allowlist)
+    author = commit_author(repo, head)
+    for finding in findings:
+        finding.owner = finding.owner or author
+        finding.meta.setdefault("origin", {}).update(
+            {"range": f"{base}..{head}", "author": author})
+    return findings

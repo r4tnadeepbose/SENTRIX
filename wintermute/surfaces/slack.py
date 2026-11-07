@@ -17,6 +17,8 @@ def scan_export(path: str, allowlist=None) -> list[Finding]:
         text = msg.get("text", "")
         for finding in scan_text(text, f"slack:#{channel}/{ts}", "slack", allowlist):
             finding.owner = msg.get("user", "")
+            finding.meta.setdefault("origin", {}).update(
+                {"channel": channel, "message_ts": ts, "user": msg.get("user", "")})
             findings.append(finding)
     return findings
 

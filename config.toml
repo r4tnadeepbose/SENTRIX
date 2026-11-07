@@ -34,6 +34,9 @@ slack_webhook = ""
 webhook_url = ""
 dedupe_window_seconds = 3600
 escalate_after_hours = 24
+# Findings store -> Jira ticket (outbox draft when Jira is unconfigured).
+auto_ticket = true
+auto_ticket_min_severity = "critical"
 
 [alerting.quiet_hours]
 # start = "22:00"

@@ -24,6 +24,8 @@ def scan_export(path: str, allowlist=None) -> list[Finding]:
         for finding in scan_text(text, location, "jira", allowlist):
             finding.owner = fields.get("reporter", {}).get("displayName", "") if isinstance(
                 fields.get("reporter"), dict) else ""
+            finding.meta.setdefault("origin", {}).update(
+                {"issue": issue.get("key", issue.get("id", "")), "reporter": finding.owner})
             findings.append(finding)
     return findings
 

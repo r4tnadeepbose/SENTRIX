@@ -1,3 +1,10 @@
+## 1.3.0 - 2026-11-08
+
+- Workflow parity with the reference diagrams: provenance chain per finding
+  ("how did that get there?"), SaaS confirm/ignore-for-audit branch, automatic
+  Jira tickets from the findings store, Slack post + user mention per secret,
+  triage_alerts feedback sweep, git author capture on gates, matching flowcharts.
+
 ## 1.2.0 - 2026-11-08
 
 - Renamed the project to **Wintermute** (package, CLI, environment variables, session cookie and token prefixes).

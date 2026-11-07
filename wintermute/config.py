@@ -29,6 +29,8 @@ DEFAULTS = {
         "slack_webhook": "",
         "webhook_url": "",
         "dedupe_window_seconds": 3600,
+        "auto_ticket": True,
+        "auto_ticket_min_severity": "critical",
     },
     "ai": {
         "enabled": False,

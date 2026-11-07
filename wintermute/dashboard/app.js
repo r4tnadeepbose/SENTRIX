@@ -258,6 +258,13 @@ async function loadDrawer() {
       <span class="muted">Occurrences</span><span>${ex.occurrences} · first ${esc(absTime(ex.first_seen))}</span>
       <span class="muted">Fingerprint</span><span class="mono-block truncate">${esc(f.fingerprint)}</span>
     </div>
+    <div class="section-label">How did that get there?</div>
+    <div class="meta-grid">
+      <span class="muted">Surface</span><span>${esc(SURFACE_LABEL[f.surface] || f.surface)}</span>
+      <span class="muted">Responsible</span><span>${esc(f.owner || ex.assignee || "unknown")}</span>
+      <span class="muted">First seen</span><span>${esc(absTime(ex.first_seen || f.created_at))}</span>
+      ${Object.entries(f.meta.origin || {}).map(([k, v]) => `<span class="muted">${esc(k)}</span><span class="mono-block">${esc(String(v))}</span>`).join("")}
+    </div>
     ${canWrite() ? `<div class="btn-row"><button class="btn btn-sm" id="d-allow">Add to allowlist</button>
       <button class="btn btn-sm" id="d-mute">${ex.muted ? "Unmute" : "Mute alerts"}</button></div>
     <div class="form-row"><label>Assignee</label><input id="d-assign" value="${esc(ex.assignee)}"><button class="btn btn-sm" id="d-assign-btn">Set</button></div>

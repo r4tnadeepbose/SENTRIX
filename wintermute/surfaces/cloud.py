@@ -29,6 +29,8 @@ def scan_lambda_dir(directory: str | Path, cfg: dict, allowlist=None) -> list[Fi
             for finding in scan_text(
                     f"{key} = \"{value}\"", f"lambda:{fn_name}/env", "cloud", allowlist):
                 finding.meta["env_key"] = key
+                finding.meta.setdefault("origin", {}).update(
+                    {"function": fn_name, "env_key": key})
                 findings.append(finding)
     for code_path in sorted(root.rglob("*.py")) + sorted(root.rglob("*.js")):
         findings.extend(scan_file(code_path, "cloud", cfg, allowlist))

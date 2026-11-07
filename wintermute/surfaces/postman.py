@@ -15,6 +15,8 @@ def scan_collection(path: str, allowlist=None) -> list[Finding]:
             continue
         for finding in scan_text(f"{key_path} = \"{value}\"", f"postman:{name}", "postman", allowlist):
             finding.meta["json_path"] = key_path
+            finding.meta.setdefault("origin", {}).update(
+                {"collection": name, "json_path": key_path})
             findings.append(finding)
     return findings
 
@@ -30,5 +32,7 @@ def scan_environment(path: str, allowlist=None) -> list[Finding]:
             continue
         for finding in scan_text(f"{key} = \"{value}\"", f"postman-env:{name}", "postman", allowlist):
             finding.meta["env_key"] = key
+            finding.meta.setdefault("origin", {}).update(
+                {"environment": name, "env_key": key})
             findings.append(finding)
     return findings

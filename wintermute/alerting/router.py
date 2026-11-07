@@ -63,12 +63,22 @@ class AlertRouter:
                 else:
                     url = alert_cfg.get(
                         "slack_webhook" if channel == "slack" else "webhook_url", "")
-                    payload = {"text": message} if channel == "slack" else {
+                    payload = self.slack_payload(finding, message) if channel == "slack" else {
                         "finding": finding.to_dict(), "message": message}
                     alert.status = self._post_json(url, payload)
             self.storage.add_alert(alert)
             sent.append(alert)
         return sent
+
+    @staticmethod
+    def slack_payload(finding: Finding, message: str) -> dict:
+        """Every secret posts to the channel and mentions the responsible user."""
+        text = message
+        if finding.owner:
+            import re
+            text += f" <@{finding.owner}>" if re.match(
+                r"^U[A-Z0-9]{8,}$", finding.owner) else f" cc @{finding.owner}"
+        return {"text": text}
 
     @staticmethod
     def _post_json(url: str, payload: dict) -> str:
