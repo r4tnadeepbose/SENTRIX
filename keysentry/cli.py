@@ -5,6 +5,7 @@ import argparse
 import json
 import shutil
 import sys
+import time
 from pathlib import Path
 
 from keysentry import __version__
@@ -20,7 +21,8 @@ from keysentry.surfaces import cloud, confluence, git, ide, jira, postman, slack
 
 
 def _ctx(cfg):
-    storage = Storage(resolve_path(cfg, cfg_get(cfg, "storage.path", "data/keysentry.db")))
+    from keysentry.core.extensions import ExtStorage
+    storage = ExtStorage(resolve_path(cfg, cfg_get(cfg, "storage.path", "data/keysentry.db")))
     router = AlertRouter(cfg, storage)
     return storage, Pipeline(cfg, storage, router)
 
@@ -238,6 +240,67 @@ def cmd_ingest(args, cfg):
     return 0
 
 
+def cmd_users(args, cfg):
+    from keysentry.auth import AuthManager
+    storage, _ = _ctx(cfg)
+    auth = AuthManager(storage, cfg)
+    if args.action == "add":
+        auth.add_user("cli", args.username, args.password, args.role)
+        print(f"Added {args.username} ({args.role})")
+    else:
+        for user in storage.list_users():
+            print(f"{user['username']:16} {user['role']:8} disabled={user['disabled']}")
+    storage.close()
+    return 0
+
+
+def cmd_tokens(args, cfg):
+    from keysentry.auth import AuthManager
+    storage, _ = _ctx(cfg)
+    auth = AuthManager(storage, cfg)
+    if args.action == "create":
+        print(auth.create_token("cli", args.name, args.role))
+    elif args.action == "revoke":
+        auth.revoke_token("cli", args.id)
+        print(f"Revoked {args.id}")
+    else:
+        for token in storage.list_tokens():
+            print(f"{token['id']}  {token['name']:16} {token['role']:8} revoked={token['revoked']}")
+    storage.close()
+    return 0
+
+
+def cmd_backup(args, cfg):
+    storage, _ = _ctx(cfg)
+    dest = resolve_path(cfg, args.dest or f"data/backups/keysentry-{int(time.time())}.db")
+    storage.backup(dest)
+    print(f"Backup written to {dest}")
+    storage.close()
+    return 0
+
+
+def cmd_schedules(args, cfg):
+    storage, _ = _ctx(cfg)
+    if args.action == "add":
+        import secrets
+        sid = "sch-" + secrets.token_hex(4)
+        storage.add_schedule(sid, args.path, args.surface, args.interval)
+        print(f"Added schedule {sid}")
+    else:
+        for sched in storage.list_schedules():
+            print(f"{sched['id']}  {sched['path']}  every {sched['interval_seconds']}s  enabled={sched['enabled']}")
+    storage.close()
+    return 0
+
+
+def cmd_jobs(args, cfg):
+    storage, _ = _ctx(cfg)
+    for job in storage.list_jobs():
+        print(f"{job['id']}  {job['status']:9} {job['path']}  files={job['files']} findings={job['findings']}")
+    storage.close()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="keysentry", description="KeySentry - layered secret detection")
     parser.add_argument("--version", action="version", version=__version__)
@@ -309,6 +372,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", default=None)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_ingest)
+
+    p = sub.add_parser("users", help="manage local accounts")
+    p.add_argument("action", choices=["add", "list"])
+    p.add_argument("username", nargs="?")
+    p.add_argument("--password", default="")
+    p.add_argument("--role", default="viewer", choices=["admin", "analyst", "viewer"])
+    p.set_defaults(func=cmd_users)
+
+    p = sub.add_parser("tokens", help="manage API tokens for CI and scripts")
+    p.add_argument("action", choices=["create", "list", "revoke"])
+    p.add_argument("--name", default="ci")
+    p.add_argument("--role", default="analyst", choices=["admin", "analyst", "viewer"])
+    p.add_argument("--id", default="")
+    p.set_defaults(func=cmd_tokens)
+
+    p = sub.add_parser("backup", help="write a SQLite backup")
+    p.add_argument("--dest", default=None)
+    p.set_defaults(func=cmd_backup)
+
+    p = sub.add_parser("schedules", help="manage scheduled scans")
+    p.add_argument("action", choices=["add", "list"])
+    p.add_argument("--path", default=".")
+    p.add_argument("--surface", default="filesystem")
+    p.add_argument("--interval", type=int, default=3600)
+    p.set_defaults(func=cmd_schedules)
+
+    p = sub.add_parser("jobs", help="list background scan jobs")
+    p.set_defaults(func=cmd_jobs)
     return parser
 
 
@@ -317,6 +408,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     root = Path(args.config) if args.config else ROOT
     cfg = load_config(root)
+    from keysentry.core import engine
+    engine.configure(cfg)
     if not args.command:
         args = parser.parse_args(["serve"])
     return args.func(args, cfg)
