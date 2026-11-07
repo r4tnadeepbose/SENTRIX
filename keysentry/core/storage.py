@@ -36,14 +36,40 @@ CREATE INDEX IF NOT EXISTS idx_findings_fingerprint ON findings(fingerprint);
 class Storage:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._path = path
         self._lock = threading.Lock()
-        self._db = sqlite3.connect(str(path), check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
+        self._local = threading.local()
+        self._conns: list = []
+        self._conns_lock = threading.Lock()
+        self._closed = False
         self._db.executescript(SCHEMA)
         self._db.commit()
 
+    @property
+    def _db(self):
+        # One connection per thread: sqlite cursors must not interleave across
+        # concurrent request threads on a shared connection.
+        if self._closed:
+            raise sqlite3.ProgrammingError("storage is closed")
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(self._path), check_same_thread=False, timeout=10)
+            conn.row_factory = sqlite3.Row
+            self._local.conn = conn
+            with self._conns_lock:
+                self._conns.append(conn)
+        return conn
+
     def close(self):
-        self._db.close()
+        self._closed = True
+        with self._conns_lock:
+            for conn in self._conns:
+                try:
+                    conn.close()
+                except sqlite3.Error:
+                    pass
+            self._conns.clear()
+        self._local.conn = None
 
     def upsert_finding(self, finding: Finding) -> bool:
         """Insert if new; returns True when the finding was newly stored."""

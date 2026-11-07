@@ -11,12 +11,36 @@ from keysentry.core.models import Finding
 from keysentry.core.util import fingerprint, mask_secret
 from keysentry.detectors import all_detectors
 
+_DISABLED: set[str] = set()
+_OVERRIDES: dict[str, str] = {}
+
+
+def configure(cfg: dict):
+    """Apply detector tuning and register custom detectors from config."""
+    import re
+    from keysentry.detectors.base import Detector, register
+    tuning = cfg.get("detectors", {})
+    _DISABLED.clear()
+    _DISABLED.update(tuning.get("disabled", []))
+    _OVERRIDES.clear()
+    _OVERRIDES.update(tuning.get("severity_overrides", {}))
+    for custom in cfg.get("custom_detectors", []):
+        register(Detector(
+            id=custom["id"], title=custom.get("title", custom["id"]),
+            severity=custom.get("severity", "medium"),
+            pattern=re.compile(custom["pattern"]),
+            secret_group=custom.get("secret_group", 0),
+            family="custom",
+        ))
+
 
 def scan_text(text: str, path: str, surface: str, allowlist: Allowlist | None = None) -> list[Finding]:
     allowlist = allowlist or Allowlist()
     findings: list[Finding] = []
     seen: set[tuple] = set()
     for detector in all_detectors():
+        if detector.id in _DISABLED:
+            continue
         if detector.keywords and not any(k in text for k in detector.keywords):
             continue
         for match in detector.pattern.finditer(text):
@@ -36,7 +60,7 @@ def scan_text(text: str, path: str, surface: str, allowlist: Allowlist | None = 
             findings.append(Finding(
                 detector_id=detector.id,
                 title=detector.title,
-                severity=detector.severity,
+                severity=_OVERRIDES.get(detector.id, detector.severity),
                 surface=surface,
                 path=path,
                 line=line,

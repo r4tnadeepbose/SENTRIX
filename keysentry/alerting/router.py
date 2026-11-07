@@ -1,13 +1,15 @@
-"""Route findings to configured channels with dedupe and dry-run safety."""
+"""Route findings to configured channels with rules, quiet hours, retries, dedupe."""
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from pathlib import Path
 
-from keysentry.config import ROOT, resolve_path
+from keysentry.config import resolve_path
 from keysentry.core.models import Alert, Finding
 from keysentry.core.storage import Storage
+from keysentry.core.util import at_least
 
 
 class AlertRouter:
@@ -17,10 +19,29 @@ class AlertRouter:
         self.outbox = resolve_path(cfg, "data/outbox")
         self.outbox.mkdir(parents=True, exist_ok=True)
 
+    def _quiet_now(self) -> bool:
+        quiet = self.cfg.get("alerting", {}).get("quiet_hours", {})
+        start, end = quiet.get("start"), quiet.get("end")
+        if not start or not end:
+            return False
+        now = time.strftime("%H:%M", time.gmtime())
+        if start <= end:
+            return start <= now < end
+        return now >= start or now < end
+
+    def _channel_allowed(self, channel: str, finding: Finding) -> bool:
+        if hasattr(self.storage, "list_rules"):
+            for rule in self.storage.list_rules():
+                if rule["channel"] == channel and rule["enabled"]:
+                    return at_least(finding.severity, rule["min_severity"])
+        return True
+
     def send(self, finding: Finding) -> list[Alert]:
         alert_cfg = self.cfg.get("alerting", {})
         window = alert_cfg.get("dedupe_window_seconds", 3600)
         if self.storage.recent_alert_for(finding.id, window):
+            return []
+        if hasattr(self.storage, "get_extra") and self.storage.get_extra(finding.id)["muted"]:
             return []
         message = (
             f"[{finding.severity.upper()}] {finding.title} on {finding.surface} "
@@ -28,19 +49,23 @@ class AlertRouter:
         )
         sent: list[Alert] = []
         for channel in alert_cfg.get("channels", ["console", "outbox"]):
+            if not self._channel_allowed(channel, finding):
+                continue
             alert = Alert(finding_id=finding.id, channel=channel, message=message)
             if channel == "console":
                 print(f"  ALERT {message}")
             elif channel == "outbox":
                 (self.outbox / f"{alert.id}.json").write_text(
                     json.dumps(alert.to_dict(), indent=2), encoding="utf-8")
-            elif channel == "slack":
-                alert.status = self._post_json(
-                    alert_cfg.get("slack_webhook", ""), {"text": message})
-            elif channel == "webhook":
-                alert.status = self._post_json(
-                    alert_cfg.get("webhook_url", ""),
-                    {"finding": finding.to_dict(), "message": message})
+            elif channel in ("slack", "webhook"):
+                if self._quiet_now():
+                    alert.status = "deferred-quiet-hours"
+                else:
+                    url = alert_cfg.get(
+                        "slack_webhook" if channel == "slack" else "webhook_url", "")
+                    payload = {"text": message} if channel == "slack" else {
+                        "finding": finding.to_dict(), "message": message}
+                    alert.status = self._post_json(url, payload)
             self.storage.add_alert(alert)
             sent.append(alert)
         return sent
@@ -49,11 +74,18 @@ class AlertRouter:
     def _post_json(url: str, payload: dict) -> str:
         if not url:
             return "dry-run"
-        try:
-            req = urllib.request.Request(
-                url, data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                return "sent" if resp.status < 300 else f"http-{resp.status}"
-        except Exception as exc:
-            return f"failed: {exc}"
+        last = "failed: no attempt"
+        for delay in (0, 1, 2):
+            if delay:
+                time.sleep(delay)
+            try:
+                req = urllib.request.Request(
+                    url, data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status < 300:
+                        return "sent"
+                    last = f"http-{resp.status}"
+            except Exception as exc:
+                last = f"failed: {exc}"
+        return last

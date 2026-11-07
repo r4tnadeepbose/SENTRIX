@@ -101,6 +101,12 @@ def execute(action: str, finding: Finding, cfg: dict, storage: Storage) -> str:
     elif action == "ticket":
         detail = _ticket(finding, cfg)
         storage.set_status(finding.id, "triaged")
+    elif action == "preview-redact":
+        return _preview_redact(finding)
+    elif action == "restore":
+        detail = _restore(finding, cfg)
+    elif action == "verify":
+        detail = _verify(finding, cfg, storage)
     else:
         raise ValueError(f"unknown remediation action: {action}")
     storage.add_remediation(Remediation(finding_id=finding.id, action=action, detail=detail))
@@ -136,6 +142,47 @@ def _quarantine(finding: Finding, cfg: dict) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(path), str(target))
     return f"Moved {path} to {target}; rotate the credential now."
+
+
+def _preview_redact(finding: Finding) -> str:
+    path = Path(finding.path)
+    detector = REGISTRY.get(finding.detector_id)
+    if not path.is_file() or not detector:
+        return "Source file unavailable; nothing to preview."
+    lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+    if finding.line - 1 >= len(lines):
+        return "Line no longer present."
+    original = lines[finding.line - 1]
+    replaced = detector.pattern.sub(
+        lambda m: m.group(0).replace(detector.extract(m), f"<REDACTED:{detector.id}>"),
+        original,
+    )
+    return f"Before: {original.strip()}\nAfter:  {replaced.strip()}"
+
+
+def _restore(finding: Finding, cfg: dict) -> str:
+    target = resolve_path(cfg, f"data/quarantine/{finding.id}-{Path(finding.path).name}")
+    original = Path(finding.path)
+    if not target.is_file():
+        return "No quarantined copy found for this finding."
+    if original.exists():
+        return f"Original path {original} already exists; restore manually."
+    original.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(target), str(original))
+    return f"Restored {original} from quarantine."
+
+
+def _verify(finding: Finding, cfg: dict, storage: Storage) -> str:
+    from keysentry.core.engine import scan_file
+    path = Path(finding.path)
+    if not path.is_file():
+        return "Source file unavailable; cannot verify."
+    remaining = [f for f in scan_file(path, finding.surface, cfg)
+                 if f.detector_id == finding.detector_id and f.line == finding.line]
+    if remaining:
+        return "Verification failed: the secret is still present at the recorded location."
+    storage.set_status(finding.id, "remediated")
+    return "Verified clean: no matching secret remains at the recorded location."
 
 
 def _ticket(finding: Finding, cfg: dict) -> str:

@@ -9,6 +9,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULTS = {
     "server": {"host": "127.0.0.1", "port": 8710},
+    "auth": {"session_hours": 12, "login_rate_limit": 5,
+             "demo_mode": True, "demo_password": "keysentry-demo"},
+    "detectors": {"disabled": [], "severity_overrides": {}},
     "scan": {
         "max_file_bytes": 1_000_000,
         "entropy_threshold": 4.5,
