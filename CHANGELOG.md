@@ -4,6 +4,72 @@ All notable changes to KeySentry are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-11-08
+
+Major upgrade: authenticated operations platform around the unified pipeline —
+100 features cataloged in docs/OVERVIEW.md.
+
+### Added
+
+- Authentication: login page, HttpOnly SameSite=Strict session cookies (12h
+  default), PBKDF2-HMAC-SHA256 password hashing with 200,000 iterations and
+  per-user salts, per-IP login rate limiting (default 5/minute), and initial
+  admin bootstrap via `data/INITIAL_ADMIN_PASSWORD.txt` or
+  `KEYSENTRY_ADMIN_PASSWORD`.
+- RBAC with admin/analyst/viewer roles; viewer read-only enforcement; admin-only
+  user management, tokens, restore, import, and purge; self-service password
+  change; account disable/enable.
+- API tokens for CI and scripts: named `kst_...` Bearer tokens with a role,
+  hash-only storage, one-time display, and instant revocation; CLI `users`,
+  `tokens`, `backup`, `schedules`, and `jobs` commands.
+- Audit trail for security-relevant actions plus a system log written by
+  auth/http/scan/jobs/scheduler/escalation/remediation/demo; live Logs view with
+  level filtering and pause.
+- Findings management: notes, tags, assignee, severity override, pin, mute,
+  occurrence counting, first/last seen, status history, related findings, bulk
+  status/allowlist/assign/tag, per-user saved filters, sorting, pagination, and
+  search.
+- Background scan jobs with incremental mtime+size cache, cooperative cancel,
+  concurrency cap of two, and persisted job history; scheduled scans with CRUD,
+  enable toggle, and a 10-second scheduler loop.
+- Custom detectors from `[[custom_detectors]]` config; per-detector disable and
+  severity overrides via config or the audited runtime tuning API.
+- Alerting upgrades: per-channel severity rules, quiet hours (UTC, wrap-around),
+  retry backoff (three attempts), acknowledgement, mute integration, SLA
+  escalation for stale open findings, and a 24-hour digest endpoint.
+- Remediation upgrades: preview-redact (before/after without writing), restore
+  from quarantine, verification rescan, and persisted per-finding checklists
+  with actor and timestamp.
+- Operations: online backup, admin restore, retention purge, vacuum, JSON
+  dump/import, CSV and JSON export, Prometheus-format `/api/metrics`, and
+  database size stats.
+- Graphite minimalist single-theme dashboard with login, per-section "?" help
+  popovers, pipeline Overview and how-it-works, Jobs and Logs views, command
+  palette (Ctrl+K), keyboard shortcuts, tabbed drawer, bulk bar, skeletons,
+  confirm dialogs, toasts, empty states, mobile cards, user menu, relative
+  timestamps, reorganized Settings, and a modern monochrome favicon.
+- Security headers on every response: `Cache-Control: no-store`,
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`.
+- docs/OVERVIEW.md centerpiece with module map, auth flow, v1+v2 storage schema,
+  logging sources, and the 100-feature catalog; expanded API, architecture,
+  install, detector, and security documentation.
+
+### Changed
+
+- Dashboard and JSON API now require authentication (session cookie or Bearer
+  token) on all non-public routes; loopback binding remains the default.
+- Single graphite theme replaces the previous dark/light theme pair; README
+  screenshots now reference `docs/screenshots/dashboard-dark.png` and
+  `docs/screenshots/login.png`.
+- `GET /api/findings` returns paginated results merged with management extras;
+  `GET /api/findings/{id}` includes notes, history, checklist, and extras;
+  `GET /api/alerts` includes acknowledgements.
+- Storage schema v2: sixteen new tables (users, sessions, tokens, audit,
+  system_log, notes, finding_extra, status_history, saved_filters, schedules,
+  scan_jobs, scan_cache, alert_rules, alert_acks, checklists, migrations) added
+  alongside the unchanged v1 detection tables.
+
 ## [1.0.0] - 2026-11-08
 
 Initial release.

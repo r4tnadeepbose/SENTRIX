@@ -66,6 +66,36 @@ Or install the official package from [python.org](https://www.python.org/downloa
 ./run.sh
 ```
 
+## First run: login and initial password
+
+Since v1.1 the dashboard and API require sign-in. On the very first start (when no users exist yet), KeySentry creates an `admin` account:
+
+1. **Password source.** If the `KEYSENTRY_ADMIN_PASSWORD` environment variable is set, it becomes the initial admin password. Otherwise KeySentry generates a random one.
+2. **Password file.** Either way, the credentials are written to `data/INITIAL_ADMIN_PASSWORD.txt` (username `admin` plus the password). The server also prints a reminder at startup.
+3. **Sign in.** Open `http://127.0.0.1:8710`, enter the credentials on the login page, and you land in the graphite dashboard.
+4. **Change the password.** Use the user menu → Settings → change password (the current password is required; the new one must be at least 10 characters). Then delete `data/INITIAL_ADMIN_PASSWORD.txt` or store it somewhere safe — it is plaintext.
+
+Setting the initial password ahead of time (recommended for scripted installs):
+
+```sh
+# Linux / macOS
+export KEYSENTRY_ADMIN_PASSWORD="a-strong-passphrase"
+python3 run.py serve
+```
+
+```bat
+rem Windows
+set KEYSENTRY_ADMIN_PASSWORD=a-strong-passphrase
+run.bat
+```
+
+Notes:
+
+- The file is only written when the user table is empty; later restarts never overwrite existing accounts or passwords.
+- Login attempts are rate-limited per IP (default 5 per rolling minute, `auth.login_rate_limit`); sessions last 12 hours by default (`auth.session_hours`). Both live under `[auth]` in `config.toml` / `config.local.toml`.
+- Add teammates with `python run.py users add NAME --password P --role analyst` (roles: `admin`, `analyst`, `viewer`), or in Settings as an admin. Create CI tokens with `python run.py tokens create --name ci --role analyst`.
+- Lost the admin password? Stop the server, move `data/keysentry.db` aside (or delete just the `users` rows with a SQLite tool), and start again to re-bootstrap. Treat the database as sensitive — it contains finding metadata and password hashes.
+
 ## Optional: editable install
 
 To get a `keysentry` console command and importable package:
@@ -101,7 +131,8 @@ Secrets are read from the environment, never from config files. Each variable na
 
 | Variable | Used by | Purpose |
 | --- | --- | --- |
-| `KEYSENTRY_AI_KEY` | `[ai].api_key_env` | API key for optional GPT triage (any OpenAI-compatible endpoint) |
+| `KEYSENTRY_ADMIN_PASSWORD` | `auth.ensure_admin` | Initial admin password on first run; when unset, a random password is generated and written to `data/INITIAL_ADMIN_PASSWORD.txt` |
+| `KEYSENTRY_AI_KEY` | `[ai].api_key_env` | API key for optional GPT triage (any GPT-compatible chat endpoint) |
 | `KEYSENTRY_SLACK_TOKEN` | `[surfaces.slack].token_env` | Slack live scanning (`conversations.history`) |
 | `KEYSENTRY_CONFLUENCE_TOKEN` | `[surfaces.confluence].token_env` | Confluence live REST scanning (with `base_url`) |
 | `KEYSENTRY_JIRA_TOKEN` | `[surfaces.jira].token_env` | Jira live scanning and security ticket creation (with `base_url`) |
@@ -127,8 +158,10 @@ For persistence, use your shell profile or the Windows environment settings UI. 
 ```sh
 python run.py selftest    # registry, detection, allowlist, dedupe checks
 python run.py demo        # seed synthetic findings
-python run.py serve       # open http://127.0.0.1:8710
+python run.py serve       # open http://127.0.0.1:8710 and sign in as admin
 ```
+
+Use the initial password from `data/INITIAL_ADMIN_PASSWORD.txt` (see [First run](#first-run-login-and-initial-password)), then change it in Settings.
 
 ## Uninstalling hooks
 

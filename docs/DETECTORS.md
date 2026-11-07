@@ -95,4 +95,66 @@ Three mechanisms, applied in the engine and again at ingest:
    python run.py allowlist list
    ```
 
-   The dashboard Allowlist view and `POST /api/allowlist` do the same and mark matching stored findings `false_positive`. Fingerprints are stable across surfaces, so one entry suppresses the same value in IDE, CI, Slack, and cloud scans alike.
+   The dashboard Allowlist view and `POST /api/allowlist` do the same and mark matching stored findings `false_positive`. Fingerprints are stable across surfaces, so one entry suppresses the same value in IDE, CI, chat, and cloud scans alike.
+
+## Detector tuning (v1.1)
+
+Every detector — built-in or custom — can be disabled or re-severitized without code changes. Tuning applies to all layers at once because the engine is shared.
+
+### Via config (durable)
+
+```toml
+[detectors]
+disabled = ["high-entropy-string"]
+severity_overrides = { "jwt" = "low", "generic-secret-assignment" = "medium" }
+```
+
+- `disabled` is a list of detector ids to skip entirely during scans.
+- `severity_overrides` maps detector id → severity (`critical`, `high`, `medium`, `low`, `info`). The override replaces the registry default for new findings and for gating (`scan.fail_on`); existing stored findings keep their recorded severity unless you set a per-finding override in the dashboard.
+- Put durable tuning in `config.local.toml` (gitignored) or `config.toml`; it is applied at startup by `engine.configure`.
+
+### Via API / dashboard (runtime)
+
+- `GET /api/detectors` lists every registered detector with its effective severity, family, and enabled flag.
+- `POST /api/detectors/tuning` applies changes immediately to the running engine:
+
+  ```json
+  {"disabled": ["high-entropy-string"], "severity_overrides": {"jwt": "low"}}
+  ```
+
+  The change is audited (`detectors.tuning`) but lives only for the current process — it is not written back to `config.toml`. Mirror it in config for durability. The Settings view exposes the same controls.
+
+Disabling a detector stops new detections only; stored findings, allowlist entries, and history are untouched.
+
+## Custom detectors from config (v1.1)
+
+Add organization-specific patterns without editing Python. Each `[[custom_detectors]]` entry is registered at startup (and on runtime re-tuning) with family `custom`:
+
+```toml
+[[custom_detectors]]
+id = "internal-api-key"
+title = "Internal API Key"
+severity = "high"
+pattern = "internal_[A-Za-z0-9]{24,}"
+
+[[custom_detectors]]
+id = "build-secret"
+title = "Build Pipeline Secret"
+severity = "critical"
+pattern = "bldsec_([A-Fa-f0-9]{40})"
+secret_group = 1
+```
+
+| Field | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `id` | yes | — | Unique kebab-case id; a custom id matching a built-in replaces it in the registry |
+| `title` | no | the id | Shown in findings and alerts |
+| `severity` | no | `medium` | `critical` \| `high` \| `medium` \| `low` \| `info` |
+| `pattern` | yes | — | Python regex; the match locates the finding |
+| `secret_group` | no | `0` | Capture group holding the raw secret (0 = whole match); this group is masked, fingerprinted, and entropy-scored |
+
+Behavior notes:
+
+- Config-defined detectors are regex-only: no keyword pre-filter or validator. For those, register a full `Detector` in code (see [Adding a detector](#adding-a-detector)).
+- Custom detectors participate in everything: allowlist, dedupe, tuning (`disabled` / `severity_overrides` accept custom ids), jobs, gates, and all surfaces. Remediation falls back to the generic `rotate` guide.
+- Patterns are compiled at registration; an invalid regex fails startup, so test with `python run.py selftest` and a synthetic fixture (`python run.py scan examples/ --no-store`) after changes. Never use real credentials in patterns or fixtures.
