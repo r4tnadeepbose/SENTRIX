@@ -1,0 +1,1 @@
+"""Optional GPT-assisted triage with an offline heuristic fallback."""
