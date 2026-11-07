@@ -13,11 +13,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keysentry.config import load_config
-from keysentry.core.engine import scan_file
-from keysentry.core.extensions import ExtStorage
-from keysentry.core.jobs import JobRunner
-from keysentry.core.pipeline import Pipeline
+from wintermute.config import load_config
+from wintermute.core.engine import scan_file
+from wintermute.core.extensions import ExtStorage
+from wintermute.core.jobs import JobRunner
+from wintermute.core.pipeline import Pipeline
 
 AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
 TERMINAL = ("done", "failed", "cancelled")
@@ -81,7 +81,7 @@ class JobRunnerTests(unittest.TestCase):
         before = self.storage.cache_get(str(self.leak))
         self.assertIsNotNone(before)
 
-        with mock.patch("keysentry.core.jobs.scan_file",
+        with mock.patch("wintermute.core.jobs.scan_file",
                         wraps=scan_file) as scan_spy:
             second = self._wait(
                 self.runner.submit(str(self.target), "filesystem", "tester"))

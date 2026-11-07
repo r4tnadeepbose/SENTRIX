@@ -1,9 +1,9 @@
 #!/bin/sh
-# KeySentry pre-commit gate: block commits that introduce secrets.
+# Wintermute pre-commit gate: block commits that introduce secrets.
 ROOT="$(git rev-parse --show-toplevel)"
-KEYSENTRY_HOME="${KEYSENTRY_HOME:-$(cd "$ROOT/../KeySentry" 2>/dev/null && pwd)}"
-if [ -z "$KEYSENTRY_HOME" ] || [ ! -f "$KEYSENTRY_HOME/run.py" ]; then
-  echo "KeySentry: installation not found; set KEYSENTRY_HOME to your KeySentry folder." >&2
+WINTERMUTE_HOME="${WINTERMUTE_HOME:-$(cd "$ROOT/../Wintermute" 2>/dev/null && pwd)}"
+if [ -z "$WINTERMUTE_HOME" ] || [ ! -f "$WINTERMUTE_HOME/run.py" ]; then
+  echo "Wintermute: installation not found; set WINTERMUTE_HOME to your Wintermute folder." >&2
   exit 0
 fi
-python "$KEYSENTRY_HOME/run.py" gate --staged --repo "$ROOT"
+python "$WINTERMUTE_HOME/run.py" gate --staged --repo "$ROOT"

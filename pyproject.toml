@@ -3,13 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "keysentry"
-version = "1.1.0"
+name = "wintermute"
+version = "1.2.0"
 description = "Layered secret detection from keystroke to cloud: event, scan, alert, remediation."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "KeySentry contributors" }]
+authors = [{ name = "Wintermute contributors" }]
 keywords = ["security", "secrets", "detection", "devsecops", "dlp"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -24,10 +24,10 @@ dependencies = []
 aws = ["boto3"]
 
 [project.scripts]
-keysentry = "keysentry.cli:main"
+wintermute = "wintermute.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["keysentry*"]
+include = ["wintermute*"]
 
 [tool.setuptools.package_data]
-keysentry = ["dashboard/*.html", "dashboard/*.css", "dashboard/*.js"]
+wintermute = ["dashboard/*.html", "dashboard/*.css", "dashboard/*.js"]

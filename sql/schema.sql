@@ -1,6 +1,6 @@
 -- SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.
--- KeySentry reference DDL. Mirrors the SQLite schema created by
--- keysentry/core/storage.py (SCHEMA). Timestamps are ISO-8601 TEXT; meta and
+-- Wintermute reference DDL. Mirrors the SQLite schema created by
+-- wintermute/core/storage.py (SCHEMA). Timestamps are ISO-8601 TEXT; meta and
 -- payload hold JSON documents.
 
 CREATE TABLE IF NOT EXISTS findings (

@@ -10,12 +10,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keysentry.ai.triage import heuristic_triage
-from keysentry.config import load_config, resolve_path
-from keysentry.core.engine import scan_text
-from keysentry.core.models import Finding
-from keysentry.core.storage import Storage
-from keysentry.remediation.playbooks import execute, rotation_guide
+from wintermute.ai.triage import heuristic_triage
+from wintermute.config import load_config, resolve_path
+from wintermute.core.engine import scan_text
+from wintermute.core.models import Finding
+from wintermute.core.storage import Storage
+from wintermute.remediation.playbooks import execute, rotation_guide
 
 VERDICTS = {"likely_true_positive", "likely_false_positive", "needs_review"}
 AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'

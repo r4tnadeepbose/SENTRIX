@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keysentry.config import load_config
-from keysentry.core.engine import scan_file, scan_text, scan_tree
+from wintermute.config import load_config
+from wintermute.core.engine import scan_file, scan_text, scan_tree
 
 AWS_LINE = 'AWS_KEY = "AWS_KEY_REDACTED"'
 GH_LINE = 'GITHUB_TOKEN = "GITHUB_TOKEN_REDACTED"'

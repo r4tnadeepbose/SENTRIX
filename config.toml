@@ -1,4 +1,4 @@
-# KeySentry configuration. Safe defaults; everything works offline.
+# Wintermute configuration. Safe defaults; everything works offline.
 # Overrides: copy sections into config.local.toml (gitignored).
 
 [server]
@@ -11,7 +11,7 @@ login_rate_limit = 5
 # Demo mode shows sign-in credentials on the login page (loopback only).
 # The card disappears as soon as the admin password is changed.
 demo_mode = true
-demo_password = "keysentry-demo"
+demo_password = "wintermute-demo"
 
 [scan]
 max_file_bytes = 1_000_000
@@ -20,13 +20,13 @@ fail_on = "high"
 ignore_dirs = [
   ".git", "node_modules", "__pycache__", ".venv", "venv",
   "dist", "build", "data", "logs", ".mypy_cache", ".pytest_cache",
-  "examples", "tests", "docs", "assets", "keysentry",
+  "examples", "tests", "docs", "assets", "wintermute",
 ]
 ignore_files = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.pdf", "*.ico", "*.lock"]
 allowlist_patterns = []
 
 [storage]
-path = "data/keysentry.db"
+path = "data/wintermute.db"
 
 [alerting]
 channels = ["console", "outbox"]
@@ -54,24 +54,24 @@ severity_overrides = {}
 enabled = false
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
-api_key_env = "KEYSENTRY_AI_KEY"
+api_key_env = "WINTERMUTE_AI_KEY"
 
 [surfaces.slack]
-token_env = "KEYSENTRY_SLACK_TOKEN"
+token_env = "WINTERMUTE_SLACK_TOKEN"
 channels = []
 poll_seconds = 300
 
 [surfaces.confluence]
 base_url = ""
-token_env = "KEYSENTRY_CONFLUENCE_TOKEN"
+token_env = "WINTERMUTE_CONFLUENCE_TOKEN"
 
 [surfaces.jira]
 base_url = ""
-token_env = "KEYSENTRY_JIRA_TOKEN"
+token_env = "WINTERMUTE_JIRA_TOKEN"
 project = "SEC"
 
 [surfaces.postman]
-api_key_env = "KEYSENTRY_POSTMAN_KEY"
+api_key_env = "WINTERMUTE_POSTMAN_KEY"
 workspaces = []
 
 [surfaces.cloud]

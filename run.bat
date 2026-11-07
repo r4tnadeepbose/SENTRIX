@@ -1,5 +1,5 @@
 @echo off
-rem KeySentry one-click launcher for Windows.
+rem Wintermute one-click launcher for Windows.
 cd /d "%~dp0"
 where python >nul 2>nul
 if errorlevel 1 (

@@ -10,9 +10,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keysentry.core.engine import scan_text
-from keysentry.core.models import Alert, Event, Remediation
-from keysentry.core.storage import Storage
+from wintermute.core.engine import scan_text
+from wintermute.core.models import Alert, Event, Remediation
+from wintermute.core.storage import Storage
 
 
 def make_finding(path="src/a.py", line=1):

@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keysentry.core.engine import scan_text
-from keysentry.core.extensions import ExtStorage
+from wintermute.core.engine import scan_text
+from wintermute.core.extensions import ExtStorage
 
 AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
 EXTRA_DEFAULTS = {

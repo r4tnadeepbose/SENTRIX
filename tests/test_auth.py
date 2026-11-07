@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keysentry.auth import AuthError, AuthManager, hash_password
-from keysentry.config import load_config
-from keysentry.core.extensions import ExtStorage
+from wintermute.auth import AuthError, AuthManager, hash_password
+from wintermute.config import load_config
+from wintermute.core.extensions import ExtStorage
 
 PASSWORD = "unit-test-pass-123"
 SALT = "fixed-salt-for-tests"
@@ -127,7 +127,7 @@ class AuthTests(unittest.TestCase):
 
     def test_bearer_token_lifecycle(self):
         raw = self.auth.create_token("alice", "ci", "analyst")
-        self.assertTrue(raw.startswith("kst_"))
+        self.assertTrue(raw.startswith("wmt_"))
         self.assertEqual(self.auth.bearer_user(f"Bearer {raw}"),
                          {"username": "token:ci", "role": "analyst"})
         self.assertIsNone(self.auth.bearer_user(raw))  # missing scheme

@@ -40,7 +40,7 @@ python run.py gate --range origin/main..HEAD  # what pre-push/CI runs
 python run.py gate --base origin/main --head HEAD --repo /path/to/repo
 ```
 
-Exit codes: `0` clean, `1` findings at/above `scan.fail_on` (default `high`), `2` not a git repository. Hooks locate KeySentry via `KEYSENTRY_HOME` or a sibling `../KeySentry` folder; if not found they warn and allow the operation (fail-open by design, so a missing install never blocks work).
+Exit codes: `0` clean, `1` findings at/above `scan.fail_on` (default `high`), `2` not a git repository. Hooks locate Wintermute via `WINTERMUTE_HOME` or a sibling `../Wintermute` folder; if not found they warn and allow the operation (fail-open by design, so a missing install never blocks work).
 
 CI usage (GitHub Actions, GitLab CI, Jenkins): checkout with the base branch available, then run `gate --base <base> --head HEAD` and let the non-zero exit fail the job. Gate results are recorded as `gate.blocked` / `gate.passed` events.
 
@@ -57,7 +57,7 @@ Finding paths look like `slack:#channel/ts`; the message author becomes the find
 **Live mode** — set the token and list channels explicitly:
 
 ```sh
-export KEYSENTRY_SLACK_TOKEN="xoxb-..."
+export WINTERMUTE_SLACK_TOKEN="xoxb-..."
 ```
 
 ```toml
@@ -83,7 +83,7 @@ python run.py ingest --surface confluence --file examples/confluence/pages.json
 **Live mode**:
 
 ```sh
-export KEYSENTRY_CONFLUENCE_TOKEN="..."
+export WINTERMUTE_CONFLUENCE_TOKEN="..."
 ```
 
 ```toml
@@ -108,7 +108,7 @@ python run.py ingest --surface jira --file examples/jira/issues.json
 **Live mode** — searches issues updated in the last day (`updated>=-1d`), 50 per page:
 
 ```sh
-export KEYSENTRY_JIRA_TOKEN="..."
+export WINTERMUTE_JIRA_TOKEN="..."
 ```
 
 ```toml
@@ -139,7 +139,7 @@ python run.py ingest --surface postman --file examples/postman/collection.json
 python run.py ingest --surface postman-env --file examples/postman/environment.json
 ```
 
-`KEYSENTRY_POSTMAN_KEY` (`[surfaces.postman].api_key_env`) is reserved for future live workspace sync; it is not required for export scanning.
+`WINTERMUTE_POSTMAN_KEY` (`[surfaces.postman].api_key_env`) is reserved for future live workspace sync; it is not required for export scanning.
 
 ## Cloud / Lambda
 
@@ -173,7 +173,7 @@ provider = "aws"
 python run.py ingest --surface cloud
 ```
 
-Lists all Lambda functions and scans their environment variables. If `boto3` or credentials are missing, KeySentry falls back to local mode. Live scanning is read-only and never blocks deployments.
+Lists all Lambda functions and scans their environment variables. If `boto3` or credentials are missing, Wintermute falls back to local mode. Live scanning is read-only and never blocks deployments.
 
 ## Rate limiting and network behavior
 

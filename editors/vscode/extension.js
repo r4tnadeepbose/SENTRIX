@@ -10,7 +10,7 @@ let diagnostics;
 let output;
 
 function resolveHome() {
-  const cfg = vscode.workspace.getConfiguration("keysentry");
+  const cfg = vscode.workspace.getConfiguration("wintermute");
   const configured = (cfg.get("home") || "").trim();
   if (configured) {
     return configured;
@@ -20,7 +20,7 @@ function resolveHome() {
     return "";
   }
   const workspaceDir = folders[0].uri.fsPath;
-  // Default layout: the workspace is opened at editors/vscode, so the KeySentry
+  // Default layout: the workspace is opened at editors/vscode, so the Wintermute
   // root sits two levels up. Fall back to the workspace folder itself.
   const twoUp = path.resolve(workspaceDir, "..", "..");
   if (fs.existsSync(path.join(twoUp, "run.py"))) {
@@ -49,10 +49,10 @@ function severityFor(level) {
 function scanFile(uri) {
   const home = resolveHome();
   if (!home) {
-    output.appendLine("No workspace folder open; cannot resolve the KeySentry home.");
+    output.appendLine("No workspace folder open; cannot resolve the Wintermute home.");
     return;
   }
-  const python = vscode.workspace.getConfiguration("keysentry").get("python") || "python";
+  const python = vscode.workspace.getConfiguration("wintermute").get("python") || "python";
   const script = path.join(home, "run.py");
   const file = uri.fsPath;
   const args = [script, "scan", "--json", "--no-store", file];
@@ -65,7 +65,7 @@ function scanFile(uri) {
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   child.on("error", (err) => {
     output.appendLine(`Failed to start the scanner: ${err.message}`);
-    vscode.window.showErrorMessage(`KeySentry: ${err.message}`);
+    vscode.window.showErrorMessage(`Wintermute: ${err.message}`);
   });
   child.on("close", (code) => {
     if (stderr.trim()) {
@@ -95,7 +95,7 @@ function scanFile(uri) {
       }
       const message = `${f.title || f.detector_id || "Secret detected"}: ${f.secret_masked || "masked"}`;
       const diag = new vscode.Diagnostic(range, message, severityFor(f.severity));
-      diag.source = "KeySentry";
+      diag.source = "Wintermute";
       diag.code = f.detector_id || undefined;
       return diag;
     });
@@ -105,17 +105,17 @@ function scanFile(uri) {
 }
 
 function activate(context) {
-  output = vscode.window.createOutputChannel("KeySentry");
-  diagnostics = vscode.languages.createDiagnosticCollection("keysentry");
+  output = vscode.window.createOutputChannel("Wintermute");
+  diagnostics = vscode.languages.createDiagnosticCollection("wintermute");
   context.subscriptions.push(output, diagnostics);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("keysentry.scanFile", () => {
+    vscode.commands.registerCommand("wintermute.scanFile", () => {
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         scanFile(editor.document.uri);
       } else {
-        vscode.window.showInformationMessage("KeySentry: open a file to scan.");
+        vscode.window.showInformationMessage("Wintermute: open a file to scan.");
       }
     })
   );
@@ -124,7 +124,7 @@ function activate(context) {
     vscode.workspace.onDidSaveTextDocument((doc) => scanFile(doc.uri))
   );
 
-  output.appendLine("KeySentry extension activated.");
+  output.appendLine("Wintermute extension activated.");
 }
 
 function deactivate() {}

@@ -1,12 +1,12 @@
-# KeySentry
+# Wintermute
 
-![KeySentry logo](assets/logo.svg)
+![Wintermute logo](assets/logo.svg)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Stdlib only](https://img.shields.io/badge/dependencies-stdlib--only-brightgreen.svg)](docs/INSTALL.md)
 
-KeySentry is a layered secret-detection system that follows one unified flow — **event → scan → alert → remediation** — from the editor to the cloud. A single shared detector registry (regex + entropy + validators) powers every layer: local IDE on-save checks, git hooks, CI diff gates, cloud function code and environment scanning, SaaS monitoring, and filesystem watching. Findings are masked, fingerprinted, deduplicated, and stored in SQLite; raw secrets are never persisted. Everything works offline with zero required dependencies.
+Wintermute - named after the orchestrating AI in William Gibson's *Neuromancer* - is a layered secret-detection system that follows one unified flow — **event → scan → alert → remediation** — from the editor to the cloud. A single shared detector registry (regex + entropy + validators) powers every layer: local IDE on-save checks, git hooks, CI diff gates, cloud function code and environment scanning, SaaS monitoring, and filesystem watching. Findings are masked, fingerprinted, deduplicated, and stored in SQLite; raw secrets are never persisted. Everything works offline with zero required dependencies.
 
 **New in v1.1:** an authenticated graphite dashboard with a login page, role-based access (admin/analyst/viewer), API tokens for CI, audit trail and live system log, full findings management, background scan jobs and schedules, alert rules with quiet hours and escalation, previewable remediation with verification, and backup/export/metrics operations — **100 features in v1.1**, cataloged in [docs/OVERVIEW.md](docs/OVERVIEW.md).
 
@@ -14,7 +14,7 @@ KeySentry is a layered secret-detection system that follows one unified flow —
 
 - **One pattern set, many layers.** 26 built-in detectors for cloud keys, SaaS tokens, private keys, connection URIs, and generic high-entropy assignments — reused identically everywhere, plus custom detectors from config.
 - **Unified pipeline.** Every surface feeds the same engine, allowlist, storage, alert router, and remediation playbooks.
-- **Authenticated access.** Login page with HttpOnly SameSite session cookies, PBKDF2 hashing (200k iterations), login rate limiting, three-role RBAC, and revocable `kst_` API tokens for CI (Bearer auth).
+- **Authenticated access.** Login page with HttpOnly SameSite session cookies, PBKDF2 hashing (200k iterations), login rate limiting, three-role RBAC, and revocable `wmt_` API tokens for CI (Bearer auth).
 - **Privacy by default.** Raw secrets are never stored: only a masked preview and a SHA-256 fingerprint. IDE and git-hook layers are fully local.
 - **Findings management.** Notes, tags, assignee, severity override, pin, mute, occurrences, first/last seen, status history, related findings, bulk actions, saved filters, sorting, pagination, and search.
 - **Background jobs and schedules.** Incremental scan cache, cancellation, a concurrency cap, job history, and recurring scheduled scans.
@@ -53,7 +53,7 @@ Or explicitly:
 python3 run.py
 ```
 
-With no arguments, KeySentry starts the dashboard at **http://127.0.0.1:8710**. On first run it creates an `admin` account and writes the initial password to **`data/INITIAL_ADMIN_PASSWORD.txt`** (or uses `KEYSENTRY_ADMIN_PASSWORD` from the environment when set). Open the dashboard, sign in at the login page, and change the password in Settings. See [docs/INSTALL.md](docs/INSTALL.md) for platform setup, first-run login, optional installs, and environment variables.
+With no arguments, Wintermute starts the dashboard at **http://127.0.0.1:8710**. On first run it creates an `admin` account and writes the initial password to **`data/INITIAL_ADMIN_PASSWORD.txt`** (or uses `WINTERMUTE_ADMIN_PASSWORD` from the environment when set). Open the dashboard, sign in at the login page, and change the password in Settings. See [docs/INSTALL.md](docs/INSTALL.md) for platform setup, first-run login, optional installs, and environment variables.
 
 ### First-run demo
 
@@ -75,11 +75,11 @@ The dashboard and JSON API require sign-in (session cookie) or an API token (Bea
 | `viewer` | Read-only browsing (plus logout and own password change) |
 
 - **Sessions:** `HttpOnly`, `SameSite=Strict` cookie, 12-hour default lifetime (`auth.session_hours`); login attempts are rate-limited per IP (`auth.login_rate_limit`, default 5 per minute).
-- **Initial admin:** password in `data/INITIAL_ADMIN_PASSWORD.txt` on first run, or set `KEYSENTRY_ADMIN_PASSWORD` beforehand. Change it after first login; delete the file once stored safely.
-- **API tokens for CI:** admins create named `kst_...` tokens with a role; only a SHA-256 hash is stored and the raw value is shown once. Use `Authorization: Bearer kst_...` against the API; revoke tokens at any time.
+- **Initial admin:** password in `data/INITIAL_ADMIN_PASSWORD.txt` on first run, or set `WINTERMUTE_ADMIN_PASSWORD` beforehand. Change it after first login; delete the file once stored safely.
+- **API tokens for CI:** admins create named `wmt_...` tokens with a role; only a SHA-256 hash is stored and the raw value is shown once. Use `Authorization: Bearer wmt_...` against the API; revoke tokens at any time.
 
 ```sh
-curl -H "Authorization: Bearer kst_..." http://127.0.0.1:8710/api/findings
+curl -H "Authorization: Bearer wmt_..." http://127.0.0.1:8710/api/findings
 ```
 
 Details: [docs/API.md](docs/API.md) and [SECURITY.md](SECURITY.md).
@@ -104,7 +104,7 @@ All commands run as `python run.py <cmd>` (or `python3` on Linux/macOS). No argu
 | `remediate ID --action redact\|quarantine\|ticket\|rotate-guide` | Run a remediation action (preview-redact, restore, and verify are available in the dashboard/API) |
 | `ingest --surface slack\|confluence\|jira\|postman\|postman-env\|cloud\|ide [--file PATH]` | Scan a SaaS/cloud export or live source |
 | `users add USERNAME --password P --role R` / `users list` | Manage local accounts (admin/analyst/viewer) |
-| `tokens create --name N --role R` / `tokens list` / `tokens revoke --id ID` | Manage `kst_` API tokens for CI and scripts |
+| `tokens create --name N --role R` / `tokens list` / `tokens revoke --id ID` | Manage `wmt_` API tokens for CI and scripts |
 | `backup [--dest PATH]` | Write a SQLite backup (default `data/backups/`) |
 | `schedules add --path P --interval S` / `schedules list` | Manage scheduled scans |
 | `jobs` | List background scan jobs and their status |
@@ -132,7 +132,7 @@ In v1.1, background jobs and scheduled scans add two more event sources from the
 
 ## Configuration
 
-KeySentry reads `config.toml`, then optional `config.local.toml` (gitignored), then environment variables for secrets. Safe defaults work out of the box:
+Wintermute reads `config.toml`, then optional `config.local.toml` (gitignored), then environment variables for secrets. Safe defaults work out of the box:
 
 ```toml
 [server]
@@ -161,7 +161,7 @@ severity_overrides = {}   # detector id -> severity
 [ai]
 enabled = false
 model = "gpt-4o-mini"     # any GPT-compatible chat endpoint via base_url
-api_key_env = "KEYSENTRY_AI_KEY"
+api_key_env = "WINTERMUTE_AI_KEY"
 ```
 
 See [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md), [docs/SURFACES.md](docs/SURFACES.md), and [docs/PRIVACY.md](docs/PRIVACY.md) for the full picture.
@@ -169,7 +169,7 @@ See [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md), [docs/SURFACES.md](docs/SURFACES.md)
 ## Project layout
 
 ```text
-KeySentry/
+Wintermute/
 ├── run.py                  # entry point (no args = serve)
 ├── run.bat / run.sh        # one-click launchers (Windows / Linux+macOS)
 ├── config.toml             # safe defaults; override in config.local.toml
@@ -177,7 +177,7 @@ KeySentry/
 ├── Makefile                # serve scan demo test selftest hooks report
 ├── assets/                 # logo.svg + monochrome favicon.svg
 ├── hooks/                  # pre-commit and pre-push hook scripts
-├── keysentry/
+├── wintermute/
 │   ├── cli.py              # command line
 │   ├── config.py           # layered config loading
 │   ├── server.py           # stdlib HTTP server: login, dashboard + authenticated JSON API

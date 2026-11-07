@@ -1,10 +1,10 @@
 {
   "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.",
-  "name": "keysentry",
-  "displayName": "KeySentry",
-  "description": "Scan files with KeySentry on save and on demand, and show findings as diagnostics.",
+  "name": "wintermute",
+  "displayName": "Wintermute",
+  "description": "Scan files with Wintermute on save and on demand, and show findings as diagnostics.",
   "version": "0.1.0",
-  "publisher": "keysentry",
+  "publisher": "wintermute",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -21,22 +21,22 @@
   "contributes": {
     "commands": [
       {
-        "command": "keysentry.scanFile",
-        "title": "KeySentry: Scan File"
+        "command": "wintermute.scanFile",
+        "title": "Wintermute: Scan File"
       }
     ],
     "configuration": {
-      "title": "KeySentry",
+      "title": "Wintermute",
       "properties": {
-        "keysentry.home": {
+        "wintermute.home": {
           "type": "string",
           "default": "",
-          "description": "Path to the KeySentry project root (directory containing run.py). Empty resolves to two levels up from the workspace folder."
+          "description": "Path to the Wintermute project root (directory containing run.py). Empty resolves to two levels up from the workspace folder."
         },
-        "keysentry.python": {
+        "wintermute.python": {
           "type": "string",
           "default": "python",
-          "description": "Python executable used to run the KeySentry CLI."
+          "description": "Python executable used to run the Wintermute CLI."
         }
       }
     }

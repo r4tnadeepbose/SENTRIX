@@ -1,6 +1,6 @@
 # Architecture
 
-KeySentry is a stdlib-only Python 3.11+ system built around one idea: **every layer feeds the same pipeline**. A finding produced by an IDE on-save check, a CI gate, a chat export, or a cloud function environment scan is the same object, scanned by the same detectors, deduplicated the same way, and remediated with the same playbooks.
+Wintermute is a stdlib-only Python 3.11+ system built around one idea: **every layer feeds the same pipeline**. A finding produced by an IDE on-save check, a CI gate, a chat export, or a cloud function environment scan is the same object, scanned by the same detectors, deduplicated the same way, and remediated with the same playbooks.
 
 v1.1 wraps that pipeline in an operational shell: an auth layer (sessions, RBAC, API tokens), extended storage for finding management, background jobs and a scheduler, alert channel rules, and an audit/system-log pair — all surfaced in a minimalist graphite dashboard. See [OVERVIEW.md](OVERVIEW.md) for the full feature catalog.
 
@@ -8,40 +8,40 @@ v1.1 wraps that pipeline in an operational shell: an auth layer (sessions, RBAC,
 
 | Module | Responsibility |
 | --- | --- |
-| `keysentry/core/models.py` | Dataclasses shared by all layers: `Finding`, `Event`, `Alert`, `Remediation`; severity/status/surface enums |
-| `keysentry/core/engine.py` | Scanning engine: `scan_text`, `scan_file`, `scan_tree`; applies the detector registry, config tuning and custom detectors, allowlist, masking, entropy, and fingerprinting |
-| `keysentry/core/pipeline.py` | Unified flow orchestration: ingest findings, filter allowlist, upsert with dedupe, record events, route alerts |
-| `keysentry/core/storage.py` | v1 SQLite persistence for findings, events, alerts, allowlist, remediations; thread-safe writes |
-| `keysentry/core/extensions.py` | v2 extended storage (`ExtStorage`): users, sessions, tokens, audit, system log, finding extras/notes/history, saved filters, jobs, cache, schedules, rules, acks, checklists, backup/purge/vacuum/dump/import |
-| `keysentry/core/jobs.py` | `JobRunner`: background scans with incremental cache, cooperative cancel, concurrency cap of 2; `start_scheduler`: 10-second loop for due schedules and SLA escalation |
-| `keysentry/core/allowlist.py` | False-positive registry: fingerprint set, built-in safe values/patterns, configurable regex patterns |
-| `keysentry/core/entropy.py` | Shannon entropy scoring (`shannon`, `looks_random`) |
-| `keysentry/core/util.py` | Masking (`mask_secret`), fingerprinting (`fingerprint`), severity comparison (`at_least`) |
-| `keysentry/auth.py` | `AuthManager`: PBKDF2 hashing (200k iterations), sessions, login rate limiting, RBAC helpers, API tokens, initial admin bootstrap, audit and system-log writers |
-| `keysentry/detectors/` | One shared registry (`base.py`: `Detector`, `register`, `REGISTRY`); pattern modules `cloud.py`, `saas.py`, `crypto.py`, `generic.py`; custom detectors registered from config at startup |
-| `keysentry/surfaces/` | Adapters that turn each layer's input into text for the engine: `filesystem`, `git` (diff-only), `ide`, `slack`, `confluence`, `jira`, `postman`, `cloud` (serverless functions); `common.py` provides REST, pagination, and rate-limit helpers |
-| `keysentry/alerting/router.py` | Channel routing (console, outbox, webhook channels) with per-channel severity rules, quiet hours, mute, dedupe window, retry backoff, dry-run when unconfigured |
-| `keysentry/remediation/playbooks.py` | Rotation guides per family plus `redact`, `preview-redact`, `quarantine`, `restore`, `ticket`, `verify` actions; records remediations and advances status |
-| `keysentry/ai/` | `gpt.py` (GPT-compatible chat client), `prompts.py` (masked-only prompt construction), `triage.py` (GPT with deterministic heuristic fallback) |
-| `keysentry/server.py` | Stdlib `http.server`: login page, static dashboard, authenticated JSON API with role enforcement and security headers, bound to `127.0.0.1:8710` by default; wires storage, auth, router, pipeline, jobs, scheduler in `AppState` |
-| `keysentry/cli.py` | One entry point for every layer: `serve`, `scan`, `gate`, `hooks`, `demo`, `selftest`, `report`, `watch`, `surfaces`, `allowlist`, `triage`, `remediate`, `ingest`, plus v1.1 `users`, `tokens`, `backup`, `schedules`, `jobs` |
-| `keysentry/watch.py` | Polling filesystem watcher: mtime comparison, scan-on-change, ingest into the pipeline |
-| `keysentry/config.py` | Layered config: defaults < `config.toml` < `config.local.toml` < environment (for secrets, via `*_env` indirection) |
-| `keysentry/demo.py` | Synthetic findings across all surfaces for first-run exploration |
-| `keysentry/dashboard/` | Graphite single-theme dashboard + login page: Overview, Findings, Jobs, Logs, Playground, Activity, Allowlist, Settings; command palette, keyboard shortcuts, help popovers |
+| `wintermute/core/models.py` | Dataclasses shared by all layers: `Finding`, `Event`, `Alert`, `Remediation`; severity/status/surface enums |
+| `wintermute/core/engine.py` | Scanning engine: `scan_text`, `scan_file`, `scan_tree`; applies the detector registry, config tuning and custom detectors, allowlist, masking, entropy, and fingerprinting |
+| `wintermute/core/pipeline.py` | Unified flow orchestration: ingest findings, filter allowlist, upsert with dedupe, record events, route alerts |
+| `wintermute/core/storage.py` | v1 SQLite persistence for findings, events, alerts, allowlist, remediations; thread-safe writes |
+| `wintermute/core/extensions.py` | v2 extended storage (`ExtStorage`): users, sessions, tokens, audit, system log, finding extras/notes/history, saved filters, jobs, cache, schedules, rules, acks, checklists, backup/purge/vacuum/dump/import |
+| `wintermute/core/jobs.py` | `JobRunner`: background scans with incremental cache, cooperative cancel, concurrency cap of 2; `start_scheduler`: 10-second loop for due schedules and SLA escalation |
+| `wintermute/core/allowlist.py` | False-positive registry: fingerprint set, built-in safe values/patterns, configurable regex patterns |
+| `wintermute/core/entropy.py` | Shannon entropy scoring (`shannon`, `looks_random`) |
+| `wintermute/core/util.py` | Masking (`mask_secret`), fingerprinting (`fingerprint`), severity comparison (`at_least`) |
+| `wintermute/auth.py` | `AuthManager`: PBKDF2 hashing (200k iterations), sessions, login rate limiting, RBAC helpers, API tokens, initial admin bootstrap, audit and system-log writers |
+| `wintermute/detectors/` | One shared registry (`base.py`: `Detector`, `register`, `REGISTRY`); pattern modules `cloud.py`, `saas.py`, `crypto.py`, `generic.py`; custom detectors registered from config at startup |
+| `wintermute/surfaces/` | Adapters that turn each layer's input into text for the engine: `filesystem`, `git` (diff-only), `ide`, `slack`, `confluence`, `jira`, `postman`, `cloud` (serverless functions); `common.py` provides REST, pagination, and rate-limit helpers |
+| `wintermute/alerting/router.py` | Channel routing (console, outbox, webhook channels) with per-channel severity rules, quiet hours, mute, dedupe window, retry backoff, dry-run when unconfigured |
+| `wintermute/remediation/playbooks.py` | Rotation guides per family plus `redact`, `preview-redact`, `quarantine`, `restore`, `ticket`, `verify` actions; records remediations and advances status |
+| `wintermute/ai/` | `gpt.py` (GPT-compatible chat client), `prompts.py` (masked-only prompt construction), `triage.py` (GPT with deterministic heuristic fallback) |
+| `wintermute/server.py` | Stdlib `http.server`: login page, static dashboard, authenticated JSON API with role enforcement and security headers, bound to `127.0.0.1:8710` by default; wires storage, auth, router, pipeline, jobs, scheduler in `AppState` |
+| `wintermute/cli.py` | One entry point for every layer: `serve`, `scan`, `gate`, `hooks`, `demo`, `selftest`, `report`, `watch`, `surfaces`, `allowlist`, `triage`, `remediate`, `ingest`, plus v1.1 `users`, `tokens`, `backup`, `schedules`, `jobs` |
+| `wintermute/watch.py` | Polling filesystem watcher: mtime comparison, scan-on-change, ingest into the pipeline |
+| `wintermute/config.py` | Layered config: defaults < `config.toml` < `config.local.toml` < environment (for secrets, via `*_env` indirection) |
+| `wintermute/demo.py` | Synthetic findings across all surfaces for first-run exploration |
+| `wintermute/dashboard/` | Graphite single-theme dashboard + login page: Overview, Findings, Jobs, Logs, Playground, Activity, Allowlist, Settings; command palette, keyboard shortcuts, help popovers |
 
 ## Auth layer
 
 `AppState` constructs one `AuthManager` over the extended storage. Request handling in `server.py`:
 
 1. **Public routes** — `GET /`, `/login`, `/favicon.svg`, `/logo.svg`, `/api/health`, `/static/*`, and `POST /api/auth/login` need no identity.
-2. **Identity** — the `ks_session` cookie is resolved against the `sessions` table (expiry checked, disabled accounts rejected on every request); otherwise `Authorization: Bearer kst_...` is matched by SHA-256 hash against `tokens` (revoked tokens rejected). Missing identity → `401`.
+2. **Identity** — the `wm_session` cookie is resolved against the `sessions` table (expiry checked, disabled accounts rejected on every request); otherwise `Authorization: Bearer wmt_...` is matched by SHA-256 hash against `tokens` (revoked tokens rejected). Missing identity → `401`.
 3. **Roles** — `viewer` is read-only (mutations → `403`, except logout and own password change); admin-only prefixes are `/api/users`, `/api/tokens`, `/api/ops/restore`, `/api/ops/import`, `/api/ops/purge`; `analyst` covers everything else.
 4. **Login** — per-IP rolling-window rate limit (`auth.login_rate_limit`, default 5/minute), PBKDF2-HMAC-SHA256 with 200,000 iterations and per-user salt, constant-time comparison; success issues a random session token as an `HttpOnly; SameSite=Strict` cookie (`auth.session_hours`, default 12).
-5. **Bootstrap** — on first run (no users), an `admin` account is created from `KEYSENTRY_ADMIN_PASSWORD` or a random value, written to `data/INITIAL_ADMIN_PASSWORD.txt`.
+5. **Bootstrap** — on first run (no users), an `admin` account is created from `WINTERMUTE_ADMIN_PASSWORD` or a random value, written to `data/INITIAL_ADMIN_PASSWORD.txt`.
 6. **Headers** — every response carries `no-store`, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
 
-Passwords are never stored in plaintext; API tokens are stored only as SHA-256 hashes and the raw `kst_` value is returned exactly once at creation.
+Passwords are never stored in plaintext; API tokens are stored only as SHA-256 hashes and the raw `wmt_` value is returned exactly once at creation.
 
 ## Data flow: event → scan → alert → remediation
 
@@ -59,7 +59,7 @@ The dashboard and REST API sit on top of the same storage and pipeline behind th
 
 ## Storage schema summary
 
-SQLite database at `data/keysentry.db` (configurable via `storage.path`). All timestamps are UTC ISO strings. `core/storage.py` creates the v1 tables; `core/extensions.py` (`ExtStorage`) adds the v2 tables on top and records version 2 in `migrations`.
+SQLite database at `data/wintermute.db` (configurable via `storage.path`). All timestamps are UTC ISO strings. `core/storage.py` creates the v1 tables; `core/extensions.py` (`ExtStorage`) adds the v2 tables on top and records version 2 in `migrations`.
 
 ### v1 tables
 

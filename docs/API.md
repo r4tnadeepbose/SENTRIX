@@ -2,7 +2,7 @@
 
 The dashboard server (`python run.py serve`, default `http://127.0.0.1:8710`) exposes a JSON API alongside the static UI. All responses are `application/json` (except CSV and metrics exports) with `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`. POST bodies are JSON. Errors use `{"error": "..."}` with an appropriate status code (`400` invalid input, `401` unauthenticated, `403` role violation, `404` unknown path or id).
 
-**Authentication (v1.1):** every endpoint except the public routes below requires either the `ks_session` cookie (set by `POST /api/auth/login`) or an `Authorization: Bearer kst_...` API token. Roles: `admin` (everything), `analyst` (everything except the admin-only routes noted below), `viewer` (read-only; mutations return `403` except logout and own password change). The server binds to loopback by default.
+**Authentication (v1.1):** every endpoint except the public routes below requires either the `wm_session` cookie (set by `POST /api/auth/login`) or an `Authorization: Bearer wmt_...` API token. Roles: `admin` (everything), `analyst` (everything except the admin-only routes noted below), `viewer` (read-only; mutations return `403` except logout and own password change). The server binds to loopback by default.
 
 Public routes (no auth): `GET /`, `/login`, `/favicon.svg`, `/logo.svg`, `/api/health`, `/static/{index.html,app.js,styles.css,login.html}`, and `POST /api/auth/login`.
 
@@ -56,7 +56,7 @@ Every finding endpoint returns this shape:
 ### `GET /api/health`
 
 ```json
-{"status": "ok", "product": "KeySentry", "version": "1.1.0", "uptime_seconds": 123, "python": "3.12.0"}
+{"status": "ok", "product": "Wintermute", "version": "1.1.0", "uptime_seconds": 123, "python": "3.12.0"}
 ```
 
 ### `GET /api/stats`
@@ -247,7 +247,7 @@ Everything below was added in v1.1.0. Unless marked public or admin-only, routes
 {"username": "admin", "password": "..."}
 ```
 
-Success: `{"ok": true, "user": {"username": "admin", "role": "admin"}}` plus `Set-Cookie: ks_session=<token>; HttpOnly; Path=/; SameSite=Strict; Max-Age=<session_hours*3600>`. Failures return `400` with `{"error": "Invalid credentials."}`; exceeding the per-IP rate limit (default 5 attempts per rolling 60s) returns `400` with `{"error": "Too many attempts; wait a minute."}`. Failed logins are audited.
+Success: `{"ok": true, "user": {"username": "admin", "role": "admin"}}` plus `Set-Cookie: wm_session=<token>; HttpOnly; Path=/; SameSite=Strict; Max-Age=<session_hours*3600>`. Failures return `400` with `{"error": "Invalid credentials."}`; exceeding the per-IP rate limit (default 5 attempts per rolling 60s) returns `400` with `{"error": "Too many attempts; wait a minute."}`. Failed logins are audited.
 
 #### `POST /api/auth/logout`
 
@@ -283,10 +283,10 @@ Verifies the current password; new password must be at least 10 characters. Re-s
 | Method and path | Payload | Effect |
 | --- | --- | --- |
 | `GET /api/tokens` | — | `{"tokens": [{"id", "name", "role", "created_by", "created_at", "revoked"}]}` (hashes never returned) |
-| `POST /api/tokens` | `{"name": "ci", "role": "analyst"}` | `{"ok": true, "token": "kst_..."}` — raw value shown once; only its SHA-256 hash is stored; audited |
+| `POST /api/tokens` | `{"name": "ci", "role": "analyst"}` | `{"ok": true, "token": "wmt_..."}` — raw value shown once; only its SHA-256 hash is stored; audited |
 | `POST /api/tokens/{id}/revoke` | `{}` | Revoke immediately; audited |
 
-Use tokens as `Authorization: Bearer kst_...`. The token's role applies to every request it authenticates.
+Use tokens as `Authorization: Bearer wmt_...`. The token's role applies to every request it authenticates.
 
 ### Finding subroutes
 
@@ -424,7 +424,7 @@ Applies immediately to the running engine (runtime only — persist durable chan
 | --- | --- | --- |
 | `GET /api/export` | `format=csv` | CSV with columns `id,severity,title,surface,path,line,status,assignee,created_at` (up to 5000 findings) |
 | `GET /api/export` | omitted or `format=json` | `{"findings": [...]}` (up to 5000) |
-| `GET /api/metrics` | — | Prometheus text format (`text/plain; version=0.0.4`): `keysentry_findings_total`, `keysentry_findings_open`, `keysentry_alerts_sent_total`, `keysentry_events_processed_total`, `keysentry_remediations_total`, `keysentry_uptime_seconds` |
+| `GET /api/metrics` | — | Prometheus text format (`text/plain; version=0.0.4`): `wintermute_findings_total`, `wintermute_findings_open`, `wintermute_alerts_sent_total`, `wintermute_events_processed_total`, `wintermute_remediations_total`, `wintermute_uptime_seconds` |
 
 ### Ops
 
@@ -432,8 +432,8 @@ Applies immediately to the running engine (runtime only — persist durable chan
 | --- | --- | --- | --- |
 | `GET /api/ops/stats` | — | any | `{"db_bytes": 123456, "jobs": 3, "schedules": 1, "users": 2}` |
 | `GET /api/ops/dump` | — | any | JSON dump of `findings`, `events`, `alerts`, `allowlist`, `remediations`, `notes`, `finding_extra`, `saved_filters`, `schedules`, `alert_rules` |
-| `POST /api/ops/backup` | `{}` | analyst+ | Online SQLite backup to `data/backups/keysentry-<epoch>.db`; `{"ok": true, "path": "..."}`; audited |
-| `POST /api/ops/restore` | `{"path": "data/backups/keysentry-1762...db"}` | admin | Replace the live database from a backup file and reopen storage; audited |
+| `POST /api/ops/backup` | `{}` | analyst+ | Online SQLite backup to `data/backups/wintermute-<epoch>.db`; `{"ok": true, "path": "..."}`; audited |
+| `POST /api/ops/restore` | `{"path": "data/backups/wintermute-1762...db"}` | admin | Replace the live database from a backup file and reopen storage; audited |
 | `POST /api/ops/purge` | `{"days": 90}` | admin | Delete `remediated`/`false_positive` findings older than N days plus their notes/history/extras/checklists and old system-log rows; `{"ok": true, "removed": 4}`; audited |
 | `POST /api/ops/vacuum` | `{}` | analyst+ | Reclaim database space; `{"ok": true}` |
 | `POST /api/ops/import` | `{"findings": [...], "allowlist": [...]}` | admin | Import rows into whitelisted tables (`findings`, `allowlist`, `notes`, `finding_extra`, `schedules`, `alert_rules`, `saved_filters`); `{"ok": true, "imported": 12}`; audited |

@@ -10,11 +10,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from keysentry.alerting.router import AlertRouter
-from keysentry.config import load_config
-from keysentry.core.engine import scan_text
-from keysentry.core.pipeline import Pipeline
-from keysentry.core.storage import Storage
+from wintermute.alerting.router import AlertRouter
+from wintermute.config import load_config
+from wintermute.core.engine import scan_text
+from wintermute.core.pipeline import Pipeline
+from wintermute.core.storage import Storage
 
 
 def aws_findings():
