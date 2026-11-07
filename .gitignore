@@ -1,0 +1,28 @@
+# Runtime state
+data/
+logs/
+*.db
+*.sqlite3
+config.local.toml
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+node_modules/

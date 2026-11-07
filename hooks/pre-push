@@ -1,0 +1,18 @@
+#!/bin/sh
+# KeySentry pre-push gate: scan the commits about to be pushed.
+ROOT="$(git rev-parse --show-toplevel)"
+KEYSENTRY_HOME="${KEYSENTRY_HOME:-$(cd "$ROOT/../KeySentry" 2>/dev/null && pwd)}"
+if [ -z "$KEYSENTRY_HOME" ] || [ ! -f "$KEYSENTRY_HOME/run.py" ]; then
+  echo "KeySentry: installation not found; set KEYSENTRY_HOME to your KeySentry folder." >&2
+  exit 0
+fi
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    RANGE="$local_sha"
+    python "$KEYSENTRY_HOME/run.py" gate --range "$(git rev-list --max-parents=0 "$local_sha" | tail -1)..$local_sha" --repo "$ROOT" || exit 1
+  else
+    python "$KEYSENTRY_HOME/run.py" gate --range "$remote_sha..$local_sha" --repo "$ROOT" || exit 1
+  fi
+done
+exit 0

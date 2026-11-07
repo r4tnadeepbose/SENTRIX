@@ -1,0 +1,55 @@
+# KeySentry configuration. Safe defaults; everything works offline.
+# Overrides: copy sections into config.local.toml (gitignored).
+
+[server]
+host = "127.0.0.1"
+port = 8710
+
+[scan]
+max_file_bytes = 1_000_000
+entropy_threshold = 4.5
+fail_on = "high"
+ignore_dirs = [
+  ".git", "node_modules", "__pycache__", ".venv", "venv",
+  "dist", "build", "data", "logs", ".mypy_cache", ".pytest_cache",
+  "examples", "tests", "docs", "assets", "keysentry",
+]
+ignore_files = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.pdf", "*.ico", "*.lock"]
+allowlist_patterns = []
+
+[storage]
+path = "data/keysentry.db"
+
+[alerting]
+channels = ["console", "outbox"]
+slack_webhook = ""
+webhook_url = ""
+dedupe_window_seconds = 3600
+
+[ai]
+enabled = false
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+api_key_env = "KEYSENTRY_AI_KEY"
+
+[surfaces.slack]
+token_env = "KEYSENTRY_SLACK_TOKEN"
+channels = []
+poll_seconds = 300
+
+[surfaces.confluence]
+base_url = ""
+token_env = "KEYSENTRY_CONFLUENCE_TOKEN"
+
+[surfaces.jira]
+base_url = ""
+token_env = "KEYSENTRY_JIRA_TOKEN"
+project = "SEC"
+
+[surfaces.postman]
+api_key_env = "KEYSENTRY_POSTMAN_KEY"
+workspaces = []
+
+[surfaces.cloud]
+provider = "local"
+lambda_dir = "examples/lambda"
