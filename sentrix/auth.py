@@ -16,11 +16,11 @@ ROLES = ("super_admin", "security_admin", "security_analyst", "appsec_engineer",
 WRITE_ROLES = ROLES[:5]
 ADMIN_ROLES = ROLES[:2]
 TEAM = (
-    ("s.chen", "appsec_engineer", "Security Engineer"),
-    ("m.ross", "security_analyst", "SOC Analyst"),
-    ("i.kumar", "devsecops_engineer", "Incident Responder"),
-    ("a.diaz", "auditor", "Compliance Officer"),
-    ("j.lee", "developer", "Software Developer"),
+    ("r.sharma", "appsec_engineer", "Security Engineer"),
+    ("p.patel", "security_analyst", "SOC Analyst"),
+    ("a.kumar", "devsecops_engineer", "Incident Responder"),
+    ("n.singh", "auditor", "Compliance Officer"),
+    ("v.iyer", "developer", "Software Developer"),
 )
 
 

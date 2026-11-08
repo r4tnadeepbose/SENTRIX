@@ -117,7 +117,7 @@ Eight roles are defined in `sentrix/auth.py`:
 
 **POST /api/findings/{id}/status** — body `{"status": "<one of 12>"}`. Valid statuses: `open, new, triaged, assigned, in_progress, remediated, verified, closed, false_positive, accepted_risk, suppressed, reopened`. Response `{"ok": true, "finding": {...}}`; invalid value -> `400`. Every change appends `status_history` (old, new, username, ts).
 
-Other subresource bodies: notes `{"body": "..."}`; tags `{"tags": ["a","b"]}`; assign `{"assignee": "m.ross"}`; severity `{"severity": "high"|""}` (empty clears the override); pin `{"pinned": true|false}`; mute `{"muted": true|false}`; checklist `{"idx": 0..4, "done": true|false}`. All return `{"ok": true}`.
+Other subresource bodies: notes `{"body": "..."}`; tags `{"tags": ["a","b"]}`; assign `{"assignee": "p.patel"}`; severity `{"severity": "high"|""}` (empty clears the override); pin `{"pinned": true|false}`; mute `{"muted": true|false}`; checklist `{"idx": 0..4, "done": true|false}`. All return `{"ok": true}`.
 
 **POST /api/bulk** — body `{"ids": [...], "action": "status"|"allowlist"|"assign"|"tag", "value": "..."}`. `status` applies a valid status to each id; `allowlist` registers each finding's fingerprint (reason = value) and marks it `false_positive`; `assign` sets assignee; `tag` appends a tag. Response `{"ok": true, "affected": <len(ids)>}`; audited as `bulk.<action>`.
 

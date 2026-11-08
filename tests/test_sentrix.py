@@ -59,8 +59,8 @@ class EnterpriseTests(unittest.TestCase):
     def test_lifecycle_transitions_recorded(self):
         f = make_finding()
         self.pipeline.ingest([f], kind="test")
-        self.storage.set_status(f.id, "assigned", "m.ross")
-        self.storage.set_status(f.id, "in_progress", "m.ross")
+        self.storage.set_status(f.id, "assigned", "p.patel")
+        self.storage.set_status(f.id, "in_progress", "p.patel")
         history = self.storage.list_history(f.id)
         self.assertEqual([h["new"] for h in history], ["assigned", "in_progress"])
 
@@ -98,8 +98,8 @@ class EnterpriseTests(unittest.TestCase):
     def test_exceptions_record_reason(self):
         f = make_finding()
         self.pipeline.ingest([f], kind="test")
-        self.storage.set_status(f.id, "accepted_risk", "a.diaz")
-        self.storage.add_note(f.id, "a.diaz", "Exception accepted_risk: sandbox only")
+        self.storage.set_status(f.id, "accepted_risk", "n.singh")
+        self.storage.add_note(f.id, "n.singh", "Exception accepted_risk: sandbox only")
         self.assertEqual(self.storage.get_finding(f.id).status, "accepted_risk")
         self.assertTrue(self.storage.list_notes(f.id))
 

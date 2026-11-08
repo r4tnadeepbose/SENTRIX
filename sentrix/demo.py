@@ -19,7 +19,7 @@ DEMO_SAMPLES = [
     ("git", "scripts/bootstrap.sh", 'export API_TOKEN="tok_9f8e7d6c5b4a39281706f5e4d3c2b1a0"'),
 ]
 
-TEAM_OWNERS = ["s.chen", "m.ross", "i.kumar", "j.lee", "a.diaz", "admin"]
+TEAM_OWNERS = ["r.sharma", "p.patel", "a.kumar", "v.iyer", "n.singh", "admin"]
 
 
 def seed_demo(pipeline: Pipeline) -> int:

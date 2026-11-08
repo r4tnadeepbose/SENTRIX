@@ -14,7 +14,7 @@ This document describes the security model as implemented, the guarantees SENTRI
 ### Initial admin and demo roster
 
 - On first run (no users), an `admin` account with role `super_admin` is created from `SENTRIX_ADMIN_PASSWORD` when set; otherwise from the demo password in demo mode, or a random value. When the password was generated (env var unset), it is written to `data/INITIAL_ADMIN_PASSWORD.txt` — change it after first login and protect or delete the file.
-- In `auth.demo_mode`, five team accounts are seeded (`s.chen`, `m.ross`, `i.kumar`, `a.diaz`, `j.lee`) with `<username>-demo` passwords. The login page roster (`GET /api/auth/demo-info`) is served **only** when demo mode is on, the server binds to `127.0.0.1`/`localhost`, and the account's password is still the unchanged demo default. Production mode (`auth.demo_mode = false`) seeds no demo accounts and exposes no credentials.
+- In `auth.demo_mode`, five team accounts are seeded (`r.sharma`, `p.patel`, `a.kumar`, `n.singh`, `v.iyer`) with `<username>-demo` passwords. The login page roster (`GET /api/auth/demo-info`) is served **only** when demo mode is on, the server binds to `127.0.0.1`/`localhost`, and the account's password is still the unchanged demo default. Production mode (`auth.demo_mode = false`) seeds no demo accounts and exposes no credentials.
 
 ### Sessions
 

@@ -43,11 +43,11 @@ The shipped `config.toml` enables `auth.demo_mode`. While demo mode is on **and*
 | Account | Role | Title | Demo password |
 | --- | --- | --- | --- |
 | `admin` | `super_admin` | Platform Administrator | `sentrix-demo` |
-| `s.chen` | `appsec_engineer` | Security Engineer | `s.chen-demo` |
-| `m.ross` | `security_analyst` | SOC Analyst | `m.ross-demo` |
-| `i.kumar` | `devsecops_engineer` | Incident Responder | `i.kumar-demo` |
-| `a.diaz` | `auditor` | Compliance Officer | `a.diaz-demo` |
-| `j.lee` | `developer` | Software Developer | `j.lee-demo` |
+| `r.sharma` | `appsec_engineer` | Security Engineer | `r.sharma-demo` |
+| `p.patel` | `security_analyst` | SOC Analyst | `p.patel-demo` |
+| `a.kumar` | `devsecops_engineer` | Incident Responder | `a.kumar-demo` |
+| `n.singh` | `auditor` | Compliance Officer | `n.singh-demo` |
+| `v.iyer` | `developer` | Software Developer | `v.iyer-demo` |
 
 These credentials are **local-only**: the roster card disappears as soon as an account's password is changed, when the server binds to a non-loopback host, or when `auth.demo_mode = false` (production mode). In production mode no demo accounts are seeded and no credentials are ever displayed. Change the admin password after first login and delete the plaintext password file. See [docs/SECURITY.md](docs/SECURITY.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
