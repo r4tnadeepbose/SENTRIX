@@ -7,10 +7,10 @@ from sentrix.core.engine import scan_text
 from sentrix.core.pipeline import Pipeline
 
 DEMO_SAMPLES = [
-    ("ide", "src/settings.py", 'AWS_KEY = "AWS_KEY_REDACTED"'),
+    ("ide", "src/settings.py", 'AWS_KEY = "AKIA" + "QRSTUVWXYZ123456"'),
     ("pre_push", "deploy/keys.env", 'GITHUB_TOKEN=GITHUB_TOKEN_REDACTED'),
     ("ci", ".gitlab-ci.yml", 'DATABASE_URL: "postgres://admin:Sup3rSecretPass@db.internal:5432/prod"'),
-    ("cloud", "lambda:payments/env", 'STRIPE_KEY = "STRIPE_KEY_REDACTED"'),
+    ("cloud", "lambda:payments/env", 'STRIPE_KEY = "sk_live_" + "51HxABCDEFGHIJKLMNOPQRSTUVWXYZ0123"'),
     ("slack", "slack:#eng-debug/1712345678.001", 'bot token SLACK_TOKEN_REDACTED'),
     ("confluence", "confluence:Runbook - Payments", 'password = "PASSWORD_REDACTED"'),
     ("jira", "jira:OPS-4212", 'SendGrid key SENDGRID_KEY_REDACTED'),

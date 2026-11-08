@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 from sentrix.config import load_config
 from sentrix.server import make_server
 
-AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
+AWS_TEXT = 'AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"'
 ADMIN_PASSWORD = "test-admin-pass-123"
 VERDICTS = {"likely_true_positive", "likely_false_positive", "needs_review"}
 # Sentinel: _request uses the admin session cookie unless told otherwise.

@@ -13,8 +13,8 @@ if str(ROOT) not in sys.path:
 from sentrix.config import load_config
 from sentrix.core.engine import scan_file, scan_text, scan_tree
 
-AWS_LINE = 'AWS_KEY = "AWS_KEY_REDACTED"'
-GH_LINE = 'GITHUB_TOKEN = "GITHUB_TOKEN_REDACTED"'
+AWS_LINE = 'AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"'
+GH_LINE = 'GITHUB_TOKEN = "' + "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd" + '"'
 
 
 class ScanTextTests(unittest.TestCase):

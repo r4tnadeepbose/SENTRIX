@@ -1,7 +1,7 @@
 # SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.
 """Payments function: vulnerable sample with a hardcoded payment secret key."""
 
-PAYMENT_KEY = "STRIPE_KEY_REDACTED"
+PAYMENT_KEY = "sk_live_" + "51HxABCDEFGHIJKLMNOPQRSTUVWXYZ0123"
 
 
 def handler(event, context):

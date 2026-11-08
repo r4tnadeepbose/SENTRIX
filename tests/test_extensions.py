@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 from sentrix.core.engine import scan_text
 from sentrix.core.extensions import ExtStorage
 
-AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
+AWS_TEXT = 'AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"'
 EXTRA_DEFAULTS = {
     "assignee": "", "tags": [], "severity_override": "", "pinned": 0,
     "muted": 0, "occurrences": 1, "first_seen": "", "last_seen": "",

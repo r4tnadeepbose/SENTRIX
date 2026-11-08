@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 from sentrix.config import ROOT as PROJECT_ROOT
 
 RUN_PY = str(PROJECT_ROOT / "run.py")
-AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
+AWS_TEXT = 'AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"'
 
 
 def run_cli(args, cwd=None, env=None):

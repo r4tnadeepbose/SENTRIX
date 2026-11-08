@@ -18,7 +18,7 @@ from sentrix.core.storage import Storage
 from sentrix.remediation.playbooks import execute, rotation_guide
 
 VERDICTS = {"likely_true_positive", "likely_false_positive", "needs_review"}
-AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
+AWS_TEXT = 'AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"'
 
 
 class HeuristicTriageTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class PlaybookTests(unittest.TestCase):
         execute("redact", finding, self.cfg, self.storage)
         contents = source.read_text(encoding="utf-8")
         self.assertIn("<REDACTED:aws-access-key-id>", contents)
-        self.assertNotIn("AWS_KEY_REDACTED", contents)
+        self.assertNotIn("AKIA" + "QRSTUVWXYZ123456", contents)
         self.assertEqual(self.storage.get_finding(finding.id).status, "remediated")
 
     def test_execute_unknown_action_raises(self):

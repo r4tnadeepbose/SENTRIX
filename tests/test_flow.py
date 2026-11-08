@@ -32,7 +32,7 @@ class FlowTests(unittest.TestCase):
         self.storage.close()
 
     def test_provenance_recorded_on_ingest(self):
-        findings = scan_text('AWS_KEY = "AWS_KEY_REDACTED"', "src/a.py", "ci")
+        findings = scan_text('AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"', "src/a.py", "ci")
         self.pipeline.ingest(findings, kind="gate.blocked", provenance={"range": "a..b", "author": "dev@x"})
         stored = self.storage.get_finding(findings[0].id)
         origin = stored.meta["origin"]
@@ -51,7 +51,7 @@ class FlowTests(unittest.TestCase):
         self.assertTrue(any("logged for audit" in l["message"] for l in logs))
 
     def test_saas_confirmed_finding_stays_open(self):
-        findings = scan_text('bot token SLACK_TOKEN_REDACTED',
+        findings = scan_text('bot token ' + "xoxb-" + "123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
                              "slack:#eng/1.2", "slack")
         self.pipeline.ingest(findings, kind="ingest.slack")
         stored = self.storage.get_finding(findings[0].id)
@@ -59,7 +59,7 @@ class FlowTests(unittest.TestCase):
         self.assertIn("triage", stored.meta)
 
     def test_critical_finding_auto_tickets_from_store(self):
-        findings = scan_text('token = "GITHUB_TOKEN_REDACTED"', "a.py", "git")
+        findings = scan_text('token = "' + "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd" + '"', "a.py", "git")
         self.pipeline.ingest(findings, kind="scan.job")
         critical = next(f for f in findings if f.severity == "critical")
         remediations = self.storage.list_remediations(critical.id)

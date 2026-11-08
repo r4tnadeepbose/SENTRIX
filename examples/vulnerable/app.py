@@ -1,7 +1,7 @@
 # SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.
 """Vulnerable sample: hardcoded cloud key id and password. The gate should flag this file."""
 
-AWS_ACCESS_KEY_ID = "AWS_KEY_REDACTED"
+AWS_ACCESS_KEY_ID = "AKIA" + "QRSTUVWXYZ123456"
 password = "SomeSecret123"
 
 

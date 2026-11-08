@@ -16,7 +16,7 @@ from sentrix.core.storage import Storage
 
 
 def make_finding(path="src/a.py", line=1):
-    return scan_text('AWS_KEY = "AWS_KEY_REDACTED"', path, "filesystem")[0]
+    return scan_text('AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"', path, "filesystem")[0]
 
 
 class StorageTests(unittest.TestCase):

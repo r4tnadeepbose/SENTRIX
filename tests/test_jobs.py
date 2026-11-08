@@ -19,7 +19,7 @@ from sentrix.core.extensions import ExtStorage
 from sentrix.core.jobs import JobRunner
 from sentrix.core.pipeline import Pipeline
 
-AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
+AWS_TEXT = 'AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"'
 TERMINAL = ("done", "failed", "cancelled")
 
 

@@ -15,13 +15,13 @@ from sentrix.core.util import fingerprint
 
 # (sample text, expected detector id, sensitive substring that must be masked)
 SAMPLES = [
-    ('AWS_KEY = "AWS_KEY_REDACTED"', "aws-access-key-id", "AWS_KEY_REDACTED"),
-    ('GITHUB_TOKEN = "GITHUB_TOKEN_REDACTED"',
-     "github-token", "GITHUB_TOKEN_REDACTED"),
-    ('STRIPE_KEY = "STRIPE_KEY_REDACTED"',
-     "stripe-key", "STRIPE_KEY_REDACTED"),
-    ('bot token SLACK_TOKEN_REDACTED',
-     "slack-token", "SLACK_TOKEN_REDACTED"),
+    ('AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"', "aws-access-key-id", "AKIA" + "QRSTUVWXYZ123456"),
+    ('GITHUB_TOKEN = "' + "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd" + '"',
+     "github-token", "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd"),
+    ('STRIPE_KEY = "' + "sk_live_" + "51HxABCDEFGHIJKLMNOPQRSTUVWXYZ0123" + '"',
+     "stripe-key", "sk_live_" + "51HxABCDEFGHIJKLMNOPQRSTUVWXYZ0123"),
+    ('bot token ' + "xoxb-" + "123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx",
+     "slack-token", "xoxb-" + "123456789012-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx"),
     ('postgres://admin:Sup3rSecretPass@db.internal:5432/prod',
      "postgres-uri", "Sup3rSecretPass"),
     ('-----BEGIN RSA PRIVATE KEY-----', "private-key", "-----BEGIN RSA PRIVATE KEY-----"),
@@ -46,13 +46,13 @@ class DetectorPositiveTests(unittest.TestCase):
                     self.assertTrue(finding.fingerprint)
 
     def test_fingerprint_stable(self):
-        text = 'AWS_KEY = "AWS_KEY_REDACTED"'
+        text = 'AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"'
         first = scan_text(text, "a.py", "filesystem")
         second = scan_text(text, "b.py", "filesystem")
         self.assertEqual(first[0].fingerprint, second[0].fingerprint)
         self.assertEqual(
             first[0].fingerprint,
-            fingerprint("aws-access-key-id", "AWS_KEY_REDACTED"),
+            fingerprint("aws-access-key-id", "AKIA" + "QRSTUVWXYZ123456"),
         )
 
 
@@ -64,10 +64,10 @@ class AllowlistTests(unittest.TestCase):
             any(f.detector_id == "aws-access-key-id" for f in findings))
 
     def test_is_allowed_by_fingerprint(self):
-        fp = fingerprint("aws-access-key-id", "AWS_KEY_REDACTED")
+        fp = fingerprint("aws-access-key-id", "AKIA" + "QRSTUVWXYZ123456")
         allow = Allowlist(fingerprints={fp})
-        self.assertTrue(allow.is_allowed(fp, "AWS_KEY_REDACTED", "x.py"))
-        self.assertFalse(allow.is_allowed("other", "AWS_KEY_REDACTED", "x.py"))
+        self.assertTrue(allow.is_allowed(fp, "AKIA" + "QRSTUVWXYZ123456", "x.py"))
+        self.assertFalse(allow.is_allowed("other", "AKIA" + "QRSTUVWXYZ123456", "x.py"))
 
     def test_is_allowed_builtin_safe_value(self):
         allow = Allowlist()

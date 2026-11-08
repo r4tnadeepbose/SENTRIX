@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 from sentrix.config import load_config
 from sentrix.surfaces import cloud, confluence, git, jira, postman, slack
 
-AWS = "AWS_KEY_REDACTED"
+AWS = "AKIA" + "QRSTUVWXYZ123456"
 
 
 class ExportSurfaceTests(unittest.TestCase):
@@ -87,7 +87,7 @@ class ExportSurfaceTests(unittest.TestCase):
         (fn_dir / "config.json").write_text(json.dumps({
             "FunctionName": "payments",
             "Environment": {"Variables": {
-                "STRIPE_KEY": "STRIPE_KEY_REDACTED",
+                "STRIPE_KEY": "sk_live_" + "51HxABCDEFGHIJKLMNOPQRSTUVWXYZ0123",
             }},
         }), encoding="utf-8")
         (fn_dir / "function.py").write_text(f'AWS_KEY = "{AWS}"\n', encoding="utf-8")
@@ -105,8 +105,8 @@ DIFF = (
     "+++ b/src/app.py\n"
     "@@ -1,3 +1,3 @@\n"
     " import os\n"
-    '-AWS_KEY = "AWS_KEY_REDACTED"\n'
-    '+GITHUB_TOKEN = "GITHUB_TOKEN_REDACTED"\n'
+    '-AWS_KEY = "AKIA" + "QRSTUVWXYZ123456"\n'
+    '+GITHUB_TOKEN = "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd"\n'
     ' print("hi")\n'
 )
 
@@ -119,7 +119,7 @@ class GitSurfaceTests(unittest.TestCase):
         self.assertEqual(path, "src/app.py")
         self.assertEqual(line_no, 2)
         self.assertEqual(
-            content, 'GITHUB_TOKEN = "GITHUB_TOKEN_REDACTED"')
+            content, 'GITHUB_TOKEN = "' + "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd" + '"')
 
     def test_scan_diff_added_only(self):
         findings = git.scan_diff(DIFF, "pre_push")

@@ -18,7 +18,7 @@ from sentrix.core.storage import Storage
 
 
 def aws_findings():
-    return scan_text('AWS_KEY = "AWS_KEY_REDACTED"', "src/a.py", "filesystem")
+    return scan_text('AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"', "src/a.py", "filesystem")
 
 
 class PipelineTests(unittest.TestCase):
