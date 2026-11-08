@@ -105,8 +105,8 @@ DIFF = (
     "+++ b/src/app.py\n"
     "@@ -1,3 +1,3 @@\n"
     " import os\n"
-    '-AWS_KEY = "AKIA" + "QRSTUVWXYZ123456"\n'
-    '+GITHUB_TOKEN = "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd"\n'
+    '-AWS_KEY = "' + "AKIA" + "QRSTUVWXYZ123456" + '"\n'
+    '+GITHUB_TOKEN = "' + "ghp_" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890abcd" + '"\n'
     ' print("hi")\n'
 )
 
