@@ -68,6 +68,14 @@ class AlertRouter:
                     alert.status = self._post_json(url, payload)
             self.storage.add_alert(alert)
             sent.append(alert)
+        if sent and hasattr(self.storage, "add_log"):
+            bad = [a for a in sent if a.status.startswith("failed")]
+            self.storage.add_log(
+                "warn" if bad else "info", "alert",
+                f"Alert for {finding.id} via {', '.join(a.channel for a in sent)}"
+                + (f": {'; '.join(a.status for a in bad)}" if bad else ""),
+                component="router", resource=finding.id,
+                status="failed" if bad else "sent")
         return sent
 
     @staticmethod

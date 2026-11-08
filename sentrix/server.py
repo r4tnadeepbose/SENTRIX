@@ -239,7 +239,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"alerts": alerts})
         if path == "/api/logs":
             return self._json({"logs": state.storage.list_logs(
-                int(query.get("limit", 200)), query.get("level"))})
+                int(query.get("limit", 200)), query.get("level"), query.get("source"))})
         if path == "/api/audit":
             return self._json({"audit": state.storage.list_audit(int(query.get("limit", 200)))})
         if path == "/api/allowlist":
@@ -594,7 +594,6 @@ class Handler(BaseHTTPRequestHandler):
             })
         if path == "/api/pipeline":
             jobs = storage.list_jobs(limit=500)
-            logs = storage.list_logs(limit=300)
             stats = storage.stats()
             durations = []
             for j in jobs:
@@ -604,30 +603,34 @@ class Handler(BaseHTTPRequestHandler):
                                          - time.mktime(time.strptime(j["started"], "%Y-%m-%dT%H:%M:%S")))
                     except ValueError:
                         pass
-            avg_ms = int((sum(durations) / len(durations)) * 1000) if durations else 0
+            avg_ms = int((sum(durations) / len(durations)) * 1000) if durations else None
             failed = sum(1 for j in jobs if j["status"] == "failed")
-            last = logs[0]["ts"] if logs else None
+            last_run = storage.log_last_run()
+            validated = sum(1 for f in findings if f.meta.get("validation") == "format_validated")
+            scored = sum(1 for f in findings if f.meta.get("risk"))
+            verified = sum(1 for f in findings if f.status in ("verified", "closed"))
             stages = [
-                ("source", "Source event", stats["events_processed"], "ingestion"),
-                ("ingestion", "Ingestion", stats["events_processed"], "ingestion"),
-                ("normalization", "Normalization", stats["events_processed"], "scan"),
-                ("detection", "Detection", stats["total"], "scan"),
-                ("validation", "Validation", sum(1 for f in findings if f.meta.get("validation") == "format_validated"), "triage"),
-                ("dedup", "Deduplication", stats["total"], "scan"),
-                ("risk", "Risk assessment", sum(1 for f in findings if f.meta.get("risk")), "triage"),
-                ("finding", "Finding creation", stats["total"], "scan"),
-                ("alerting", "Alerting", stats["alerts_sent"], "alert"),
-                ("remediation", "Remediation", stats["remediations"], "remediation"),
-                ("verification", "Verification", sum(1 for f in findings if f.status in ("verified", "closed")), "remediation"),
+                ("source", "Source event", stats["events_processed"], "ingestion", False),
+                ("ingestion", "Ingestion", stats["events_processed"], "ingestion", False),
+                ("normalization", "Normalization", stats["events_processed"], "scan", True),
+                ("detection", "Detection", stats["total"], "scan", True),
+                ("validation", "Validation", validated, "triage", False),
+                ("dedup", "Deduplication", stats["total"], "ingestion", False),
+                ("risk", "Risk assessment", scored, "ingestion", False),
+                ("finding", "Finding creation", stats["total"], "ingestion", False),
+                ("alerting", "Alerting", stats["alerts_sent"], "alert", False),
+                ("remediation", "Remediation", stats["remediations"], "remediation", False),
+                ("verification", "Verification", verified, "remediation", False),
             ]
             return self._json({"stages": [
                 {"id": sid, "name": name,
-                 "status": "degraded" if failed and sid in ("ingestion", "detection")
+                 "status": "degraded" if failed and sid == "detection"
                  else "operational" if count else "idle",
                  "events": count,
-                 "failed": failed if sid in ("ingestion", "detection") else 0,
-                 "avg_ms": avg_ms, "last_run": last, "logs_source": src}
-                for sid, name, count, src in stages]})
+                 "failed": failed if sid == "detection" else 0,
+                 "avg_ms": avg_ms if timed else None,
+                 "last_run": last_run.get(src), "logs_source": src}
+                for sid, name, count, src, timed in stages]})
         if path == "/api/posture":
             d = self._dashboard_data()
             hist = []

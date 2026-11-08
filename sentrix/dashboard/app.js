@@ -191,8 +191,10 @@ function hbars(series, colorOf) {
 
 /* ================= views ================= */
 
-async function renderOverview() {
-  $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.") + skeleton();
+async function renderOverview(opts = {}) {
+  const scrollY = window.scrollY;
+  const focusStage = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.stage : null;
+  if (!opts.soft) $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.") + skeleton();
   const [o, p, d, logs] = await Promise.all([api("/api/overview"), api("/api/pipeline"), api("/api/dashboard"), api("/api/logs?limit=6")]);
   const metrics = [
     ["Total findings", o.total, ""], ["Critical", o.critical, "t-crit"], ["High", o.high, "t-high"],
@@ -203,17 +205,78 @@ async function renderOverview() {
     ["Active sources", o.active_sources, ""], ["Scans", o.scans_total, ""], ["Failed scans", o.scans_failed, o.scans_failed ? "t-danger" : "t-ok"],
   ];
   const stage = state.stage ? p.stages.find((s) => s.id === state.stage) : null;
-  const stageLogs = stage ? (await api(`/api/logs?limit=6&source=${encodeURIComponent(stage.logs_source)}`)).logs : [];
+  const stageLogs = stage ? (await api(`/api/logs?limit=6&source=${encodeURIComponent(stage.logs_source)}`).catch(() => ({ logs: [] }))).logs : [];
+  state.pipelineStages = p.stages;
   $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.",
     canWrite() ? `<button class="btn sm" id="ov-demo">Load demo</button><button class="btn sm ghost" id="ov-reset">Reset demo</button>` : "") +
     (o.demo ? `<div class="banner"><span class="chip st-triaged">DEMO</span> Synthetic demonstration records are active. They are labeled and isolated from production use.</div>` : "") +
     `<div class="mgrid">${metrics.map(([l, v, t]) => `<div class="metric ${t}"><div class="mlabel">${l}</div><div class="mvalue">${v}</div><div class="msub">live from storage</div></div>`).join("")}</div>` +
-    panel("Detection pipeline", `<div class="chain">${p.stages.map((s, i) => `${i ? '<span class="chainarrow" aria-hidden="true">→</span>' : ""}<button class="stage stage-${esc(s.status)} ${state.stage === s.id ? "active" : ""}" data-stage="${s.id}" aria-pressed="${state.stage === s.id}" title="${esc(s.name)}: ${s.events} events, ${s.failed} failed"><span class="sname"><span class="dot"></span><span class="stage-label">${esc(s.name)}</span><span class="stage-status">${s.status === "operational" ? "Healthy" : esc(s.status)}</span></span><span class="scount">${s.events}</span><span class="smeta">${s.avg_ms} ms avg · ${s.failed} failed</span></button>`).join("")}</div>${stage ? `<div class="stageinspect"><dl class="kv"><dt>Stage</dt><dd>${esc(stage.name)}</dd><dt>Status</dt><dd><span class="chip stage-chip-${esc(stage.status)}">${esc(stage.status)}</span></dd><dt>Events</dt><dd>${stage.events}</dd><dt>Failed operations</dt><dd>${stage.failed}</dd><dt>Avg processing</dt><dd>${stage.avg_ms} ms</dd><dt>Last execution</dt><dd>${utc(stage.last_run)}</dd></dl><div class="dsect" style="margin-top:10px"><h3>Associated logs</h3>${stageLogs.map((l) => `<div class="logrow"><span class="lts">${utc(l.ts)}</span><span class="chip sev-${l.level === "error" ? "critical" : l.level === "warn" ? "medium" : "info"}">${esc(l.level)}</span><span class="lmsg">${esc(l.message)}</span></div>`).join("") || empty("No logs", "This stage has not logged recently.")}</div></div>` : ""}`, "", true) +
+    `<div id="pipeline-slot">${pipelinePanel(p, stage, stageLogs, false)}</div>` +
     `<div class="grid c3 mb"><section class="panel"><div class="phead"><span class="ptitle">By severity</span></div><div class="pbody">${donut(d.severity, (l) => SEV_COLOR[l], "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">By status</span></div><div class="pbody">${donut(d.status, (l) => STATUS_COLOR[l] || "var(--accent)", "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">Exposure trend · 14 days</span></div><div class="pbody">${area(d.timeline)}</div></section></div>` +
     `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Recent activity</span><a class="btn sm ghost" href="#/audit">View all</a></div><div class="pbody flush"><div class="feed">${logs.logs.map((l) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext">${esc(l.message)}</div><div class="fmeta"><span>${esc(l.source)}</span><span title="${utc(l.ts)}">${rel(l.ts)} ago</span></div></div></div>`).join("") || empty("No activity", "Events will appear as scans and actions run.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">Team workload</span></div><div class="pbody flush"><div class="listrows">${d.team.map((t) => `<div class="listrow"><span class="grow"><strong>${esc(t.username)}</strong><span class="cellsub">${esc(t.title || t.role)}</span></span><span class="mono">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div></div></section></div>`;
-  $$("[data-stage]").forEach((b) => (b.onclick = () => { state.stage = state.stage === b.dataset.stage ? null : b.dataset.stage; renderOverview(); }));
+  bindPipeline();
   const demo = $("#ov-demo"); if (demo) demo.onclick = async () => { await api("/api/demo", { method: "POST", body: {} }); toast("Demo data loaded", "ok"); renderOverview(); };
   const reset = $("#ov-reset"); if (reset) reset.onclick = () => confirmModal("Reset demo data", "Close existing demo findings and reseed a fresh synthetic set.", async () => { const r = await api("/api/demo/reset", { method: "POST", body: {} }); toast(`Demo reset: ${r.seeded} seeded`, "ok"); renderOverview(); }, "Reset");
+  if (opts.soft) {
+    window.scrollTo(0, scrollY);
+    if (focusStage) $(`#pipeline-slot [data-stage="${focusStage}"]`)?.focus({ preventScroll: true });
+  }
+}
+
+function pipelinePanel(p, stage, stageLogs, logsLoading) {
+  const chain = `<div class="chain" role="group" aria-label="Detection pipeline stages">${p.stages.map((s, i) => `${i ? '<span class="chainarrow" aria-hidden="true">→</span>' : ""}<button class="stage stage-${esc(s.status)} ${state.stage === s.id ? "active" : ""}" data-stage="${s.id}" aria-pressed="${state.stage === s.id}" title="${esc(s.name)}: ${s.events} events, ${s.failed} failed"><span class="sname"><span class="dot"></span><span class="stage-label">${esc(s.name)}</span><span class="stage-status">${s.status === "operational" ? "Healthy" : esc(s.status)}</span></span><span class="scount">${s.events}</span><span class="smeta">${s.avg_ms == null ? "no timing yet" : `${s.avg_ms} ms avg`} · ${s.failed} failed</span></button>`).join("")}</div>`;
+  const inspect = stage ? `<div class="stageinspect"><dl class="kv"><dt>Stage</dt><dd>${esc(stage.name)}</dd><dt>Status</dt><dd><span class="chip stage-chip-${esc(stage.status)}">${esc(stage.status)}</span></dd><dt>Events</dt><dd>${stage.events}</dd><dt>Failed operations</dt><dd>${stage.failed}</dd><dt>Avg processing</dt><dd>${stage.avg_ms == null ? "not timed" : `${stage.avg_ms} ms`}</dd><dt>Last execution</dt><dd>${stage.last_run ? utc(stage.last_run) : "no runs recorded"}</dd></dl><div class="dsect" style="margin-top:10px"><h3>Associated logs</h3>${logsLoading ? `<div class="scan-progress"><span class="spinner"></span>Loading stage logs…</div>` : stageLogs.map((l) => `<div class="logrow"><span class="lts">${utc(l.ts)}</span><span class="chip sev-${l.level === "error" ? "critical" : l.level === "warn" ? "medium" : "info"}">${esc(l.level)}</span><span class="lmsg">${esc(l.message)}</span></div>`).join("") || empty("No logs", "This stage has not logged recently.")}</div><div class="formrow" style="margin-top:10px"><button class="btn sm ghost" id="stage-logs-open">Open in System Logs</button><button class="btn sm ghost" id="stage-close">Close detail</button></div></div>` : "";
+  return panel("Detection pipeline", chain + inspect, "", true);
+}
+
+function bindPipeline() {
+  $$("#pipeline-slot [data-stage]").forEach((b) => (b.onclick = () => selectStage(b.dataset.stage)));
+  const chain = $("#pipeline-slot .chain");
+  if (chain) chain.onkeydown = (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const bs = $$("[data-stage]", chain);
+    const i = bs.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    bs[(i + (e.key === "ArrowRight" ? 1 : bs.length - 1)) % bs.length].focus();
+  };
+  const open = $("#stage-logs-open");
+  if (open) open.onclick = () => {
+    const st = (state.pipelineStages || []).find((x) => x.id === state.stage);
+    state.logSource = st ? st.logs_source : "";
+    location.hash = "#/logs";
+  };
+  const close = $("#stage-close");
+  if (close) close.onclick = () => selectStage(state.stage);
+}
+
+async function selectStage(id) {
+  const prev = state.stage;
+  state.stage = state.stage === id ? null : id;
+  const req = (state.stageReq = (state.stageReq || 0) + 1);
+  if (!$("#pipeline-slot")) return;
+  let p;
+  try { p = await api("/api/pipeline"); }
+  catch (e) { state.stage = prev; toast(e.message, "error"); return; }
+  if (req !== state.stageReq || !$("#pipeline-slot")) return;
+  state.pipelineStages = p.stages;
+  const stage = state.stage ? p.stages.find((s) => s.id === state.stage) : null;
+  const slot = $("#pipeline-slot");
+  slot.innerHTML = pipelinePanel(p, stage, [], !!stage);
+  bindPipeline();
+  $(`#pipeline-slot [data-stage="${id}"]`)?.focus({ preventScroll: true });
+  if (!stage) return;
+  try {
+    const logs = (await api(`/api/logs?limit=6&source=${encodeURIComponent(stage.logs_source)}`)).logs;
+    if (req !== state.stageReq || !$("#pipeline-slot")) return;
+    slot.innerHTML = pipelinePanel(p, stage, logs, false);
+    bindPipeline();
+  } catch (e) {
+    if (req !== state.stageReq || !$("#pipeline-slot")) return;
+    slot.innerHTML = pipelinePanel(p, stage, [], false);
+    bindPipeline();
+    toast(e.message, "error");
+  }
 }
 
 async function renderPosture() {
@@ -494,9 +557,8 @@ async function renderJobs() {
 }
 
 async function renderLogs() {
-  const d = await api(`/api/logs?limit=200${state.logLevel ? `&level=${state.logLevel}` : ""}`);
+  const d = await api(`/api/logs?limit=200${state.logLevel ? `&level=${state.logLevel}` : ""}${state.logSource ? `&source=${encodeURIComponent(state.logSource)}` : ""}`);
   let logs = d.logs;
-  if (state.logSource) logs = logs.filter((l) => l.source === state.logSource);
   if (state.logCorr) logs = logs.filter((l) => l.correlation_id === state.logCorr);
   if (state.logQ) logs = logs.filter((l) => (l.message + l.source + l.component).toLowerCase().includes(state.logQ.toLowerCase()));
   if (state.logRange !== "all") {
@@ -505,7 +567,7 @@ async function renderLogs() {
   }
   $("#main").innerHTML = pagehead("System Logs", "Structured journal with correlation across pipeline stages.",
     `<a class="btn sm" href="/api/logs/export">${icon("download")} Export</a>`) +
-    `<section class="panel"><div class="toolbar"><input class="input grow" id="lg-q" placeholder="Search messages" value="${esc(state.logQ)}"><select class="input" id="lg-level"><option value="">All levels</option>${["info", "warn", "error"].map((l) => `<option ${state.logLevel === l ? "selected" : ""}>${l}</option>`).join("")}</select><select class="input" id="lg-source"><option value="">All sources</option>${[...new Set(d.logs.map((l) => l.source))].map((s) => `<option ${state.logSource === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select class="input" id="lg-range">${["all", "1h", "24h", "7d"].map((r) => `<option value="${r}" ${state.logRange === r ? "selected" : ""}>${r === "all" ? "All time" : r}</option>`).join("")}</select><button class="btn sm ghost" id="lg-pause">${state.paused ? "Resume" : "Pause"}</button>${state.logCorr ? `<button class="btn sm" id="lg-clearcorr">corr: ${esc(state.logCorr)} ×</button>` : ""}</div>
+    `<section class="panel"><div class="toolbar"><input class="input grow" id="lg-q" placeholder="Search messages" value="${esc(state.logQ)}"><select class="input" id="lg-level"><option value="">All levels</option>${["info", "warn", "error"].map((l) => `<option ${state.logLevel === l ? "selected" : ""}>${l}</option>`).join("")}</select><select class="input" id="lg-source"><option value="">All sources</option>${[...new Set([...d.logs.map((l) => l.source), ...(state.logSource ? [state.logSource] : [])])].map((s) => `<option ${state.logSource === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select class="input" id="lg-range">${["all", "1h", "24h", "7d"].map((r) => `<option value="${r}" ${state.logRange === r ? "selected" : ""}>${r === "all" ? "All time" : r}</option>`).join("")}</select><button class="btn sm ghost" id="lg-pause">${state.paused ? "Resume" : "Pause"}</button>${state.logCorr ? `<button class="btn sm" id="lg-clearcorr">corr: ${esc(state.logCorr)} ×</button>` : ""}</div>
     <div>${logs.map((l) => `<div class="logrow expandable" data-log="${l.id}"><span class="lts">${utc(l.ts)}</span><span class="chip sev-${l.level === "error" ? "critical" : l.level === "warn" ? "medium" : "info"}">${esc(l.level)}</span><span class="chip neutral">${esc(l.source)}</span><span class="lmsg">${esc(l.message)}</span>${l.correlation_id ? `<button class="corrlink" data-corr="${esc(l.correlation_id)}">${esc(l.correlation_id)}</button>` : ""}</div><div class="logdetail" id="ld-${l.id}" hidden><dl class="kv"><dt>Component</dt><dd>${esc(l.component || l.source)}</dd><dt>Event type</dt><dd>${esc(l.event_type || "-")}</dd><dt>Execution id</dt><dd class="mono">${esc(l.exec_id || "-")}</dd><dt>Resource</dt><dd>${esc(l.resource || "-")}</dd><dt>Status</dt><dd>${esc(l.status || "-")}</dd><dt>Correlation</dt><dd class="mono">${esc(l.correlation_id || "-")}</dd></dl></div>`).join("") || empty("No log entries", "Adjust filters or wait for activity.")}</div></section>`;
   $("#lg-q").oninput = (e) => { clearTimeout(state.lqt); state.lqt = setTimeout(() => { state.logQ = e.target.value; renderLogs(); }, 250); };
   $("#lg-level").onchange = (e) => { state.logLevel = e.target.value; renderLogs(); };
@@ -674,7 +736,10 @@ const VIEWS = {
 };
 const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
 
-function refresh() { if (VIEWS[state.view]) VIEWS[state.view](); }
+function refresh() {
+  const fn = VIEWS[state.view];
+  if (fn) Promise.resolve(fn({ soft: true })).catch(() => { /* keep last good render; live dot reports connectivity */ });
+}
 
 function route() {
   if (state.scanTimer) { clearInterval(state.scanTimer); state.scanTimer = null; }

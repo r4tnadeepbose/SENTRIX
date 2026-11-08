@@ -313,6 +313,25 @@ class ServerTests(unittest.TestCase):
             entry["source"] == "auth" and "signed in" in entry["message"]
             for entry in logs))
 
+    def test_logs_source_filter(self):
+        logs = self._request("/api/logs?source=auth")["logs"]
+        self.assertTrue(logs)
+        self.assertTrue(all(entry["source"] == "auth" for entry in logs))
+        self.assertEqual(self._request("/api/logs?source=no-such-source")["logs"], [])
+
+    def test_pipeline_stage_telemetry_is_per_stage(self):
+        self._seed()
+        stages = {s["id"]: s for s in self._request("/api/pipeline")["stages"]}
+        self.assertEqual(len(stages), 11)
+        last = self.server.state.storage.log_last_run()
+        for stage in stages.values():
+            self.assertEqual(stage["last_run"], last.get(stage["logs_source"]))
+        for sid in ("source", "ingestion", "validation", "dedup", "risk",
+                    "finding", "alerting", "remediation", "verification"):
+            self.assertIsNone(stages[sid]["avg_ms"])
+        self.assertTrue(self._request("/api/logs?source=ingestion")["logs"])
+        self.assertTrue(self._request("/api/logs?source=alert")["logs"])
+
     def test_overview_stages_keys(self):
         self._seed()
         body = self._request("/api/overview")

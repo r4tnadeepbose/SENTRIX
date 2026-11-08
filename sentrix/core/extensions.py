@@ -236,13 +236,23 @@ class ExtStorage(Storage):
                  exec_id, resource, status, correlation_id))
             self._db.commit()
 
-    def list_logs(self, limit=200, level=None):
+    def list_logs(self, limit=200, level=None, source=None):
+        clauses, params = [], []
         if level:
-            rows = self._db.execute(
-                "SELECT * FROM system_log WHERE level=? ORDER BY id DESC LIMIT ?", (level, limit))
-        else:
-            rows = self._db.execute("SELECT * FROM system_log ORDER BY id DESC LIMIT ?", (limit,))
+            clauses.append("level=?")
+            params.append(level)
+        if source:
+            clauses.append("source=?")
+            params.append(source)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._db.execute(
+            f"SELECT * FROM system_log{where} ORDER BY id DESC LIMIT ?", (*params, limit))
         return [dict(r) for r in rows]
+
+    def log_last_run(self) -> dict:
+        rows = self._db.execute(
+            "SELECT source, MAX(ts) AS ts FROM system_log GROUP BY source")
+        return {r["source"]: r["ts"] for r in rows}
 
     # -- finding management
     def get_extra(self, fid):

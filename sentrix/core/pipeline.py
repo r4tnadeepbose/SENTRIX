@@ -47,6 +47,12 @@ class Pipeline:
             payload={"new": len(new), "known": len(known),
                      "paths": sorted({f.path for f in findings})[:20]},
         ))
+        if hasattr(self.storage, "add_log"):
+            self.storage.add_log(
+                "info", "ingestion",
+                f"Ingested {len(new)} new / {len(known)} known findings "
+                f"from {findings[0].surface if findings else 'system'} ({kind})",
+                component="pipeline", event_type=kind, status="ok")
         for finding in new:
             self._confirm_and_notify(finding)
         return {"new": new, "known": known}
