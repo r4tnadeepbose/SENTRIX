@@ -128,7 +128,7 @@ def cmd_selftest(args, cfg):
     from sentrix.detectors import all_detectors
     checks = []
     checks.append(("detector registry", len(all_detectors()) >= 25))
-    hits = scan_text('key = "AKIA" + "QRSTUVWXYZ123456"', "selftest.py", "filesystem")
+    hits = scan_text('key = "AKIAQRSTUVWXYZ123456"', "selftest.py", "filesystem")
     checks.append(("aws detector", any(f.detector_id == "aws-access-key-id" for f in hits)))
     safe = scan_text('key = "AKIAIOSFODNN7EXAMPLE"', "selftest.py", "filesystem", Allowlist())
     checks.append(("allowlist", not safe))

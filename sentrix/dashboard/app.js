@@ -20,6 +20,7 @@ const NAV = [
   ["Detection", [["findings", "Findings"], ["sources", "Detection Sources"], ["rules", "Detection Rules"], ["playground", "Detection Playground"], ["scans", "Scan Management"]]],
   ["Attack Surface", [["repositories", "Repository Security"], ["developer", "Developer Security"], ["cloud", "Cloud Security"], ["cicd", "CI/CD Security"], ["saas", "SaaS Security"], ["assets", "Asset Inventory"]]],
   ["Response", [["remediation", "Remediation Center"], ["alerts", "Security Alerts"], ["investigations", "Investigation Center"], ["exceptions", "Exception Management"]]],
+  ["Collaboration", [["hubs", "Hubs"]]],
   ["Operations", [["integrations", "Integrations"], ["jobs", "Background Jobs"], ["logs", "System Logs"], ["audit", "Activity & Audit"], ["health", "System Health"]]],
   ["Governance", [["reports", "Reports"], ["compliance", "Compliance"], ["access", "Access Management"], ["settings", "Settings"]]],
 ];
@@ -59,9 +60,10 @@ const state = {
   sort: "created", page: 1, pageSize: 25, selection: new Set(), cols: null,
   drawerId: null, drawerTab: "overview", stage: null, paused: false,
   scanTimer: null,
-  coordination: { audit: 0, ping: 0 },
   logQ: "", logLevel: "", logSource: "", logRange: "all", logCorr: "", logTab: "system",
   auditTab: "audit", settingsTab: "profile", mobileSheet: false,
+  hubs: { kind: "channel", id: "open-chat", title: "Open Chat", timer: null, rightOpen: true },
+  hubsEvents: { lastMsg: 0, lastNotif: 0 },
 };
 
 async function api(path, opts = {}) {
@@ -89,6 +91,7 @@ function icon(name, size = 14) {
     plug: '<path d="M9 3v6M15 3v6M6 9h12v3a6 6 0 01-12 0z"/><path d="M12 18v3"/>',
     wrench: '<path d="M14 6a4 4 0 00-5.6 5.6L3 17l4 4 5.4-5.4A4 4 0 0018 10l-3 3-3-3z"/>',
     bell: '<path d="M6 16v-5a6 6 0 0112 0v5l2 3H4z"/><path d="M10 19a2 2 0 004 0"/>',
+    message: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/>',
     chart: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
     lock: '<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
@@ -210,11 +213,53 @@ async function renderOverview(opts = {}) {
   $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.",
     canWrite() ? `<button class="btn sm" id="ov-demo">Load demo</button><button class="btn sm ghost" id="ov-reset">Reset demo</button>` : "") +
     (o.demo ? `<div class="banner"><span class="chip st-triaged">DEMO</span> Synthetic demonstration records are active. They are labeled and isolated from production use.</div>` : "") +
+    `<div class="kpi-strip">
+      <a class="kpi-card" href="#/findings?status=open"><div class="kv">${o.unresolved}</div><div class="kl">Open Findings</div></a>
+      <a class="kpi-card t-crit" href="#/findings?severity=critical"><div class="kv">${o.critical + o.high}</div><div class="kl">Critical &amp; High</div></a>
+      <a class="kpi-card t-accent" href="#/findings"><div class="kv">${o.confirmed}</div><div class="kl">Confirmed</div></a>
+      <a class="kpi-card t-ok" href="#/findings?status=remediated"><div class="kv">${o.remediated}</div><div class="kl">Remediated</div></a>
+      <a class="kpi-card" href="#/sources"><div class="kv">${o.active_sources}</div><div class="kl">Active Sources</div></a>
+      <a class="kpi-card t-accent" href="#/integrations"><div class="kv">${o.integrations_connected + o.integrations_demo}</div><div class="kl">Integrations</div></a>
+      <a class="kpi-card" href="#/scans"><div class="kv">${o.scans_total}</div><div class="kl">Scan Jobs</div></a>
+      <a class="kpi-card ${o.scans_failed ? "t-danger" : ""}" href="#/scans"><div class="kv">${o.scans_failed}</div><div class="kl">Failed Scans</div></a>
+    </div>` +
     `<div class="mgrid">${metrics.map(([l, v, t]) => `<div class="metric ${t}"><div class="mlabel">${l}</div><div class="mvalue">${v}</div><div class="msub">live from storage</div></div>`).join("")}</div>` +
     `<div id="pipeline-slot">${pipelinePanel(p, stage, stageLogs, false)}</div>` +
     `<div class="grid c3 mb"><section class="panel"><div class="phead"><span class="ptitle">By severity</span></div><div class="pbody">${donut(d.severity, (l) => SEV_COLOR[l], "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">By status</span></div><div class="pbody">${donut(d.status, (l) => STATUS_COLOR[l] || "var(--accent)", "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">Exposure trend · 14 days</span></div><div class="pbody">${area(d.timeline)}</div></section></div>` +
-    `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Recent activity</span><a class="btn sm ghost" href="#/audit">View all</a></div><div class="pbody flush"><div class="feed">${logs.logs.map((l) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext">${esc(l.message)}</div><div class="fmeta"><span>${esc(l.source)}</span><span title="${utc(l.ts)}">${rel(l.ts)} ago</span></div></div></div>`).join("") || empty("No activity", "Events will appear as scans and actions run.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">Team workload</span></div><div class="pbody flush"><div class="listrows">${d.team.map((t) => `<div class="listrow"><span class="grow"><strong>${esc(t.username)}</strong><span class="cellsub">${esc(t.title || t.role)}</span></span><span class="mono">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div></div></section></div>`;
+    `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Recent activity</span><a class="btn sm ghost" href="#/audit">View all</a></div><div class="pbody flush"><div class="feed">${logs.logs.map((l) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext">${esc(l.message)}</div><div class="fmeta"><span>${esc(l.source)}</span><span title="${utc(l.ts)}">${rel(l.ts)} ago</span></div></div></div>`).join("") || empty("No activity", "Events will appear as scans and actions run.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">Team workload</span></div><div class="pbody flush"><div class="listrows">${d.team.map((t) => `<div class="listrow"><span class="grow"><button class="linkbtn" data-userprofile="${esc(t.username)}"><strong>${esc(t.username)}</strong></button><span class="cellsub">${esc(t.title || t.role)}</span></span><span class="mono">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div></div></section></div>` +
+    `<div class="grid c2 mb"><section class="panel"><div class="phead"><span class="ptitle">Integration health</span><a class="btn sm ghost" href="#/integrations">View all</a></div><div class="pbody flush"><div class="integ-health">${(o.integrations_connected + o.integrations_demo) === 0 ? empty("No integrations", "Configure integrations to see health status.") : ""}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">7-day finding trend</span></div><div class="pbody">${area(d.timeline.slice(-7))}</div></section></div>`;
   bindPipeline();
+  // Populate integration health panel
+  api("/api/integrations").then((inv) => {
+    const el = $(".integ-health");
+    if (!el) return;
+    el.innerHTML = (inv.integrations || []).slice(0, 8).map((i) => `<div class="integ-row"><span class="integ-dot ${esc(i.status)}"></span><span style="flex:1">${esc(i.name)}</span>${statusChip(i.status)}</div>`).join("") || '<span style="color:var(--faint);font-size:12px;padding:8px 0;display:block">No integrations configured.</span>';
+  }).catch(() => {});
+  // Team member profile popovers
+  $$("[data-userprofile]").forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.stopPropagation(); closeOverlays("popover");
+      const username = btn.dataset.userprofile;
+      const data2 = await api(`/api/users/${encodeURIComponent(username)}`).catch(() => null);
+      if (!data2) { toast("User not found", "warn"); return; }
+      const u = data2.user;
+      const pop = document.createElement("div");
+      pop.className = "popover";
+      pop.innerHTML = `<div class="pophead">${esc(u.username)}<span style="color:var(--faint);font-weight:400">${esc(u.title || u.role)}</span></div>
+        <div style="padding:6px 12px 2px;color:var(--dim);font-size:12px">Role: <strong>${esc(u.role)}</strong></div>
+        <div style="padding:2px 12px 8px;color:var(--dim);font-size:12px">Assigned: ${data2.stats.assigned} &middot; Owned: ${data2.stats.owned} &middot; ${data2.online ? '<span style="color:var(--ok)">Online</span>' : '<span style="color:var(--faint)">Offline</span>'}</div>
+        <div class="popsep"></div>
+        ${canWrite() ? `<button class="popitem" data-pop-dm="${esc(username)}">${icon("pulse")} Direct Message</button>` : ""}
+        ${canWrite() ? `<button class="popitem" data-pop-ping="${esc(username)}">${icon("bell")} Ping ${esc(username)}</button>` : ""}`;
+      $("#overlays").appendChild(pop);
+      const r = btn.getBoundingClientRect();
+      pop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - 200)}px`;
+      pop.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 240))}px`;
+      $(`[data-pop-dm="${username}"]`, pop)?.addEventListener("click", () => { pop.remove(); state.hubs = { ...state.hubs, kind: "dm", id: "", peer: username, title: username, rightOpen: true }; location.hash = "#/hubs"; });
+      $(`[data-pop-ping="${username}"]`, pop)?.addEventListener("click", async () => { pop.remove(); await api("/api/hubs/ping", { method: "POST", body: { to_user: username } }); toast(`Ping sent to ${username}`, "ok"); });
+      setTimeout(() => { const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== btn) { pop.remove(); document.removeEventListener("click", off); } }; document.addEventListener("click", off); }, 0);
+    };
+  });
   const demo = $("#ov-demo"); if (demo) demo.onclick = async () => { await api("/api/demo", { method: "POST", body: {} }); toast("Demo data loaded", "ok"); renderOverview(); };
   const reset = $("#ov-reset"); if (reset) reset.onclick = () => confirmModal("Reset demo data", "Close existing demo findings and reseed a fresh synthetic set.", async () => { const r = await api("/api/demo/reset", { method: "POST", body: {} }); toast(`Demo reset: ${r.seeded} seeded`, "ok"); renderOverview(); }, "Reset");
   if (opts.soft) {
@@ -722,6 +767,55 @@ async function loadDrawer() {
   bindOpeners();
 }
 
+/* ================= Hubs ================= */
+
+function hubsAvatar(name) { return `<span class="hubs-avatar">${esc((name || "?")[0].toUpperCase())}</span>`; }
+function hubsTime(value) { return value ? utc(value) : ""; }
+function hubsPingTone() { try { const Ctx = window.AudioContext || window.webkitAudioContext; const c = new Ctx(); const o = c.createOscillator(); const g = c.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(.05, c.currentTime); g.gain.exponentialRampToValueAtTime(.001, c.currentTime + .22); o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + .22); } catch (_) { /* browser interaction policy may block sound */ } }
+async function renderHubs() {
+  const [data, prefsResult, usersResult, notificationsResult] = await Promise.all([api("/api/hubs/channels"), api("/api/hubs/prefs"), api("/api/hubs/users"), api("/api/hubs/notifications")]);
+  const prefs = prefsResult.prefs;
+  const h = state.hubs;
+  const active = h.kind === "channel" ? data.channels.find((c) => c.id === h.id) : data.dms.find((d) => d.dm_key === h.id);
+  if (h.kind === "channel" && !active) { h.id = "open-chat"; h.title = "Open Chat"; return renderHubs(); }
+  h.title = active?.name || active?.peer || h.title;
+  const msgPath = h.kind === "channel" ? `/api/hubs/channels/${h.id}/messages` : `/api/hubs/dm/${h.peer}/messages`;
+  let thread;
+  try { thread = await api(msgPath); } catch (e) { thread = { messages: [], members: [], error: e.message }; }
+  const messages = thread.messages || [];
+  if (messages.length) api("/api/hubs/mark-read", { method: "POST", body: h.kind === "channel" ? { channel_id: h.id, last_id: messages.at(-1).id } : { dm_key: h.id, last_id: messages.at(-1).id } }).catch(() => {});
+  $("#main").innerHTML = `<div class="hubs-shell">
+    <aside class="hubs-left"><div class="hubs-brand"><strong>HUBS</strong><span>Secure collaboration</span></div><input class="input" id="hubs-search" placeholder="Search conversations">
+      <button class="hubs-open ${h.kind === "channel" && h.id === "open-chat" ? "active" : ""}" data-hchannel="open-chat">Open Chat</button>
+      <div class="hubs-section">TEAM CHANNELS ${isAdmin() ? '<button class="btn sm" id="hubs-new-channel">New</button>' : ""}</div>
+      <div id="hubs-channel-list">${data.channels.filter((c) => c.id !== "open-chat").map((c) => `<button class="hubs-item ${h.kind === "channel" && h.id === c.id ? "active" : ""}" data-hchannel="${esc(c.id)}"><span># ${esc(c.name)}</span>${c.unread ? `<b>${c.unread}</b>` : ""}<small>${c.joined ? "member" : "join to view"}</small></button>`).join("")}</div>
+      <div class="hubs-section">DIRECT MESSAGES</div>
+      <div>${data.dms.map((d) => `<button class="hubs-item ${h.kind === "dm" && h.id === d.dm_key ? "active" : ""}" data-hdm="${esc(d.peer)}" data-hdmkey="${esc(d.dm_key)}">${hubsAvatar(d.peer)}<span>${esc(d.peer)}<small>${esc(d.last_message?.body || "")}</small></span>${d.unread ? `<b>${d.unread}</b>` : ""}</button>`).join("") || '<span class="hubs-empty">No direct messages yet.</span>'}</div>
+      <div class="hubs-section">PEOPLE</div><div id="hubs-user-directory">${usersResult.users.map((u) => `<button class="hubs-user" data-hdm="${esc(u.username)}" data-huser="${esc(`${u.username} ${u.title} ${u.role}`.toLowerCase())}">${hubsAvatar(u.username)}<span>${esc(u.username)}<small>${esc(u.title || u.role)}</small></span>${u.online ? "<i></i>" : ""}</button>`).join("") || '<span class="hubs-empty">No colleagues available.</span>'}</div>
+    </aside>
+    <section class="hubs-center"><header class="hubs-head"><div><strong>${h.kind === "channel" ? "# " : ""}${esc(h.title)}</strong><small>${h.kind === "channel" ? (active?.description || "Shared security collaboration") : "Private direct message"}</small></div><button class="btn sm" id="hubs-right-toggle">Context</button></header>
+      <div class="hubs-messages" id="hubs-messages">${thread.error ? `<div class="errbox">${esc(thread.error)}</div>` : messages.map((m) => `<article class="hubs-message ${m.sender === state.user.username ? "mine" : ""}">${hubsAvatar(m.sender)}<div><strong>${esc(m.sender)}</strong><time>${hubsTime(m.created_at)}${m.edited ? " · edited" : ""}</time>${(m.sender === state.user.username || isAdmin()) ? `<button class="hubs-msg-delete" data-hdelete="${esc(m.id)}" title="Delete message">×</button>` : ""}<p>${esc(m.body).replace(/\n/g, "<br>")}</p></div></article>`).join("") || '<div class="hubs-empty">No messages yet. Start the conversation.</div>'}</div>
+      <form class="hubs-compose" id="hubs-compose"><textarea class="input" id="hubs-body" rows="2" placeholder="Write a secure message…" ${canWrite() ? "" : "disabled"}></textarea><button class="btn primary" ${canWrite() ? "" : "disabled"}>Send</button></form>
+    </section>
+    <aside class="hubs-right ${h.rightOpen ? "" : "collapsed"}"><div class="hubs-section">${h.kind === "channel" ? "PARTICIPANTS" : "PROFILE"}</div>${h.kind === "channel" ? (thread.members || []).map((m) => `<div class="hubs-user">${hubsAvatar(m.username)}<span>${esc(m.username)}<small>${esc(m.title || m.user_role || "member")}</small></span></div>`).join("") + (isAdmin() ? '<button class="btn sm" id="hubs-ping-all">Ping everyone</button>' : "") : `<div class="hubs-user">${hubsAvatar(h.peer)}<span>${esc(h.peer)}<small>${esc(thread.peer?.title || "SENTRIX user")}</small></span></div><button class="btn sm" id="hubs-ping">Ping user</button>`}<div class="hubs-section">NOTIFICATIONS <button class="btn sm" id="hubs-read-all">Read all</button></div><label><input type="checkbox" id="hubs-sound" ${prefs.sound_enabled ? "checked" : ""}> Play ping sound</label><div class="hubs-notifications">${notificationsResult.notifications.slice(0, 8).map((n) => `<button class="hubs-item ${n.read ? "" : "active"}" data-hnotif="${n.id}">${hubsAvatar(n.sender)}<span>${esc(n.sender)}<small>${esc(n.body || n.type.replace(/_/g, " "))}</small></span></button>`).join("") || '<span class="hubs-empty">All caught up</span>'}</div></aside>
+  </div>`;
+  $("#hubs-messages")?.scrollTo(0, 999999);
+  $$('[data-hchannel]').forEach((b) => b.onclick = async () => { const cid = b.dataset.hchannel; const ch = data.channels.find((c) => c.id === cid); if (ch && !ch.joined && cid !== "open-chat") await api(`/api/hubs/channels/${cid}/join`, { method: "POST", body: {} }); state.hubs = { ...h, kind: "channel", id: cid, title: ch?.name || "Open Chat" }; renderHubs(); });
+  $$('[data-hdm]').forEach((b) => b.onclick = () => { state.hubs = { ...h, kind: "dm", id: b.dataset.hdmkey || "", peer: b.dataset.hdm, title: b.dataset.hdm }; renderHubs(); });
+  $("#hubs-search").oninput = (e) => { const q = e.target.value.trim().toLowerCase(); $$('[data-huser], [data-hdmkey]').forEach((item) => { item.hidden = Boolean(q && !((item.dataset.huser || item.textContent).toLowerCase().includes(q))); }); };
+  $("#hubs-right-toggle").onclick = () => { h.rightOpen = !h.rightOpen; renderHubs(); };
+  $("#hubs-compose").onsubmit = async (e) => { e.preventDefault(); const body = $("#hubs-body").value.trim(); if (!body) return; await api(msgPath, { method: "POST", body: { body } }); renderHubs(); };
+  $$('[data-hdelete]').forEach((el) => el.onclick = async () => { if (!confirm("Delete this message?")) return; await api(`/api/hubs/messages/${el.dataset.hdelete}/delete`, { method: "POST", body: {} }); renderHubs(); });
+  $("#hubs-ping")?.addEventListener("click", async () => { await api("/api/hubs/ping", { method: "POST", body: { to_user: h.peer } }); toast(`Ping sent to ${h.peer}`, "ok"); });
+  $("#hubs-ping-all")?.addEventListener("click", async () => { const message = prompt("Message for all users", "Please review Hubs."); if (message === null) return; const r = await api("/api/hubs/ping-all", { method: "POST", body: { message } }); toast(`Pinged ${r.delivered} user(s)`, "ok"); });
+  $("#hubs-read-all")?.addEventListener("click", async () => { await api("/api/hubs/notifications/read", { method: "POST", body: {} }); updateHubsNotificationBadge(); renderHubs(); });
+  $$('[data-hnotif]').forEach((el) => el.onclick = async () => { const n = notificationsResult.notifications.find((x) => String(x.id) === el.dataset.hnotif); await api("/api/hubs/notifications/read", { method: "POST", body: { ids: [n.id] } }); openHubsNotification(n); updateHubsNotificationBadge(); renderHubs(); });
+  $("#hubs-sound")?.addEventListener("change", (e) => api("/api/hubs/prefs", { method: "POST", body: { sound_enabled: e.target.checked } }));
+  $("#hubs-new-channel")?.addEventListener("click", async () => { const name = prompt("Channel name"); if (!name) return; await api("/api/hubs/channels", { method: "POST", body: { name } }); renderHubs(); });
+  if (h.timer) clearTimeout(h.timer);
+  h.timer = setTimeout(() => { if (state.view === "hubs") renderHubs().catch(() => {}); }, 3000);
+}
+
 /* ================= shell ================= */
 
 const VIEWS = {
@@ -729,12 +823,12 @@ const VIEWS = {
   findings: renderFindings, sources: renderSources, rules: renderRules, playground: renderPlayground,
   scans: renderScans, repositories: renderSurfaceView, developer: renderSurfaceView, cloud: renderSurfaceView,
   cicd: renderSurfaceView, saas: renderSurfaceView, assets: renderAssets, remediation: renderRemediation,
-  alerts: renderAlerts, investigations: renderInvestigations, exceptions: renderExceptions,
+  alerts: renderAlerts, investigations: renderInvestigations, exceptions: renderExceptions, hubs: renderHubs,
   integrations: renderIntegrations, jobs: renderJobs, logs: renderLogs, audit: renderAudit,
   health: renderHealth, reports: renderReports, compliance: renderCompliance, access: renderAccess,
   settings: renderSettings,
 };
-const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
+const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", hubs: "pulse", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
 
 function refresh() {
   const fn = VIEWS[state.view];
@@ -743,6 +837,7 @@ function refresh() {
 
 function route() {
   if (state.scanTimer) { clearInterval(state.scanTimer); state.scanTimer = null; }
+  if (state.hubs.timer) { clearTimeout(state.hubs.timer); state.hubs.timer = null; }
   const hash = location.hash.replace("#/", "") || "overview";
   state.view = VIEWS[hash] ? hash : "overview";
   state.selection.clear();
@@ -754,12 +849,21 @@ function route() {
   if (state.mobileSheet) closeSheet();
 }
 
+async function updateHubsNotificationBadge() {
+  const d = await api("/api/hubs/notifications").catch(() => null); if (!d) return;
+  const count = d.unread || 0, badge = $("#hubs-notif-count"); if (!badge) return;
+  badge.hidden = !count; badge.textContent = count > 99 ? "99+" : count;
+}
+function openHubsNotification(n) {
+  const direct = Boolean(n.dm_key || n.type === "ping");
+  state.hubs = { ...state.hubs, kind: direct ? "dm" : "channel", id: n.dm_key || "", peer: direct ? n.sender : undefined, title: n.sender };
+  location.hash = "#/hubs";
+}
 function buildShell() {
   $("#topbar").innerHTML = `<a class="brand" href="#/overview"><img src="/logo.svg" alt=""><span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence</span></span></a>
-    <div class="gsearch">${icon("search")}<input class="input" id="gq" placeholder="Search findings…  (Ctrl+K)" aria-label="Global search"></div>
     <span class="topspacer" style="flex:1"></span>
-    ${canWrite() ? `<button class="btn sm pingbtn" id="coord-ping" title="Notify other command-center sessions">${icon("pulse", 13)} Ping team</button>` : ""}
     <span class="livedot" id="livedot"><span class="dot"></span><span id="livetxt">Live</span></span>
+    <button class="iconbtn" id="hubs-messages" aria-label="Open Hubs messages" title="Messages">${icon("message")}<b class="notif-badge" id="hubs-notif-count" hidden></b></button>
     <button class="iconbtn" id="theme-toggle" aria-label="Toggle dark / white theme" title="Toggle theme">${icon("moon")}</button>
     <button class="userbtn" id="userbtn" aria-haspopup="menu"><span class="avatar">${esc(state.user.username[0].toUpperCase())}</span><span><span class="uname">${esc(state.user.username)}</span><span class="urole" style="display:block">${esc(state.user.role)}</span></span></button>`;
   $("#sidebar").innerHTML = NAV.map(([group, items], gi) => `<div class="navgroup" data-group="${gi}"><button class="navhead">${esc(group)} ${icon("chev", 12)}</button><div class="navitems">${items.map(([id, label]) => `<a class="navitem" href="#/${id}" data-nav="${id}">${icon(VIEW_ICON[id])} ${esc(label)}</a>`).join("")}</div></div>`).join("") + `<div class="navfoot" style="padding:10px 12px;color:var(--faint);font-size:10px">SENTRIX · One Intelligence. Every Exposure. Total Control.</div>`;
@@ -786,19 +890,19 @@ function buildShell() {
     $("#um-out", pop).onclick = async () => { await api("/api/auth/logout", { method: "POST", body: {} }); location.href = "/login"; };
     setTimeout(() => { const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== $("#userbtn")) { pop.remove(); document.removeEventListener("click", off); } }; document.addEventListener("click", off); }, 0);
   };
-  const ping = $("#coord-ping");
-  if (ping) ping.onclick = async () => {
-    const message = window.prompt("Message for other command-center sessions", "Please review the latest change.");
-    if (message === null) return;
-    try {
-      await api("/api/coordination/ping", { method: "POST", body: { message } });
-      toast("Ping sent to other sessions", "ok");
-    } catch (e) { toast(e.message, "error"); }
+  $("#hubs-messages").onclick = () => { location.hash = "#/hubs"; };
+  /* The Hubs page is the notification inbox; this helper remains available to
+     route a message notification to the relevant secure conversation. */
+  const showHubsNotifications = async (e) => {
+    const payload = await api("/api/hubs/notifications"), button = e.currentTarget;
+    closeOverlays("popover"); const pop = document.createElement("div"); pop.className = "popover hubs-notif-pop";
+    pop.innerHTML = `<div class="pophead">Hubs notifications <button class="btn sm" id="hubs-read-all">Mark all read</button></div>${payload.notifications.map((n) => `<button class="popitem ${n.read ? "" : "unread"}" data-notif="${n.id}">${icon(n.type === "ping" ? "pulse" : "bell")}<span><strong>${esc(n.sender)}</strong> · ${esc(n.type.replace(/_/g, " "))}<small>${esc(n.body || "")}</small></span></button>`).join("") || '<div class="hubs-empty">No notifications.</div>'}`;
+    $("#overlays").appendChild(pop); const r = button.getBoundingClientRect(); pop.style.top = `${r.bottom + 6}px`; pop.style.left = `${Math.max(8, r.right - 300)}px`;
+    $("#hubs-read-all", pop).onclick = async () => { await api("/api/hubs/notifications/read", { method: "POST", body: {} }); pop.remove(); updateHubsNotificationBadge(); };
+    $$('[data-notif]', pop).forEach((el) => el.onclick = async () => { const n = payload.notifications.find((x) => String(x.id) === el.dataset.notif); await api("/api/hubs/notifications/read", { method: "POST", body: { ids: [n.id] } }); pop.remove(); openHubsNotification(n); updateHubsNotificationBadge(); });
   };
-  $("#gq").onkeydown = (e) => { if (e.key === "Enter") { state.filters.q = e.target.value.trim(); state.page = 1; location.hash = "#/findings"; if (state.view === "findings") renderFindings(); } };
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeDrawer(); closeOverlays("popover"); closeOverlays("modalwrap"); closeSheet(); }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#gq").focus(); }
   });
   document.addEventListener("click", (e) => {
     const h = e.target.closest("[data-help]");
@@ -826,18 +930,18 @@ function closeSheet() { state.mobileSheet = false; $("#sheet")?.remove(); }
 async function boot() {
   try { state.user = (await api("/api/auth/me")).user; } catch { return; }
   buildShell();
+  updateHubsNotificationBadge();
   route();
-  const initialCoordination = await api("/api/coordination?since=0").catch(() => null);
-  if (initialCoordination) state.coordination = initialCoordination.revision;
   setInterval(async () => {
-    const d = await api(`/api/coordination?since=${state.coordination.ping}`).catch(() => null);
-    if (!d) return;
-    const changed = d.revision.audit !== state.coordination.audit;
-    state.coordination = d.revision;
-    d.pings.filter((p) => p.username !== state.user.username).forEach((p) => {
-      toast(`${p.username} pinged the team: ${p.message}`, "info");
-    });
-    if (changed && !state.paused && !state.drawerId) refresh();
-  }, 2500);
+    const e = await api(`/api/hubs/events?last_msg=${state.hubsEvents.lastMsg}&last_notif=${state.hubsEvents.lastNotif}`).catch(() => null);
+    if (!e) return;
+    const maxNotif = Math.max(0, ...e.notifications.map((n) => n.id));
+    state.hubsEvents.lastNotif = Math.max(state.hubsEvents.lastNotif, maxNotif);
+    const prefs = e.pings.length ? await api("/api/hubs/prefs").catch(() => null) : null;
+    e.pings.forEach((p) => { if (prefs?.prefs?.sound_enabled) hubsPingTone(); toast(`${p.from_user} pinged you${p.message ? `: ${p.message}` : ""}`, "info"); });
+    if (e.notifications.length && state.view !== "hubs") toast("New Hubs activity", "info");
+    if (e.notifications.length) updateHubsNotificationBadge();
+    if (state.view === "hubs" && e.messages.length) renderHubs().catch(() => {});
+  }, 3000);
 }
 boot();

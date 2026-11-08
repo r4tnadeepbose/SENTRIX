@@ -8,6 +8,7 @@ from pathlib import Path
 
 from sentrix.core.models import Finding, now_iso
 from sentrix.core.storage import Storage
+from sentrix.hubs.storage import HubsStorage
 
 EXT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -81,7 +82,7 @@ CREATE TABLE IF NOT EXISTS custom_rules (
 """
 
 
-class ExtStorage(Storage):
+class ExtStorage(Storage, HubsStorage):
     def __init__(self, path: Path):
         if not path.exists():
             for legacy in ("wintermute.db", "keysentry.db"):
@@ -109,6 +110,7 @@ class ExtStorage(Storage):
         self._db.execute("INSERT OR IGNORE INTO migrations VALUES (2, ?)", (now_iso(),))
         self._db.execute("INSERT OR IGNORE INTO migrations VALUES (3, ?)", (now_iso(),))
         self._db.commit()
+        self.hubs_init()
 
     # -- users / sessions / tokens
     def add_report(self, rid, rtype, fmt, user, rows, body=""):
@@ -484,3 +486,138 @@ class ExtStorage(Storage):
                     count += 1
             self._db.commit()
         return count
+
+    # ── risk acceptance ───────────────────────────────────────────────────
+
+    def ensure_risk_acceptance_table(self):
+        self._db.executescript("""
+            CREATE TABLE IF NOT EXISTS risk_acceptances (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                decision TEXT DEFAULT 'accept',
+                reason TEXT DEFAULT '',
+                proof TEXT DEFAULT '',
+                expires_at TEXT,
+                sla_restart INTEGER DEFAULT 0,
+                created_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expired_handled INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS risk_acceptance_findings (
+                ra_id TEXT NOT NULL,
+                finding_id TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY (ra_id, finding_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ra_owner ON risk_acceptances(owner);
+            CREATE INDEX IF NOT EXISTS idx_raf_finding ON risk_acceptance_findings(finding_id);
+        """)
+        self._db.commit()
+
+    def add_risk_acceptance(self, ra_id, name, owner, decision, reason, proof,
+                            expires_at, sla_restart, created_by):
+        self.ensure_risk_acceptance_table()
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO risk_acceptances "
+                "(id,name,owner,decision,reason,proof,expires_at,sla_restart,created_by,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (ra_id, name, owner, decision, reason, proof,
+                 expires_at, 1 if sla_restart else 0, created_by, now_iso()),
+            )
+            self._db.commit()
+
+    def list_risk_acceptances(self, limit=100):
+        self.ensure_risk_acceptance_table()
+        rows = self._db.execute(
+            "SELECT ra.*, GROUP_CONCAT(raf.finding_id) AS finding_ids "
+            "FROM risk_acceptances ra "
+            "LEFT JOIN risk_acceptance_findings raf ON raf.ra_id=ra.id "
+            "GROUP BY ra.id ORDER BY ra.created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["finding_ids"] = [x for x in (d.get("finding_ids") or "").split(",") if x]
+            result.append(d)
+        return result
+
+    def get_risk_acceptance(self, ra_id):
+        self.ensure_risk_acceptance_table()
+        row = self._db.execute(
+            "SELECT * FROM risk_acceptances WHERE id=?", (ra_id,)
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["finding_ids"] = [dict(r)["finding_id"] for r in self._db.execute(
+            "SELECT finding_id FROM risk_acceptance_findings WHERE ra_id=?", (ra_id,)
+        )]
+        return d
+
+    def add_finding_to_risk_acceptance(self, ra_id, finding_id, username):
+        self.ensure_risk_acceptance_table()
+        with self._lock:
+            self._db.execute(
+                "INSERT OR IGNORE INTO risk_acceptance_findings (ra_id, finding_id, added_at) "
+                "VALUES (?,?,?)", (ra_id, finding_id, now_iso()),
+            )
+            self._db.commit()
+        self.set_status(finding_id, "accepted_risk", username)
+
+    def remove_finding_from_risk_acceptance(self, ra_id, finding_id, username):
+        self.ensure_risk_acceptance_table()
+        with self._lock:
+            self._db.execute(
+                "DELETE FROM risk_acceptance_findings WHERE ra_id=? AND finding_id=?",
+                (ra_id, finding_id),
+            )
+            self._db.commit()
+        self.set_status(finding_id, "open", username)
+
+    def expire_risk_acceptances(self, username="system"):
+        """Reactivate findings from expired, unhandled risk acceptances."""
+        self.ensure_risk_acceptance_table()
+        now = now_iso()
+        expired = self._db.execute(
+            "SELECT id FROM risk_acceptances WHERE expires_at IS NOT NULL "
+            "AND expires_at < ? AND expired_handled=0", (now,)
+        ).fetchall()
+        reactivated = 0
+        for row in expired:
+            ra = self.get_risk_acceptance(row["id"])
+            for fid in ra.get("finding_ids", []):
+                self.set_status(fid, "open", username)
+                reactivated += 1
+            with self._lock:
+                self._db.execute(
+                    "UPDATE risk_acceptances SET expired_handled=1 WHERE id=?", (row["id"],)
+                )
+                self._db.commit()
+        return reactivated
+
+    # ── SLA helpers ───────────────────────────────────────────────────────
+
+    SLA_HOURS = {"critical": 24, "high": 72, "medium": 168, "low": 336, "info": 720}
+
+    def finding_sla(self, finding, extra=None):
+        """Return SLA info dict for a finding."""
+        extra = extra or self.get_extra(finding.id)
+        sla_h = self.SLA_HOURS.get(finding.severity, 168)
+        first_seen = extra.get("first_seen") or finding.created_at
+        try:
+            age_h = (time.time() - time.mktime(
+                time.strptime(first_seen, "%Y-%m-%dT%H:%M:%S"))) / 3600
+        except ValueError:
+            age_h = 0.0
+        remaining_h = max(0.0, sla_h - age_h)
+        breached = age_h > sla_h
+        at_risk = not breached and age_h > sla_h * 0.7
+        return {
+            "sla_hours": sla_h,
+            "age_hours": round(age_h, 1),
+            "remaining_hours": round(remaining_h, 1),
+            "breached": breached,
+            "at_risk": at_risk,
+        }

@@ -256,6 +256,72 @@ class ServerTests(unittest.TestCase):
             fetched = self._request(f"/api/findings/{fid}")
             self.assertEqual(fetched["finding"]["status"], "triaged")
 
+    # -- Hubs collaboration security
+
+    def test_hubs_team_channel_requires_membership(self):
+        self._request("/api/users", {
+            "username": "analyst2", "password": "analyst-pass-456", "role": "security_analyst"})
+        analyst_cookie = self._login("analyst2", "analyst-pass-456")
+        created = self._request("/api/hubs/channels", {
+            "name": "Private response", "description": "Restricted incident room"})
+        cid = created["id"]
+        self._request(f"/api/hubs/channels/{cid}/messages", cookie=analyst_cookie, expect=403)
+        self._request(f"/api/hubs/channels/{cid}/join", {}, cookie=analyst_cookie)
+        messages = self._request(f"/api/hubs/channels/{cid}/messages", cookie=analyst_cookie)["messages"]
+        self.assertEqual(messages, [])
+
+    def test_hubs_direct_messages_are_private_and_notify_recipient(self):
+        for username in ("analyst3", "analyst4"):
+            self._request("/api/users", {
+                "username": username, "password": f"{username}-pass-123", "role": "security_analyst"})
+        sender = self._login("analyst3", "analyst3-pass-123")
+        recipient = self._login("analyst4", "analyst4-pass-123")
+        posted = self._request("/api/hubs/dm/analyst4/messages", {"body": "Need a second look."}, cookie=sender)
+        self.assertTrue(posted["ok"])
+        received = self._request("/api/hubs/dm/analyst3/messages", cookie=recipient)
+        self.assertEqual(received["messages"][0]["body"], "Need a second look.")
+        notifications = self._request("/api/hubs/notifications", cookie=recipient)["notifications"]
+        self.assertEqual(notifications[0]["type"], "direct_message")
+
+    def test_hubs_ping_is_rate_limited_and_never_targets_sender(self):
+        self._request("/api/users", {
+            "username": "analyst5", "password": "analyst-pass-567", "role": "security_analyst"})
+        analyst_cookie = self._login("analyst5", "analyst-pass-567")
+        self._request("/api/hubs/ping", {"to_user": "analyst5"}, cookie=analyst_cookie, expect=400)
+        for _ in range(3):
+            self.assertTrue(self._request("/api/hubs/ping", {"to_user": "admin"}, cookie=analyst_cookie)["ok"])
+        self._request("/api/hubs/ping", {"to_user": "admin"}, cookie=analyst_cookie, expect=429)
+
+    def test_hubs_open_chat_notifies_eligible_participants(self):
+        self._request("/api/users", {
+            "username": "analyst6", "password": "analyst-pass-678", "role": "security_analyst"})
+        analyst_cookie = self._login("analyst6", "analyst-pass-678")
+        self._request("/api/hubs/channels/open-chat/messages", cookie=analyst_cookie)
+        self._request("/api/hubs/channels/open-chat/messages", {"body": "Operational update."})
+        notifications = self._request("/api/hubs/notifications", cookie=analyst_cookie)["notifications"]
+        self.assertEqual(notifications[0]["type"], "channel_message")
+        self.assertEqual(notifications[0]["channel_id"], "open-chat")
+
+    def test_hubs_user_directory_excludes_self_and_password_data(self):
+        self._request("/api/users", {
+            "username": "analyst8", "password": "analyst-pass-890", "role": "security_analyst"})
+        analyst_cookie = self._login("analyst8", "analyst-pass-890")
+        users = self._request("/api/hubs/users", cookie=analyst_cookie)["users"]
+        self.assertNotIn("analyst8", {u["username"] for u in users})
+        self.assertIn("admin", {u["username"] for u in users})
+        self.assertTrue(all("password_hash" not in u for u in users))
+
+    def test_hubs_ping_everyone_is_admin_only(self):
+        self._request("/api/users", {
+            "username": "analyst7", "password": "analyst-pass-789", "role": "security_analyst"})
+        analyst_cookie = self._login("analyst7", "analyst-pass-789")
+        self._request("/api/hubs/ping-all", {"message": "Please check in."},
+                      cookie=analyst_cookie, expect=403)
+        result = self._request("/api/hubs/ping-all", {"message": "Please check in."})
+        self.assertGreaterEqual(result["delivered"], 1)
+        notifications = self._request("/api/hubs/notifications", cookie=analyst_cookie)["notifications"]
+        self.assertEqual(notifications[0]["type"], "ping")
+
     def test_saved_filters_add_list_delete(self):
         params = {"severity": "high", "status": "open"}
         body = self._request("/api/filters", {"name": "high open", "params": params})

@@ -115,6 +115,14 @@ def start_scheduler(runner: JobRunner, storage, cfg: dict, router=None, log=None
                         storage.set_meta(finding.id, finding.meta)
                         log("info", "triage_alerts",
                             f"Sweep triaged {finding.id}: {result['verdict']}")
+                # Expire risk acceptances that have passed their expiry date
+                try:
+                    reactivated = storage.expire_risk_acceptances()
+                    if reactivated:
+                        log("info", "risk_acceptance",
+                            f"Expired risk acceptances reactivated {reactivated} findings")
+                except Exception:
+                    pass
             except sqlite3.ProgrammingError:
                 break
             except Exception as exc:
