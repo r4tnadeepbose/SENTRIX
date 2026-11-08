@@ -630,7 +630,16 @@ def make_server(cfg: dict) -> ThreadingHTTPServer:
 
 
 def serve_forever(cfg: dict):
-    server = make_server(cfg)
+    try:
+        server = make_server(cfg)
+    except OSError:
+        host = cfg_get(cfg, "server.host", "127.0.0.1")
+        port = cfg_get(cfg, "server.port", 8710)
+        print(f"Cannot start: {host}:{port} is already held by another process.")
+        print("An older console window (e.g. the previous KeySentry folder) is usually")
+        print("the cause. Close that window and run this launcher again, or change")
+        print("[server] port in config.toml.")
+        raise SystemExit(1)
     host, port = server.server_address
     print(f"Wintermute dashboard: http://{host}:{port}")
     print("First run: initial admin password is in data/INITIAL_ADMIN_PASSWORD.txt")

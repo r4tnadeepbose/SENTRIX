@@ -47,7 +47,7 @@ class AuthTests(unittest.TestCase):
         # The sixth attempt inside the window is throttled outright.
         with self.assertRaises(AuthError) as ctx:
             self.auth.login("alice", "wrong-password", "10.0.0.1")
-        self.assertIn("Too many attempts", str(ctx.exception))
+        self.assertIn("Too many failed attempts", str(ctx.exception))
         # A different client IP is unaffected, and correct credentials work.
         token, user = self.auth.login("alice", PASSWORD, "10.0.0.2")
         self.assertTrue(token)

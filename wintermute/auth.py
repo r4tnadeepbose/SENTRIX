@@ -95,14 +95,15 @@ class AuthManager:
             window.popleft()
         if len(window) >= cfg_get(self.cfg, "auth.login_rate_limit", 5):
             self.log("warn", "auth", f"Login rate limit hit for {ip}")
-            raise AuthError("Too many attempts; wait a minute.")
-        window.append(now)
+            raise AuthError("Too many failed attempts; wait a minute.")
         user = self.storage.get_user(username)
         if not user or user["disabled"]:
+            window.append(now)
             self.audit("login.failed", username, "unknown or disabled account")
             raise AuthError("Invalid credentials.")
         candidate = hash_password(password, user["salt"])
         if not hmac.compare_digest(candidate, user["pw_hash"]):
+            window.append(now)
             self.audit("login.failed", username, "bad password")
             raise AuthError("Invalid credentials.")
         token = secrets.token_hex(24)

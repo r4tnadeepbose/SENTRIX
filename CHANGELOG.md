@@ -1,3 +1,9 @@
+## 1.4.1 - 2026-11-08
+
+- Login rate limit now counts failed attempts only, so switching between demo
+  team accounts is never blocked; brute force stays throttled.
+- Clear guidance when the port is held by an older console instance.
+
 ## 1.4.0 - 2026-11-08
 
 - Company demo roster: admin plus security engineer, SOC analyst, incident
