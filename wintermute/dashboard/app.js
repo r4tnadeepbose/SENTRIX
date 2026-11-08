@@ -113,32 +113,118 @@ function viewHead(title, sub, helpKey) {
 }
 const skeleton = () => `<div class="skel"><div class="skel-row"></div><div class="skel-line"></div><div class="skel-line"></div><div class="skel-row"></div></div>`;
 
+/* ---------- svg chart builders ---------- */
+
+const SEV_COLOR = { critical: "var(--critical)", high: "var(--high)", medium: "var(--medium)", low: "var(--low)", info: "var(--info)" };
+const STATUS_COLOR = { open: "var(--high)", triaged: "var(--info)", remediated: "var(--low)", false_positive: "var(--muted)" };
+
+function donut(series, colorOf, center) {
+  const total = series.reduce((a, s) => a + s.value, 0) || 1;
+  const R = 40, C = 2 * Math.PI * R;
+  let offset = 0;
+  const arcs = series.filter((s) => s.value > 0).map((s) => {
+    const len = (s.value / total) * C;
+    const el = `<circle class="arc" cx="50" cy="50" r="${R}" fill="none" style="stroke:${colorOf(s.label)}" stroke-width="13" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 50 50)"><title>${esc(s.label)}: ${s.value}</title></circle>`;
+    offset += len;
+    return el;
+  }).join("");
+  return `<svg viewBox="0 0 100 100" width="116" height="116" role="img" aria-label="${esc(center)} distribution">
+    <circle cx="50" cy="50" r="${R}" fill="none" style="stroke:var(--panel-2)" stroke-width="13"/>
+    ${arcs}<text x="50" y="47" text-anchor="middle" class="donut-center" style="fill:var(--text)" font-size="17" font-weight="650">${total === 1 && series.every((s) => s.value === 0) ? 0 : series.reduce((a, s) => a + s.value, 0)}</text>
+    <text x="50" y="60" text-anchor="middle" class="axis-label">${esc(center)}</text></svg>`;
+}
+
+function legend(series, colorOf) {
+  return `<div class="legend">${series.map((s) => `<div class="legend-row"><span class="swatch" style="background:${colorOf(s.label)}"></span><span>${esc(s.label.replace(/_/g, " "))}</span><span class="legend-val">${s.value}</span></div>`).join("")}</div>`;
+}
+
+function areaChart(points) {
+  const W = 440, H = 150, P = { l: 26, r: 8, t: 10, b: 20 };
+  const max = Math.max(1, ...points.map((p) => p.count));
+  const x = (i) => P.l + (i / (points.length - 1)) * (W - P.l - P.r);
+  const y = (v) => P.t + (1 - v / max) * (H - P.t - P.b);
+  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.count).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(points.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`;
+  const grid = [0, 0.5, 1].map((t) => `<line class="grid-line" x1="${P.l}" x2="${W - P.r}" y1="${y(max * t)}" y2="${y(max * t)}"/><text class="axis-label" x="${P.l - 5}" y="${y(max * t) + 3}" text-anchor="end">${Math.round(max * t)}</text>`).join("");
+  const labels = points.map((p, i) => i % 4 === 0 ? `<text class="axis-label" x="${x(i)}" y="${H - 6}" text-anchor="middle">${esc(p.date.slice(5))}</text>` : "").join("");
+  const dots = points.map((p, i) => `<circle class="dot" cx="${x(i)}" cy="${y(p.count)}" r="2.6" style="fill:var(--info)"><title>${esc(p.date)}: ${p.count} new</title></circle>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="150" role="img" aria-label="New findings per day">
+    <defs><linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:var(--info)" stop-opacity="0.35"/>
+      <stop offset="1" style="stop-color:var(--info)" stop-opacity="0.02"/>
+    </linearGradient></defs>
+    ${grid}<path d="${area}" fill="url(#area-fill)"/><path d="${line}" fill="none" style="stroke:var(--info)" stroke-width="1.8"/>${dots}${labels}</svg>`;
+}
+
+function barChart(series, colorOf) {
+  const max = Math.max(1, ...series.map((s) => s.value));
+  const W = 300, rowH = 24, H = series.length * rowH + 4;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Distribution bars">
+    ${series.map((s, i) => {
+      const w = (s.value / max) * (W - 110);
+      return `<text class="axis-label" x="0" y="${i * rowH + 14}" style="font-size:10px">${esc(s.label.replace(/_/g, " "))}</text>
+        <rect class="bar" x="86" y="${i * rowH + 5}" width="${Math.max(2, w).toFixed(1)}" height="10" rx="2" style="fill:${colorOf(s.label, i)}"><title>${esc(s.label)}: ${s.value}</title></rect>
+        <text class="axis-label" x="${86 + Math.max(2, w) + 6}" y="${i * rowH + 14}">${s.value}</text>`;
+    }).join("")}</svg>`;
+}
+
+function scatterChart(points) {
+  const W = 300, H = 170, P = { l: 26, r: 10, t: 10, b: 22 };
+  const order = ["critical", "high", "medium", "low", "info"];
+  const x = (e) => P.l + (Math.min(6, e) / 6) * (W - P.l - P.r);
+  const y = (sev, i) => P.t + 12 + order.indexOf(sev) * ((H - P.t - P.b - 20) / 4) + ((i % 3) - 1) * 5;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Entropy by severity">
+    <line class="grid-line" x1="${P.l}" x2="${W - P.r}" y1="${H - P.b}" y2="${H - P.b}"/>
+    <line class="grid-line" x1="${P.l}" x2="${P.l}" y1="${P.t}" y2="${H - P.b}"/>
+    ${[0, 2, 4, 6].map((v) => `<text class="axis-label" x="${x(v)}" y="${H - 8}" text-anchor="middle">${v}</text>`).join("")}
+    <text class="axis-label" x="${W - P.r}" y="${H - 8}" text-anchor="end">entropy</text>
+    ${order.map((s, i) => `<text class="axis-label" x="${P.l - 5}" y="${y(s, 1) + 3}" text-anchor="end">${s.slice(0, 4)}</text>`).join("")}
+    ${points.map((p, i) => `<circle class="dot" cx="${x(p.entropy).toFixed(1)}" cy="${y(p.severity, i).toFixed(1)}" r="3.4" style="fill:${SEV_COLOR[p.severity] || "var(--accent)"}" fill-opacity="0.85"><title>${esc(p.title)} - entropy ${p.entropy}, seen ${p.occurrences}x</title></circle>`).join("")}</svg>`;
+}
+
 /* ---------- views ---------- */
 
 async function renderOverview() {
-  $("#view").innerHTML = viewHead("Overview", "Detection posture across every layer, from editor to cloud.") + skeleton();
-  const [ov, stats, logs] = await Promise.all([
-    api("/api/overview"), api("/api/stats"), api("/api/logs?limit=5")]);
+  $("#view").innerHTML = viewHead("Overview", "Company-wide detection posture across every layer.") + skeleton();
+  const [d, ov, logs] = await Promise.all([
+    api("/api/dashboard"), api("/api/overview"), api("/api/logs?limit=6")]);
+  const k = d.kpis;
   const st = ov.stages;
-  $("#view").innerHTML = viewHead("Overview", "Detection posture across every layer, from editor to cloud.") + `
+  $("#view").innerHTML = viewHead("Overview", "Company-wide detection posture across every layer.") + `
     <div class="pipeline" aria-label="Detection pipeline">
-      ${[["Events", st.events, "surface triggers"], ["Scan", st.scans, "jobs + gates"], ["Findings", st.findings, "masked + deduped"], ["Alert", st.alerts, "rules + channels"], ["Remediate", st.remediations, "rotate / redact / verify"]]
-        .map(([name, count, sub], i) => `${i ? '<span class="pipe-arrow" aria-hidden="true">→</span>' : ""}
-          <div class="stage"><div class="stage-name">${name}</div><div class="stage-count">${count}</div><div class="stage-sub">${sub}</div></div>`).join("")}
+      ${[["Events", st.events], ["Scan", st.scans], ["Findings", st.findings], ["Alert", st.alerts], ["Remediate", st.remediations]]
+        .map(([name, count], i) => `${i ? '<span class="pipe-arrow" aria-hidden="true">→</span>' : ""}
+          <div class="stage"><div class="stage-name">${name}</div><div class="stage-count">${count}</div></div>`).join("")}
     </div>
-    <div class="stats-row">
-      <div class="stat"><div class="stat-label">Total findings</div><div class="stat-value">${stats.total}</div></div>
-      <div class="stat"><div class="stat-label">Open</div><div class="stat-value">${stats.open}</div></div>
-      <div class="stat"><div class="stat-label">Critical + high</div><div class="stat-value">${(stats.by_severity.critical || 0) + (stats.by_severity.high || 0)}</div></div>
-      <div class="stat"><div class="stat-label">Alerts sent</div><div class="stat-value">${stats.alerts_sent}</div></div>
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">Total findings</div><div class="kpi-value">${k.total}</div><div class="kpi-sub">all surfaces</div></div>
+      <div class="kpi"><div class="kpi-label">Open</div><div class="kpi-value">${k.open}</div><div class="kpi-sub">need action</div></div>
+      <div class="kpi"><div class="kpi-label">Critical + high</div><div class="kpi-value bad">${k.critical_high}</div><div class="kpi-sub">priority queue</div></div>
+      <div class="kpi"><div class="kpi-label">Alerts sent</div><div class="kpi-value">${k.alerts}</div><div class="kpi-sub">all channels</div></div>
+      <div class="kpi"><div class="kpi-label">Remediated</div><div class="kpi-value">${k.remediations}</div><div class="kpi-sub">closed loop</div></div>
+      <div class="kpi"><div class="kpi-label">False positives</div><div class="kpi-value">${k.false_positives}</div><div class="kpi-sub">allowlisted</div></div>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card"><h2>New findings per day</h2><div class="chart-sub">Last 14 days, all surfaces</div>${areaChart(d.timeline)}</div>
+      <div class="chart-card"><h2>By severity</h2><div class="chart-sub">Share of detections</div><div class="chart-body">${donut(d.severity, (l) => SEV_COLOR[l] || "var(--accent)", "total")}${legend(d.severity, (l) => SEV_COLOR[l] || "var(--accent)")}</div></div>
+      <div class="chart-card"><h2>By status</h2><div class="chart-sub">Workflow state</div><div class="chart-body">${donut(d.status, (l) => STATUS_COLOR[l] || "var(--accent)", "total")}${legend(d.status, (l) => STATUS_COLOR[l] || "var(--accent)")}</div></div>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card"><h2>By surface</h2><div class="chart-sub">Where secrets appear</div>${barChart(d.surfaces, () => "var(--info)")}</div>
+      <div class="chart-card"><h2>Alert channels</h2><div class="chart-sub">Delivery volume</div>${barChart(d.channels.length ? d.channels : [{ label: "none", value: 0 }], () => "var(--low)")}</div>
+      <div class="chart-card"><h2>Entropy by severity</h2><div class="chart-sub">Each dot is a finding, positioned by severity band</div>${scatterChart(d.scatter)}</div>
     </div>
     <div class="grid-2">
-      <div class="panel"><div class="panel-head"><h2>How it works</h2>${helpBtn("overview")}</div>
-        <ol class="how-list">${ov.how.map((h) => `<li>${esc(h)}</li>`).join("")}</ol></div>
+      <div class="panel"><div class="panel-head"><h2>Team workload</h2>${helpBtn("overview")}</div>
+        ${d.team.map((t) => `<div class="team-row"><span class="team-avatar">${esc(t.username[0].toUpperCase())}</span>
+          <div><div class="team-name">${esc(t.username)}</div><div class="team-title">${esc(t.title || t.role)}</div></div>
+          <span class="team-load">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div>
       <div class="panel"><div class="panel-head"><h2>Recent system log</h2><a class="btn btn-ghost btn-sm" href="#/logs">Open Logs</a></div>
-        <div class="log-mini">${logs.logs.map((l) => `<div class="log-line"><span class="log-ts">${esc(absTime(l.ts))}</span><span class="log-level ${esc(l.level)}">${esc(l.level)}</span><span class="log-msg">${esc(l.message)}</span></div>`).join("") || '<p class="muted">No entries yet.</p>'}</div></div>
+        <div class="log-mini">${logs.logs.map((l) => `<div class="log-line"><span class="log-ts">${esc(absTime(l.ts))}</span><span class="log-level ${esc(l.level)}">${esc(l.level)}</span><span class="log-msg">${esc(l.message)}</span></div>`).join("") || '<p class="muted">No entries yet.</p>'}</div>
+        <div class="panel-head" style="margin-top:12px"><h2>How it works</h2></div>
+        <ol class="how-list">${ov.how.map((h) => `<li>${esc(h.replace(/^\d+\.\s*/, ""))}</li>`).join("")}</ol></div>
     </div>
-    ${stats.total === 0 ? `<div class="panel"><div class="empty"><div class="empty-title">No findings yet</div><div class="empty-sub">Load synthetic demo data to explore every view.</div>${canWrite() ? '<button class="btn btn-primary" id="demo-btn">Load demo data</button>' : ""}</div></div>` : ""}`;
+    ${k.total === 0 ? `<div class="panel"><div class="empty"><div class="empty-title">No findings yet</div><div class="empty-sub">Load synthetic demo data to explore every view.</div>${canWrite() ? '<button class="btn btn-primary" id="demo-btn">Load demo data</button>' : ""}</div></div>` : ""}`;
   const demo = $("#demo-btn");
   if (demo) demo.onclick = async () => { await api("/api/demo", { method: "POST", body: {} }); toast("Demo data loaded", "success"); renderOverview(); };
 }
@@ -436,7 +522,7 @@ async function renderSettingsSection() {
     if (!admin) { slot.innerHTML = head("Users") + '<p class="muted">Admin role required.</p>'; return; }
     const users = await api("/api/users");
     slot.innerHTML = head("Users") + `<div class="panel"><div class="inline-form"><input id="u-name" placeholder="Username"><input id="u-pw" type="password" placeholder="Password (10+)"><select id="u-role">${["viewer", "analyst", "admin"].map((r) => `<option>${r}</option>`).join("")}</select><button class="btn" id="u-add">Add user</button></div>
-      <div class="table-wrap"><table class="table"><thead><tr><th>User</th><th>Role</th><th>Disabled</th><th></th></tr></thead><tbody>${users.users.map((u) => `<tr><td>${esc(u.username)}</td><td><select data-urole="${esc(u.username)}">${["admin", "analyst", "viewer"].map((r) => `<option ${u.role === r ? "selected" : ""}>${r}</option>`).join("")}</select></td><td>${u.disabled ? "yes" : "no"}</td><td><button class="btn btn-ghost btn-sm" data-udis="${esc(u.username)}" data-dis="${u.disabled ? 0 : 1}">${u.disabled ? "Enable" : "Disable"}</button></td></tr>`).join("")}</tbody></table></div></div>`;
+      <div class="table-wrap"><table class="table"><thead><tr><th>User</th><th>Title</th><th>Role</th><th>Disabled</th><th></th></tr></thead><tbody>${users.users.map((u) => `<tr><td>${esc(u.username)}</td><td>${esc(u.title || "-")}</td><td><select data-urole="${esc(u.username)}">${["admin", "analyst", "viewer"].map((r) => `<option ${u.role === r ? "selected" : ""}>${r}</option>`).join("")}</select></td><td>${u.disabled ? "yes" : "no"}</td><td><button class="btn btn-ghost btn-sm" data-udis="${esc(u.username)}" data-dis="${u.disabled ? 0 : 1}">${u.disabled ? "Enable" : "Disable"}</button></td></tr>`).join("")}</tbody></table></div></div>`;
     $("#u-add").onclick = async () => { await api("/api/users", { method: "POST", body: { username: $("#u-name").value, password: $("#u-pw").value, role: $("#u-role").value } }); toast("User added", "success"); renderSettingsSection(); };
     $$("[data-urole]").forEach((s) => s.onchange = () => api(`/api/users/${s.dataset.urole}/role`, { method: "POST", body: { role: s.value } }));
     $$("[data-udis]").forEach((b) => b.onclick = async () => { await api(`/api/users/${b.dataset.udis}/disable`, { method: "POST", body: { disabled: b.dataset.dis === "1" } }); renderSettingsSection(); });
@@ -537,7 +623,12 @@ async function boot() {
   $("#user-role").textContent = state.user.role;
   $("#user-initial").textContent = state.user.username[0].toUpperCase();
   $("#menu-user").textContent = state.user.username;
-  $("#menu-role").textContent = state.user.role;
+  $("#menu-role").textContent = state.user.role + (state.user.title ? " · " + state.user.title : "");
+  $("#theme-toggle").onclick = () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("wm.theme", next); } catch (e) {}
+  };
   const health = await api("/api/health").catch(() => null);
   if (health) {
     $("#live-label").textContent = "Live";

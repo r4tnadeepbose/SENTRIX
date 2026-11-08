@@ -126,9 +126,13 @@ In v1.1, background jobs and scheduled scans add two more event sources from the
 
 ## Screenshots
 
-| Dashboard (graphite) | Login |
+| Dashboard (graphite) | Dashboard (white) |
 | --- | --- |
-| ![Dashboard, graphite theme](docs/screenshots/dashboard-dark.png) | ![Login page](docs/screenshots/login.png) |
+| ![Dashboard, graphite theme](docs/screenshots/dashboard-dark.png) | ![Dashboard, white theme](docs/screenshots/dashboard-light.png) |
+
+| Login with company demo roster | Findings detail drawer |
+| --- | --- |
+| ![Login page](docs/screenshots/login.png) | ![Finding drawer](docs/screenshots/findings-drawer.png) |
 
 ## Configuration
 

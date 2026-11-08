@@ -105,7 +105,7 @@ class AuthTests(unittest.TestCase):
         self.storage.add_session("live-token", "alice", "analyst",
                                  time.time() + 3600)
         self.assertEqual(self.auth.session_user("live-token"),
-                         {"username": "alice", "role": "analyst"})
+                         {"username": "alice", "role": "analyst", "title": ""})
         self.assertIsNone(self.auth.session_user("missing-token"))
         self.assertIsNone(self.auth.session_user(""))
 

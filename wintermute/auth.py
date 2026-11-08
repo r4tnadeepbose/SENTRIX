@@ -12,6 +12,13 @@ from wintermute.config import cfg_get, resolve_path
 
 ITERATIONS = 200_000
 ROLES = ("admin", "analyst", "viewer")
+TEAM = (
+    ("s.chen", "analyst", "Security Engineer"),
+    ("m.ross", "analyst", "SOC Analyst"),
+    ("i.kumar", "analyst", "Incident Responder"),
+    ("a.diaz", "viewer", "Compliance Officer"),
+    ("j.lee", "viewer", "Software Developer"),
+)
 
 
 class AuthError(Exception):
@@ -31,24 +38,55 @@ class AuthManager:
         self.session_hours = cfg_get(cfg, "auth.session_hours", 12)
 
     def ensure_admin(self):
-        if self.storage.list_users():
+        if not self.storage.list_users():
+            password = os.environ.get("WINTERMUTE_ADMIN_PASSWORD")
+            generated = not password
+            if not password:
+                if cfg_get(self.cfg, "auth.demo_mode", False):
+                    password = cfg_get(self.cfg, "auth.demo_password", "wintermute-demo")
+                else:
+                    password = secrets.token_urlsafe(9)
+            salt = secrets.token_hex(16)
+            self.storage.add_user("admin", hash_password(password, salt), salt, "admin",
+                                  title="Platform Administrator")
+            if generated:
+                target = resolve_path(self.cfg, "data/INITIAL_ADMIN_PASSWORD.txt")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    f"username: admin\npassword: {password}\n"
+                    "Change this password in Settings after first login.\n", encoding="utf-8")
+            self.log("warn", "auth", "Initial admin account created")
+        self.seed_team()
+
+    def seed_team(self):
+        """A full company roster so the console behaves like a real team tool."""
+        if not cfg_get(self.cfg, "auth.demo_mode", False):
             return
-        password = os.environ.get("WINTERMUTE_ADMIN_PASSWORD")
-        generated = not password
-        if not password:
-            if cfg_get(self.cfg, "auth.demo_mode", False):
-                password = cfg_get(self.cfg, "auth.demo_password", "wintermute-demo")
-            else:
-                password = secrets.token_urlsafe(9)
-        salt = secrets.token_hex(16)
-        self.storage.add_user("admin", hash_password(password, salt), salt, "admin")
-        if generated:
-            target = resolve_path(self.cfg, "data/INITIAL_ADMIN_PASSWORD.txt")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(
-                f"username: admin\npassword: {password}\n"
-                "Change this password in Settings after first login.\n", encoding="utf-8")
-        self.log("warn", "auth", "Initial admin account created")
+        for username, role, title in TEAM:
+            if self.storage.get_user(username):
+                continue
+            password = f"{username}-demo"
+            salt = secrets.token_hex(16)
+            self.storage.add_user(username, hash_password(password, salt), salt, role,
+                                  title=title)
+        self.log("info", "auth", "Company demo roster ready (6 accounts)")
+
+    def demo_accounts(self) -> list[dict]:
+        accounts = []
+        admin = self.storage.get_user("admin")
+        demo_password = cfg_get(self.cfg, "auth.demo_password", "wintermute-demo")
+        if admin and not admin["disabled"] and hmac.compare_digest(
+                admin["pw_hash"], hash_password(demo_password, admin["salt"])):
+            accounts.append({"username": "admin", "password": demo_password,
+                             "role": admin["role"], "title": admin.get("title", "")})
+        for username, role, title in TEAM:
+            user = self.storage.get_user(username)
+            password = f"{username}-demo"
+            if user and not user["disabled"] and hmac.compare_digest(
+                    user["pw_hash"], hash_password(password, user["salt"])):
+                accounts.append({"username": username, "password": password,
+                                 "role": user["role"], "title": user.get("title", title)})
+        return accounts
 
     def login(self, username: str, password: str, ip: str) -> tuple[str, dict]:
         now = time.time()
@@ -72,7 +110,8 @@ class AuthManager:
         self.storage.add_session(token, username, user["role"], expires)
         self.audit("login.ok", username, f"session issued for {self.session_hours}h")
         self.log("info", "auth", f"{username} signed in")
-        return token, {"username": username, "role": user["role"]}
+        return token, {"username": username, "role": user["role"],
+                       "title": user.get("title", "")}
 
     def logout(self, token: str):
         session = self.storage.get_session(token)
@@ -89,7 +128,8 @@ class AuthManager:
         user = self.storage.get_user(session["username"])
         if not user or user["disabled"]:
             return None
-        return {"username": user["username"], "role": user["role"]}
+        return {"username": user["username"], "role": user["role"],
+                "title": user.get("title", "")}
 
     def bearer_user(self, header: str) -> dict | None:
         if not header.startswith("Bearer wmt_"):
@@ -112,7 +152,7 @@ class AuthManager:
         self.audit("password.changed", username, "")
         self.log("info", "auth", f"{username} changed their password")
 
-    def add_user(self, by: str, username: str, password: str, role: str):
+    def add_user(self, by: str, username: str, password: str, role: str, title: str = ""):
         if role not in ROLES:
             raise AuthError(f"role must be one of {ROLES}")
         if self.storage.get_user(username):
@@ -120,7 +160,7 @@ class AuthManager:
         if len(password) < 10:
             raise AuthError("Password must be at least 10 characters.")
         salt = secrets.token_hex(16)
-        self.storage.add_user(username, hash_password(password, salt), salt, role)
+        self.storage.add_user(username, hash_password(password, salt), salt, role, title=title)
         self.audit("user.added", by, f"{username} ({role})")
 
     def set_role(self, by: str, username: str, role: str):

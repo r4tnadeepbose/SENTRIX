@@ -1,6 +1,8 @@
 """Synthetic demo findings so the dashboard is explorable out of the box."""
 from __future__ import annotations
 
+import time
+
 from wintermute.core.engine import scan_text
 from wintermute.core.pipeline import Pipeline
 
@@ -17,14 +19,28 @@ DEMO_SAMPLES = [
     ("git", "scripts/bootstrap.sh", 'export API_TOKEN="tok_9f8e7d6c5b4a39281706f5e4d3c2b1a0"'),
 ]
 
+TEAM_OWNERS = ["s.chen", "m.ross", "i.kumar", "j.lee", "a.diaz", "admin"]
+
 
 def seed_demo(pipeline: Pipeline) -> int:
     seeded = 0
-    for surface, path, text in DEMO_SAMPLES:
+    stored = []
+    for idx, (surface, path, text) in enumerate(DEMO_SAMPLES):
         findings = scan_text(text, path, surface, pipeline.allowlist)
+        age = (idx * 3) % 14
+        created = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - age * 86400))
         for finding in findings:
-            finding.owner = "demo-user"
+            finding.owner = TEAM_OWNERS[idx % len(TEAM_OWNERS)]
+            finding.created_at = created
+            finding.updated_at = created
             finding.meta["demo"] = True
         result = pipeline.ingest(findings, kind="demo.seeded")
         seeded += len(result["new"])
+        stored += result["new"]
+    for idx, finding in enumerate(stored):
+        pipeline.storage.update_extra(finding.id, assignee=finding.owner)
+        if idx % 5 == 3:
+            pipeline.storage.set_status(finding.id, "triaged", finding.owner)
+        elif idx % 5 == 4:
+            pipeline.storage.set_status(finding.id, "remediated", finding.owner)
     return seeded

@@ -12,7 +12,7 @@ from wintermute.core.storage import Storage
 EXT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY, pw_hash TEXT, salt TEXT, role TEXT,
-    disabled INTEGER DEFAULT 0, created_at TEXT
+    disabled INTEGER DEFAULT 0, created_at TEXT, title TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sessions (
     token TEXT PRIMARY KEY, username TEXT, role TEXT, expires_at REAL
@@ -73,14 +73,18 @@ class ExtStorage(Storage):
     def __init__(self, path: Path):
         super().__init__(path)
         self._db.executescript(EXT_SCHEMA)
+        try:
+            self._db.execute("ALTER TABLE users ADD COLUMN title TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         self._db.execute("INSERT OR IGNORE INTO migrations VALUES (2, ?)", (now_iso(),))
         self._db.commit()
 
     # -- users / sessions / tokens
-    def add_user(self, username, pw_hash, salt, role):
+    def add_user(self, username, pw_hash, salt, role, title=""):
         with self._lock:
-            self._db.execute("INSERT INTO users VALUES (?,?,?,?,0,?)",
-                             (username, pw_hash, salt, role, now_iso()))
+            self._db.execute("INSERT INTO users VALUES (?,?,?,?,0,?,?)",
+                             (username, pw_hash, salt, role, now_iso(), title))
             self._db.commit()
 
     def get_user(self, username):
@@ -89,7 +93,7 @@ class ExtStorage(Storage):
 
     def list_users(self):
         return [dict(r) for r in self._db.execute(
-            "SELECT username, role, disabled, created_at FROM users ORDER BY username")]
+            "SELECT username, role, title, disabled, created_at FROM users ORDER BY username")]
 
     def update_user(self, username, **fields):
         with self._lock:

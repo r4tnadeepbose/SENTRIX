@@ -1,3 +1,14 @@
+## 1.4.0 - 2026-11-08
+
+- Company demo roster: admin plus security engineer, SOC analyst, incident
+  responder, compliance officer and developer; credentials listed on the login
+  page with one-click sign-in per account.
+- Proper dashboard: KPI cards, donut charts, 14-day area graph, surface/channel
+  bars, entropy-by-severity dot plot, team workload panel.
+- Dark / white theme toggle, persisted, on console and login page.
+- UX fixes: themed log separators, single-numbered how-it-works list,
+  readable scatter bands, mobile card layouts verified.
+
 ## 1.3.0 - 2026-11-08
 
 - Workflow parity with the reference diagrams: provenance chain per finding

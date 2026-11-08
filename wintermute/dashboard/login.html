@@ -1,14 +1,26 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in - Wintermute</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("wm.theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") t = "dark";
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
 <style>
   :root {
-    --bg: #0f1113; --panel: #15181b; --border: #262b30;
+    --bg: #0f1113; --panel: #15181b; --panel-2: #1b1f23; --border: #262b30;
     --text: #d3d7da; --muted: #879096; --accent: #aeb6bd;
+  }
+  [data-theme="light"] {
+    --bg: #f4f5f6; --panel: #ffffff; --panel-2: #eceef0; --border: #d5d9dd;
+    --text: #1b1f22; --muted: #5b656d; --accent: #33404a;
   }
   * { box-sizing: border-box; margin: 0; }
   body {
@@ -16,8 +28,18 @@
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     min-height: 100vh; display: grid; place-items: center; padding: 24px;
   }
+  .theme-toggle {
+    position: fixed; top: 16px; right: 16px; width: 34px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); cursor: pointer;
+  }
+  .theme-toggle:hover { color: var(--text); }
+  .theme-toggle svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+  [data-theme="dark"] .icon-sun { display: none; }
+  [data-theme="light"] .icon-moon { display: none; }
   .card {
-    width: 100%; max-width: 380px; background: var(--panel);
+    width: 100%; max-width: 420px; background: var(--panel);
     border: 1px solid var(--border); border-radius: 8px; padding: 32px 28px;
   }
   .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
@@ -26,31 +48,42 @@
   .sub { color: var(--muted); font-size: 12.5px; margin-bottom: 24px; }
   label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; }
   input {
-    width: 100%; background: #101315; color: var(--text);
+    width: 100%; background: var(--panel-2); color: var(--text);
     border: 1px solid var(--border); border-radius: 6px;
     padding: 9px 10px; font: inherit; outline: none;
   }
-  input:focus { border-color: #3a4147; }
-  button {
+  input:focus { border-color: var(--accent); }
+  button.primary {
     width: 100%; margin-top: 22px; padding: 10px; cursor: pointer;
-    background: #23282c; color: var(--text); border: 1px solid #31373c;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
     border-radius: 6px; font: 600 13.5px system-ui, sans-serif;
   }
-  button:hover { background: #2a3035; }
+  button.primary:hover { border-color: var(--accent); }
   button:disabled { opacity: .6; cursor: default; }
   .error { display: none; margin-top: 14px; color: #d76a5e; font-size: 12.5px; }
-  .note { margin-top: 18px; color: var(--muted); font-size: 11.5px; }
-  .note code { font-family: ui-monospace, monospace; color: var(--accent); }
-  .demo {
-    display: none; margin-top: 20px; padding: 12px;
-    background: #101315; border: 1px dashed #31373c; border-radius: 6px;
+  [data-theme="light"] .error { color: #bf4437; }
+  .roster { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 14px; }
+  .roster-title { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .roster-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+  .roster-row:last-child { border-bottom: 0; }
+  .roster-id { min-width: 0; flex: 1; }
+  .roster-name { font-size: 12.5px; font-weight: 600; }
+  .roster-name .role { font-size: 9.5px; letter-spacing: .5px; text-transform: uppercase; border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; color: var(--muted); margin-left: 6px; }
+  .roster-title-line { font-size: 11px; color: var(--muted); }
+  .roster-creds { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--muted); margin-top: 2px; word-break: break-all; }
+  .roster-row button {
+    flex: none; padding: 6px 10px; font-size: 11.5px; cursor: pointer;
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
   }
-  .demo-title { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
-  .demo-creds { font-family: ui-monospace, monospace; font-size: 12.5px; margin: 8px 0; color: var(--accent); }
-  .demo button { margin-top: 4px; padding: 8px; font-size: 12.5px; }
+  .roster-row button:hover { border-color: var(--accent); }
+  .note { margin-top: 16px; color: var(--muted); font-size: 11.5px; }
 </style>
 </head>
 <body>
+  <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle dark / white theme">
+    <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5z"/></svg>
+    <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4"/></svg>
+  </button>
   <form class="card" id="form" autocomplete="on">
     <div class="brand">
       <img src="/logo.svg" alt="">
@@ -61,43 +94,32 @@
     <input id="username" name="username" autocomplete="username" required autofocus>
     <label for="password">Password</label>
     <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button id="submit" type="submit">Sign in</button>
+    <button class="primary" id="submit" type="submit">Sign in</button>
     <p class="error" id="error" role="alert"></p>
-    <div class="demo" id="demo">
-      <div class="demo-title">Demo access</div>
-      <div class="demo-creds" id="demo-creds"></div>
-      <button id="demo-login" type="button">Sign in with demo account</button>
+    <div class="roster" id="roster" hidden>
+      <div class="roster-title">Demo company roster - sign in as anyone</div>
+      <div id="roster-rows"></div>
     </div>
-    <p class="note">Demo credentials are shown only while the admin password is
-      unchanged and the server listens on localhost. Change it in Settings after signing in.</p>
+    <p class="note">Demo accounts are shown only while their passwords are unchanged and
+      the server listens on localhost. Change yours in Settings after signing in.</p>
   </form>
 <script>
   const form = document.getElementById("form");
   const error = document.getElementById("error");
   const submit = document.getElementById("submit");
-  fetch("/api/auth/demo-info").then((r) => r.json()).then((info) => {
-    if (!info.enabled) return;
-    document.getElementById("demo").style.display = "block";
-    document.getElementById("demo-creds").textContent =
-      "username: " + info.username + "  /  password: " + info.password;
-    document.getElementById("demo-login").addEventListener("click", () => {
-      document.getElementById("username").value = info.username;
-      document.getElementById("password").value = info.password;
-      form.requestSubmit();
-    });
-  }).catch(() => {});
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
+  document.getElementById("theme-toggle").addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("wm.theme", next); } catch (e) {}
+  });
+  async function signIn(username, password) {
     error.style.display = "none";
     submit.disabled = true;
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: document.getElementById("username").value.trim(),
-          password: document.getElementById("password").value,
-        }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Sign-in failed.");
@@ -107,7 +129,33 @@
       error.style.display = "block";
       submit.disabled = false;
     }
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    signIn(document.getElementById("username").value.trim(),
+           document.getElementById("password").value);
   });
+  fetch("/api/auth/demo-info").then((r) => r.json()).then((info) => {
+    if (!info.enabled || !info.accounts || !info.accounts.length) return;
+    document.getElementById("roster").hidden = false;
+    document.getElementById("roster-rows").innerHTML = info.accounts.map((a, i) => `
+      <div class="roster-row">
+        <div class="roster-id">
+          <div class="roster-name">${a.username}<span class="role">${a.role}</span></div>
+          <div class="roster-title-line">${a.title || ""}</div>
+          <div class="roster-creds">${a.username} / ${a.password}</div>
+        </div>
+        <button type="button" data-acct="${i}">Sign in</button>
+      </div>`).join("");
+    document.querySelectorAll("[data-acct]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const a = info.accounts[+btn.dataset.acct];
+        document.getElementById("username").value = a.username;
+        document.getElementById("password").value = a.password;
+        signIn(a.username, a.password);
+      });
+    });
+  }).catch(() => {});
 </script>
 </body>
 </html>

@@ -151,18 +151,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"user": user}) if user else self._json({"error": "unauthenticated"}, 401)
         if path == "/api/auth/demo-info":
             enabled = False
-            info = {"enabled": False}
+            accounts = []
             if cfg_get(state.cfg, "auth.demo_mode", False) and \
                     cfg_get(state.cfg, "server.host", "127.0.0.1") in ("127.0.0.1", "localhost"):
-                admin = state.storage.get_user("admin")
-                demo_password = cfg_get(state.cfg, "auth.demo_password", "wintermute-demo")
-                if admin and not admin["disabled"] and hmac.compare_digest(
-                        admin["pw_hash"], hash_password(demo_password, admin["salt"])):
-                    enabled = True
-                    info = {"enabled": True, "username": "admin", "password": demo_password}
+                accounts = state.auth.demo_accounts()
+                enabled = bool(accounts)
+            info = {"enabled": enabled, "accounts": accounts}
+            if accounts:
+                info["username"] = accounts[0]["username"]
+                info["password"] = accounts[0]["password"]
             return self._json(info)
         if path == "/api/stats":
             return self._json(state.storage.stats())
+        if path == "/api/dashboard":
+            return self._json(self._dashboard())
         if path == "/api/overview":
             stats = state.storage.stats()
             return self._json({
@@ -559,6 +561,58 @@ class Handler(BaseHTTPRequestHandler):
             state.auth.audit("detectors.tuning", uname, json.dumps(body)[:200])
             return self._json({"ok": True})
         return self._json({"error": "not found"}, 404)
+
+    def _dashboard(self) -> dict:
+        storage = self.state.storage
+        findings = storage.list_findings(limit=5000)
+        stats = storage.stats()
+        severity = {s: 0 for s in SEVERITIES}
+        status: dict = {}
+        surfaces: dict = {}
+        scatter = []
+        assignees: dict = {}
+        owners: dict = {}
+        for idx, f in enumerate(findings):
+            severity[f.severity] = severity.get(f.severity, 0) + 1
+            status[f.status] = status.get(f.status, 0) + 1
+            surfaces[f.surface] = surfaces.get(f.surface, 0) + 1
+            owners[f.owner] = owners.get(f.owner, 0) + 1
+            if idx < 300:
+                extra = storage.get_extra(f.id)
+                assignees[extra["assignee"]] = assignees.get(extra["assignee"], 0) + 1
+                scatter.append({"entropy": f.entropy, "occurrences": extra["occurrences"],
+                                "severity": f.severity, "title": f.title})
+        days = []
+        for i in range(13, -1, -1):
+            day = time.strftime("%Y-%m-%d", time.gmtime(time.time() - i * 86400))
+            days.append({"date": day,
+                         "count": sum(1 for f in findings if f.created_at.startswith(day))})
+        channels: dict = {}
+        for alert in storage.list_alerts(limit=1000):
+            channels[alert["channel"]] = channels.get(alert["channel"], 0) + 1
+        team = []
+        for user in storage.list_users():
+            name = user["username"]
+            team.append({"username": name, "title": user.get("title", ""),
+                         "role": user["role"],
+                         "owned": owners.get(name, 0),
+                         "assigned": assignees.get(name, 0)})
+        return {
+            "kpis": {
+                "total": stats["total"], "open": stats["open"],
+                "critical_high": severity.get("critical", 0) + severity.get("high", 0),
+                "alerts": stats["alerts_sent"], "remediations": stats["remediations"],
+                "false_positives": status.get("false_positive", 0),
+            },
+            "severity": [{"label": k, "value": v} for k, v in severity.items()],
+            "status": [{"label": k, "value": v} for k, v in status.items()],
+            "surfaces": [{"label": k, "value": v} for k, v in
+                         sorted(surfaces.items(), key=lambda kv: -kv[1])],
+            "timeline": days,
+            "channels": [{"label": k, "value": v} for k, v in channels.items()],
+            "scatter": scatter,
+            "team": team,
+        }
 
     def _file(self, path: Path):
         if not path.is_file():
