@@ -9,9 +9,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.core.allowlist import Allowlist
-from wintermute.core.engine import scan_text
-from wintermute.core.util import fingerprint
+from sentrix.core.allowlist import Allowlist
+from sentrix.core.engine import scan_text
+from sentrix.core.util import fingerprint
 
 # (sample text, expected detector id, sensitive substring that must be masked)
 SAMPLES = [

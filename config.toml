@@ -1,4 +1,4 @@
-# Wintermute configuration. Safe defaults; everything works offline.
+# SENTRIX configuration. Safe defaults; everything works offline.
 # Overrides: copy sections into config.local.toml (gitignored).
 
 [server]
@@ -11,7 +11,7 @@ login_rate_limit = 5
 # Demo mode shows sign-in credentials on the login page (loopback only).
 # The card disappears as soon as the admin password is changed.
 demo_mode = true
-demo_password = "wintermute-demo"
+demo_password = "sentrix-demo"
 
 [scan]
 max_file_bytes = 1_000_000
@@ -20,13 +20,13 @@ fail_on = "high"
 ignore_dirs = [
   ".git", "node_modules", "__pycache__", ".venv", "venv",
   "dist", "build", "data", "logs", ".mypy_cache", ".pytest_cache",
-  "examples", "tests", "docs", "assets", "wintermute",
+  "examples", "tests", "docs", "assets", "sentrix",
 ]
 ignore_files = ["*.png", "*.jpg", "*.jpeg", "*.gif", "*.pdf", "*.ico", "*.lock"]
 allowlist_patterns = []
 
 [storage]
-path = "data/wintermute.db"
+path = "data/sentrix.db"
 
 [alerting]
 channels = ["console", "outbox"]
@@ -57,24 +57,24 @@ severity_overrides = {}
 enabled = false
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
-api_key_env = "WINTERMUTE_AI_KEY"
+api_key_env = "SENTRIX_AI_KEY"
 
 [surfaces.slack]
-token_env = "WINTERMUTE_SLACK_TOKEN"
+token_env = "SENTRIX_SLACK_TOKEN"
 channels = []
 poll_seconds = 300
 
 [surfaces.confluence]
 base_url = ""
-token_env = "WINTERMUTE_CONFLUENCE_TOKEN"
+token_env = "SENTRIX_CONFLUENCE_TOKEN"
 
 [surfaces.jira]
 base_url = ""
-token_env = "WINTERMUTE_JIRA_TOKEN"
+token_env = "SENTRIX_JIRA_TOKEN"
 project = "SEC"
 
 [surfaces.postman]
-api_key_env = "WINTERMUTE_POSTMAN_KEY"
+api_key_env = "SENTRIX_POSTMAN_KEY"
 workspaces = []
 
 [surfaces.cloud]

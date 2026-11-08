@@ -10,12 +10,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.alerting.router import AlertRouter
-from wintermute.config import load_config
-from wintermute.core.engine import scan_text
-from wintermute.core.extensions import ExtStorage
-from wintermute.core.models import Finding
-from wintermute.core.pipeline import Pipeline
+from sentrix.alerting.router import AlertRouter
+from sentrix.config import load_config
+from sentrix.core.engine import scan_text
+from sentrix.core.extensions import ExtStorage
+from sentrix.core.models import Finding
+from sentrix.core.pipeline import Pipeline
 
 
 class FlowTests(unittest.TestCase):

@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.auth import AuthError, AuthManager, hash_password
-from wintermute.config import load_config
-from wintermute.core.extensions import ExtStorage
+from sentrix.auth import AuthError, AuthManager, hash_password
+from sentrix.config import load_config
+from sentrix.core.extensions import ExtStorage
 
 PASSWORD = "unit-test-pass-123"
 SALT = "fixed-salt-for-tests"
@@ -29,7 +29,7 @@ class AuthTests(unittest.TestCase):
         self.addCleanup(self.storage.close)
         self.auth = AuthManager(self.storage, self.cfg)
         self.storage.add_user(
-            "alice", hash_password(PASSWORD, SALT), SALT, "analyst")
+            "alice", hash_password(PASSWORD, SALT), SALT, "security_analyst")
 
     def test_hash_password_deterministic_with_same_salt(self):
         first = hash_password(PASSWORD, SALT)
@@ -59,7 +59,7 @@ class AuthTests(unittest.TestCase):
         # The original password still works afterwards.
         token, user = self.auth.login("alice", PASSWORD, "10.0.0.3")
         self.assertTrue(token)
-        self.assertEqual(user["role"], "analyst")
+        self.assertEqual(user["role"], "security_analyst")
 
     def test_change_password_updates_credentials(self):
         self.auth.change_password("alice", PASSWORD, "brand-new-pass-123")
@@ -72,7 +72,7 @@ class AuthTests(unittest.TestCase):
     def test_add_user_duplicate_raises(self):
         self.auth.add_user("admin", "bob", "bob-password-123", "viewer")
         with self.assertRaises(AuthError):
-            self.auth.add_user("admin", "bob", "other-password-123", "analyst")
+            self.auth.add_user("admin", "bob", "other-password-123", "security_analyst")
         users = {u["username"] for u in self.storage.list_users()}
         self.assertEqual(users, {"alice", "bob"})
         self.assertEqual(self.storage.get_user("bob")["role"], "viewer")
@@ -98,14 +98,14 @@ class AuthTests(unittest.TestCase):
 
     def test_session_expiry_returns_none(self):
         # An already-expired session must never identify a user.
-        self.storage.add_session("expired-token", "alice", "analyst",
+        self.storage.add_session("expired-token", "alice", "security_analyst",
                                  time.time() - 3600)
         self.assertIsNone(self.auth.session_user("expired-token"))
         # A live session works; unknown and empty tokens do not.
-        self.storage.add_session("live-token", "alice", "analyst",
+        self.storage.add_session("live-token", "alice", "security_analyst",
                                  time.time() + 3600)
         self.assertEqual(self.auth.session_user("live-token"),
-                         {"username": "alice", "role": "analyst", "title": ""})
+                         {"username": "alice", "role": "security_analyst", "title": ""})
         self.assertIsNone(self.auth.session_user("missing-token"))
         self.assertIsNone(self.auth.session_user(""))
 
@@ -114,7 +114,7 @@ class AuthTests(unittest.TestCase):
         # is exercised (add_session normally purges expired rows on insert).
         self.storage._db.execute(
             "INSERT OR REPLACE INTO sessions VALUES (?,?,?,?)",
-            ("stale-row", "alice", "analyst", time.time() - 10))
+            ("stale-row", "alice", "security_analyst", time.time() - 10))
         self.storage._db.commit()
         self.assertIsNotNone(self.storage.get_session("stale-row"))
         self.assertIsNone(self.auth.session_user("stale-row"))
@@ -126,10 +126,10 @@ class AuthTests(unittest.TestCase):
         self.assertIsNone(self.auth.session_user(token))
 
     def test_bearer_token_lifecycle(self):
-        raw = self.auth.create_token("alice", "ci", "analyst")
-        self.assertTrue(raw.startswith("wmt_"))
+        raw = self.auth.create_token("alice", "ci", "security_analyst")
+        self.assertTrue(raw.startswith("sxt_"))
         self.assertEqual(self.auth.bearer_user(f"Bearer {raw}"),
-                         {"username": "token:ci", "role": "analyst"})
+                         {"username": "token:ci", "role": "security_analyst"})
         self.assertIsNone(self.auth.bearer_user(raw))  # missing scheme
         self.assertIsNone(self.auth.bearer_user(f"Bearer {raw}tampered"))
         tid = self.storage.list_tokens()[0]["id"]

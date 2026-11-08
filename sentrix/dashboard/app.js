@@ -1,0 +1,692 @@
+/* SENTRIX Command Center - enterprise security intelligence console. */
+"use strict";
+
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const WRITE_ROLES = ["super_admin", "security_admin", "security_analyst", "appsec_engineer", "devsecops_engineer"];
+const ADMIN_ROLES = ["super_admin", "security_admin"];
+const SEVS = ["critical", "high", "medium", "low", "info"];
+const LIFE = ["new", "triaged", "assigned", "in_progress", "remediated", "verified", "closed"];
+const SURFACES = ["ide", "pre_push", "ci", "git", "cloud", "slack", "confluence", "jira", "postman", "filesystem"];
+const SLABEL = { ide: "IDE", pre_push: "Pre-push", ci: "CI/CD", git: "Git", cloud: "Cloud", slack: "Slack", confluence: "Confluence", jira: "Jira", postman: "Postman", filesystem: "Filesystem" };
+const SEV_COLOR = { critical: "var(--crit)", high: "var(--high)", medium: "var(--med)", low: "var(--low)", info: "var(--sev-info)" };
+const STATUS_COLOR = { open: "var(--accent)", new: "var(--accent)", triaged: "var(--info)", assigned: "var(--info)", in_progress: "var(--info)", remediated: "var(--ok)", verified: "var(--ok)", closed: "var(--ok)", false_positive: "var(--warn)", accepted_risk: "var(--warn)", suppressed: "var(--warn)", reopened: "var(--accent)" };
+
+const NAV = [
+  ["Command Center", [["overview", "Overview"], ["posture", "Security Posture"], ["intelligence", "Intelligence Dashboard"]]],
+  ["Detection", [["findings", "Findings"], ["sources", "Detection Sources"], ["rules", "Detection Rules"], ["playground", "Detection Playground"], ["scans", "Scan Management"]]],
+  ["Attack Surface", [["repositories", "Repository Security"], ["developer", "Developer Security"], ["cloud", "Cloud Security"], ["cicd", "CI/CD Security"], ["saas", "SaaS Security"], ["assets", "Asset Inventory"]]],
+  ["Response", [["remediation", "Remediation Center"], ["alerts", "Security Alerts"], ["investigations", "Investigation Center"], ["exceptions", "Exception Management"]]],
+  ["Operations", [["integrations", "Integrations"], ["jobs", "Background Jobs"], ["logs", "System Logs"], ["audit", "Activity & Audit"], ["health", "System Health"]]],
+  ["Governance", [["reports", "Reports"], ["compliance", "Compliance"], ["access", "Access Management"], ["settings", "Settings"]]],
+];
+
+const HELP = {
+  overview: ["Executive rollup of every detection layer plus the live processing pipeline.", "One screen must answer whether the organization is exposed right now.", "Metrics aggregate the findings store; the chain reads job, event and log telemetry; clicking a stage opens its operational detail.", "findings, scan_jobs, events, alerts, system_log tables via /api/overview and /api/pipeline.", "sentrix.server control plane over sentrix.core.extensions storage.", "findings, finding_extra, scan_jobs, events, alerts, system_log.", "Inspect stages, open findings, load or reset demo data.", "Demo installations show synthetic records marked DEMO; metrics are only as current as the last scan."],
+  posture: ["Trends and distributions describing how exposure evolves.", "Point-in-time counts hide whether remediation keeps pace with detection.", "Time buckets group findings by creation date; MTTR averages recorded status transitions to remediated/verified/closed.", "findings.created_at and status_history timestamps.", "sentrix.server /api/posture aggregation.", "findings, status_history, finding_extra.", "Compare surfaces, categories, environments and age buckets.", "MTTD is reported as zero until event-to-finding latency instrumentation is added; see ROADMAP."],
+  intelligence: ["Explainable risk scoring and exposure concentration.", "Severity alone ignores surface, confidence, duration and repetition.", "sentrix.core.risk scores each finding 0-100 from severity, category, surface, confidence, validation, environment, age and occurrences; every factor is listed.", "finding meta.risk computed at ingestion by the pipeline.", "sentrix.core.risk + sentrix.core.pipeline.", "findings.meta, finding_extra.occurrences.", "Work the priority queue; inspect concentration and coverage gaps.", "Scores are heuristic and explainable, not confirmed credential validity."],
+  findings: ["The exposure center: every detection with investigation tooling.", "Analysts need one queue with evidence, ownership and lifecycle.", "Server-side filtering, sorting and pagination; drawer loads evidence, risk, notes, history and checklist; transitions are recorded.", "findings plus finding_extra, notes, status_history, checklists.", "sentrix.server /api/findings + sentrix.core.extensions.", "findings, finding_extra, notes, status_history, checklists, remediations.", "Search, filter, save filters, customize columns, bulk act, export CSV, remediate.", "Raw secrets are never returned; evidence is masked and fingerprinted."],
+  sources: ["Health and volume of each detection surface.", "Coverage gaps are invisible unless sources are enumerated.", "Counts findings and latest events per surface; idle means no telemetry yet.", "findings.surface and events.surface.", "sentrix.server /api/sources.", "findings, events, schedules.", "Trigger a scan job for any surface.", "Export-based surfaces report only what has been ingested."],
+  rules: ["The detector registry and custom enterprise patterns.", "One pattern set must serve every layer and be tunable without code changes.", "Registry entries carry severity and enabled state; tuning applies to new scans; custom rules compile and register live.", "sentrix.detectors registry plus custom_rules table.", "sentrix.core.engine.configure + /api/detectors/tuning.", "custom_rules, config.toml detectors section.", "Enable/disable, override severity, add validated custom regex rules.", "Tuning affects future scans, not stored findings."],
+  playground: ["Safe detonation chamber for detector testing.", "Confirm a pattern fires before it reaches a repository or pipeline.", "Runs the shared engine on pasted text without persisting anything.", "Ephemeral request body only.", "sentrix.core.engine.scan_text via /api/scan.", "None - results are not stored.", "Paste samples, review confidence, validation and risk.", "No persistence by design; use Scan Management for recorded scans."],
+  scans: ["Manual and scheduled scan orchestration.", "Ad-hoc and recurring coverage must be initiation-controlled and auditable.", "Jobs run in a bounded worker pool with an incremental content cache; schedules fire on interval.", "scan_jobs and schedules tables.", "sentrix.core.jobs JobRunner + scheduler.", "scan_jobs, scan_cache, schedules.", "Start jobs, cancel, create/toggle/delete schedules.", "Two concurrent jobs; unchanged files are skipped by mtime+size cache."],
+  repositories: ["Git, pre-push and CI exposure in one queue.", "Code paths are the highest-volume leak surface.", "Filters the findings store to git/pre_push/ci surfaces and links the matching connectors.", "findings.surface in (git, pre_push, ci).", "sentrix.server + sentrix.surfaces.git.", "findings, events.", "Review, investigate and scan repository paths.", "Historical scanning covers supplied ranges, not remote hosts without credentials."],
+  developer: ["IDE and filesystem detections.", "Earliest feedback is the cheapest remediation.", "Shows ide/filesystem findings; the VS Code extension and watch mode feed this surface locally.", "findings.surface in (ide, filesystem).", "sentrix.surfaces.ide + sentrix.watch.", "findings, events.", "Inspect local detections; run on-demand scans.", "Local layers never transmit code to the server unless ingested explicitly."],
+  cloud: ["Lambda code and environment exposure.", "Clickops deployments bypass pipeline gates.", "Aggregates cloud-surface findings from function artifacts and optional live AWS reads.", "findings.surface = cloud; examples/lambda artifacts.", "sentrix.surfaces.cloud.", "findings, scan_jobs.", "Scan function directories; review env-var detections.", "Live AWS requires boto3 and credentials; otherwise export-based."],
+  cicd: ["Pipeline configuration and diff-gate detections.", "Build configs and PR diffs carry credentials outside application code.", "Shows ci-surface findings produced by gate runs and pipeline scans.", "findings.surface = ci.", "sentrix.surfaces.git + ci/ templates.", "findings, events.", "Review gate blocks; re-run diff scans.", "Gate results depend on CI invoking the CLI with a valid range."],
+  saas: ["Slack, Jira, Confluence and Postman exposure.", "Collaboration tools sit outside the git pipeline entirely.", "Aggregates SaaS surfaces; confirmed findings alert, unconfirmed are logged for audit.", "findings.surface in (slack, jira, confluence, postman).", "sentrix.surfaces slack/jira/confluence/postman + pipeline confirmation branch.", "findings, system_log, alerts.", "Ingest exports or live reads; investigate and ticket.", "Live reads require least-privilege tokens and workspace consent."],
+  assets: ["Inventory of monitored repositories, functions and workspaces.", "You cannot protect what you have not enumerated.", "Derives assets from finding paths and origins, scoring each by worst risk and critical count.", "findings.path/meta.origin grouped per asset.", "sentrix.server /api/assets.", "findings, finding_extra.", "Sort by risk; spot unmonitored or critical-heavy assets.", "Inventory is detection-derived; connect integrations for authoritative lists."],
+  remediation: ["Operational queue with SLAs, checklists and playbooks.", "Rotation must be tracked to verification, not assumed.", "Tasks carry severity-based SLA hours; checklist progress persists; verification rescans before closure.", "findings + checklists + status_history + remediations.", "sentrix.remediation.playbooks + sentrix.core.jobs.", "findings, checklists, remediations, status_history.", "Assign, work checklists, rotate, redact, quarantine, ticket, verify.", "A finding never auto-closes because a secret disappeared; verification is required."],
+  alerts: ["Delivered notifications across channels.", "Responders need acknowledgement state, not just delivery.", "Router applies channel rules, quiet hours, dedupe and retries; acks record ownership.", "alerts + alert_acks tables.", "sentrix.alerting.router.", "alerts, alert_acks, alert_rules.", "Acknowledge, filter by channel, mute per finding.", "Unconfigured webhooks run in dry-run; quiet hours defer network channels."],
+  investigations: ["Findings with active notes or ownership.", "Open investigations must not drown in the general queue.", "Selects non-closed findings having notes or an assignee, with related-finding counts.", "findings + notes + finding_extra.", "sentrix.server /api/investigations.", "findings, notes, finding_extra.", "Open the drawer, add notes, follow relationships.", "Derived view; it reflects recorded notes and assignments only."],
+  exceptions: ["Allowlist plus accepted-risk and suppressed findings.", "False positives and risk decisions need explicit, audited records.", "Fingerprint allowlist entries suppress future alerts; exceptions set status and store a reason note.", "allowlist + findings status + notes.", "sentrix.core.allowlist + /api/exceptions.", "allowlist, findings, notes, audit.", "Add allowlist entries, accept risk, suppress with reason.", "Exceptions are audited; they do not delete evidence."],
+  integrations: ["SENTRIX Connect hub for nine providers.", "Connection state must be honest: connected, demo or disconnected.", "Status derives from configured credentials; demo mode labels synthetic connectors; sync records an audited event.", "config env tokens + events + system_log.", "sentrix.core.integrations.", "events, system_log, audit, config.", "Sync, enable/disable, disconnect, review permissions and errors.", "Export-based connectors are labeled demo until credentials exist; no fake live claims."],
+  jobs: ["Execution history of asynchronous work.", "Reliability requires visible state, retries and failure diagnostics.", "Workers report queued/running/done/failed/cancelled with files, findings and errors; cancellation is cooperative.", "scan_jobs table.", "sentrix.core.jobs.", "scan_jobs, scan_cache.", "Cancel running work, inspect errors, re-run scans.", "History retains the latest 50 executions per query."],
+  logs: ["Structured operational journal with correlation.", "Every pipeline stage must be traceable to its origin.", "Live stream with level/source/time filters; expanding a row shows component, exec id, resource, status and correlation id; correlation links filter the stream.", "system_log table written by every component.", "sentrix.core.extensions.add_log callers across the platform.", "system_log.", "Search, filter, expand, correlate, export CSV, pause.", "Raw secrets are never written to logs."],
+  audit: ["Security-relevant actions and pipeline events.", "Accountability requires who/what/when independent of operational logs.", "Audit rows record auth, mutations, exceptions and ops; events record pipeline activity.", "audit + events tables.", "sentrix.auth.audit + sentrix.core.pipeline.", "audit, events.", "Review actor, action and detail; export via reports.", "Audit is append-only within retention policy."],
+  health: ["Runtime and storage vitals.", "Operators need uptime, capacity and worker state at a glance.", "Reads process uptime, thread count, DB size and job status distribution.", "PRAGMA database_list + scan_jobs + threading.", "sentrix.server /api/system/health.", "scan_jobs, users, migrations.", "Backup, vacuum, review capacity.", "Single-node SQLite deployment; see DEPLOYMENT for scale path."],
+  reports: ["Generated governance and posture reports.", "Evidence packs must come from live records, not screenshots.", "Generates CSV/JSON from the findings store per type and keeps export history with downloadable bodies.", "report_history + findings.", "sentrix.core.reports.", "report_history, findings, audit.", "Generate, download, review history.", "Reports are evidence, not certification."],
+  compliance: ["Control-to-evidence mapping.", "Auditors ask which controls the platform supports.", "Static mapping of SOC 2, ISO 27001, PCI DSS and NIST CSF controls to implemented capabilities.", "Curated mapping served by /api/compliance.", "sentrix.server.", "None (curated), references audit/findings features.", "Review evidence per control; export audit reports.", "Mapping is not certification; partial means capability exists but coverage is limited."],
+  access: ["Users, roles and API tokens.", "Least privilege across eight roles must be enforceable and auditable.", "PBKDF2-hashed passwords, expiring sessions, hashed bearer tokens; role changes audited.", "users, sessions, tokens tables.", "sentrix.auth.", "users, sessions, tokens, audit.", "Add users, change roles, disable, issue and revoke tokens.", "Token plaintext is shown once at creation."],
+  settings: ["Profile, alerting policy and data operations.", "Administrators need one governed place for platform policy.", "Password change, channel rules, retention purge, vacuum, backup, exports and demo reset.", "config + users + alert_rules + storage.", "sentrix.auth + sentrix.alerting.router + sentrix.core.extensions.", "users, alert_rules, migrations, report_history.", "Change password, tune rules, purge, backup, reset demo.", "Destructive operations require confirmation and are audited."],
+};
+
+const state = {
+  user: null, view: "overview", filters: { severity: "", surface: "", status: "", q: "", environment: "", validation: "" },
+  sort: "created", page: 1, pageSize: 25, selection: new Set(), cols: null,
+  drawerId: null, drawerTab: "overview", stage: null, paused: false,
+  logQ: "", logLevel: "", logSource: "", logRange: "all", logCorr: "", logTab: "system",
+  auditTab: "audit", settingsTab: "profile", mobileSheet: false,
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { "Content-Type": "application/json" }, credentials: "same-origin",
+    ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 401) { location.href = "/login"; throw new Error("unauthenticated"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+const canWrite = () => state.user && WRITE_ROLES.includes(state.user.role);
+const isAdmin = () => state.user && ADMIN_ROLES.includes(state.user.role);
+
+function icon(name, size = 14) {
+  const paths = {
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="13" y="3" width="7" height="7" rx="1"/><rect x="3" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>',
+    shield: '<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/>',
+    search: '<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/>',
+    pulse: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+    layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+    repo: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 11h6M9 15h6"/>',
+    cloud: '<path d="M7 18a4 4 0 010-8 5 5 0 019.6-1.5A4 4 0 0117 18z"/>',
+    plug: '<path d="M9 3v6M15 3v6M6 9h12v3a6 6 0 01-12 0z"/><path d="M12 18v3"/>',
+    wrench: '<path d="M14 6a4 4 0 00-5.6 5.6L3 17l4 4 5.4-5.4A4 4 0 0018 10l-3 3-3-3z"/>',
+    bell: '<path d="M6 16v-5a6 6 0 0112 0v5l2 3H4z"/><path d="M10 19a2 2 0 004 0"/>',
+    list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h1M3 12h1M3 18h1"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/>',
+    lock: '<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/>',
+    gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/>',
+    x: '<path d="M5 5l14 14M19 5L5 19"/>',
+    chev: '<path d="M6 9l6 6 6-6"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
+    moon: '<path d="M20 13.5A8 8 0 0110.5 4a8 8 0 109.5 9.5z"/>',
+    eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+    download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    doc: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h6M9 16h6"/>',
+    check: '<path d="M4 12l5 5L20 6"/>',
+    warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+    box: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M3 10h18M9 7V4h6v3"/>',
+  };
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.grid}</svg>`;
+}
+
+function toast(msg, kind = "info") {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.innerHTML = `<span>${esc(msg)}</span><button class="iconbtn" aria-label="Dismiss">${icon("x", 12)}</button>`;
+  $("button", el).onclick = () => el.remove();
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
+
+function confirmModal(title, body, onYes, label = "Confirm") {
+  const wrap = document.createElement("div");
+  wrap.className = "modalwrap";
+  wrap.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><div class="mhead">${esc(title)}<button class="iconbtn" data-no aria-label="Close">${icon("x")}</button></div><div class="mbody">${esc(body)}</div><div class="mfoot"><button class="btn ghost" data-no>Cancel</button><button class="btn danger" data-yes>${esc(label)}</button></div></div>`;
+  $("#overlays").appendChild(wrap);
+  const close = () => wrap.remove();
+  $$("[data-no]", wrap).forEach((b) => (b.onclick = close));
+  wrap.onclick = (e) => { if (e.target === wrap) close(); };
+  $("[data-yes]", wrap).onclick = () => { close(); onYes(); };
+}
+
+function helpPopover(key, anchor) {
+  closeOverlays("popover");
+  const h = HELP[key] || HELP.overview;
+  const labels = ["What it does", "Why it exists", "How it operates", "Data origin", "Backend component", "Database records", "What you can do", "Limitations"];
+  const pop = document.createElement("div");
+  pop.className = "popover help";
+  pop.innerHTML = `<div class="pophead">${icon("shield")} About this module<button class="iconbtn" aria-label="Close">${icon("x", 12)}</button></div>` +
+    h.map((t, i) => `<div class="hp"><div class="hpl">${labels[i]}</div><div class="hpt">${esc(t)}</div></div>`).join("");
+  $("#overlays").appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.top = `${Math.min(r.bottom + 6, window.innerHeight - 320)}px`;
+  pop.style.left = `${Math.max(8, Math.min(r.left - 160, window.innerWidth - 396))}px`;
+  $(".iconbtn", pop).onclick = () => pop.remove();
+  setTimeout(() => {
+    const off = (e) => { if (!pop.contains(e.target) && e.target !== anchor) { pop.remove(); document.removeEventListener("click", off); } };
+    document.addEventListener("click", off);
+  }, 0);
+}
+function closeOverlays(cls) { if (cls) $$(`.${cls}`, $("#overlays")).forEach((n) => n.remove()); }
+
+const helpbtn = (key) => `<button class="helpbtn" data-help="${key}" aria-label="Explain this section" title="What is this?">?</button>`;
+const sevChip = (s) => `<span class="chip sev-${esc(s)}" title="Severity: ${esc(s)}">${esc(s)}</span>`;
+const stChip = (s) => `<span class="chip st-${esc(s)}" title="Lifecycle status">${esc(s.replace(/_/g, " "))}</span>`;
+const statusChip = (s) => `<span class="chip ${s === "connected" ? "st-remediated" : s === "demo" ? "st-triaged" : s === "disconnected" ? "st-false_positive" : "st-open"}" title="Integration status"><span class="dot"></span>${esc(s)}</span>`;
+const utc = (iso) => iso ? esc(iso.replace("T", " ")) + " UTC" : "-";
+const rel = (iso) => {
+  if (!iso) return "-";
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso + "Z").getTime()) / 60000));
+  return m < 1 ? "now" : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`;
+};
+const riskbar = (r) => r ? `<span class="riskbar" title="Explainable risk score ${r.score}/100 (${r.band})"><span class="track"><span class="fill" style="width:${r.score}%;background:${SEV_COLOR[r.band] || "var(--accent)"}"></span></span><span class="rv">${r.score}</span></span>` : "-";
+const skeleton = () => `<div class="skrow"><div class="skel" style="width:32%;height:64px"></div><div class="skel" style="width:32%;height:64px"></div><div class="skel" style="width:32%;height:64px"></div></div><div class="skel" style="width:100%;height:180px"></div>`;
+const empty = (t, s) => `<div class="empty">${icon("box", 26)}<div class="etitle">${esc(t)}</div><div class="esub">${esc(s)}</div></div>`;
+const pagehead = (title, sub, actions = "") => `<div class="pagehead"><div><h1>${esc(title)} ${helpbtn(state.view)}</h1><div class="sub">${esc(sub)}</div></div><div class="actions">${actions}</div></div>`;
+const panel = (title, body, actions = "", flush = false) => `<section class="panel"><div class="phead"><span class="ptitle">${title}</span>${actions}</div><div class="pbody${flush ? " flush" : ""}">${body}</div></section>`;
+
+function donut(series, colorOf, label) {
+  const total = series.reduce((a, s) => a + s.value, 0);
+  const R = 42, C = 2 * Math.PI * R;
+  let off = 0;
+  const arcs = series.filter((s) => s.value > 0).map((s) => {
+    const len = (s.value / (total || 1)) * C;
+    const el = `<circle cx="50" cy="50" r="${R}" fill="none" style="stroke:${colorOf(s.label)}" stroke-width="12" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 50 50)"><title>${esc(s.label)}: ${s.value}</title></circle>`;
+    off += len; return el;
+  }).join("");
+  return `<div class="chartwrap"><div class="donutbox"><svg viewBox="0 0 100 100" width="124" height="124" role="img" aria-label="${esc(label)}"><circle cx="50" cy="50" r="${R}" fill="none" style="stroke:var(--raised)" stroke-width="12"/>${arcs}</svg><div class="donutcenter"><span class="n">${total}</span><span class="l">${esc(label)}</span></div></div><div class="legend">${series.map((s) => `<div class="lrow"><span class="sw" style="background:${colorOf(s.label)}"></span><span>${esc(s.label.replace(/_/g, " "))}</span><span class="lp">${total ? Math.round(100 * s.value / total) : 0}%</span><span class="lv">${s.value}</span></div>`).join("")}</div></div>`;
+}
+function area(points) {
+  const W = 520, H = 150, P = { l: 26, r: 8, t: 10, b: 20 };
+  const max = Math.max(1, ...points.map((p) => p.count));
+  const x = (i) => P.l + (i / Math.max(1, points.length - 1)) * (W - P.l - P.r);
+  const y = (v) => P.t + (1 - v / max) * (H - P.t - P.b);
+  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.count).toFixed(1)}`).join(" ");
+  return `<div class="areabox"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Trend"><defs><linearGradient id="sxarea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent)" stop-opacity=".32"/><stop offset="1" style="stop-color:var(--accent)" stop-opacity=".02"/></linearGradient></defs>${[0, .5, 1].map((t) => `<line x1="${P.l}" x2="${W - P.r}" y1="${y(max * t)}" y2="${y(max * t)}" style="stroke:var(--border)"/><text x="${P.l - 5}" y="${y(max * t) + 3}" text-anchor="end" style="fill:var(--faint)" font-size="9">${Math.round(max * t)}</text>`).join("")}<path d="${line} L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="url(#sxarea)"/><path d="${line}" fill="none" style="stroke:var(--accent)" stroke-width="1.8"/>${points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.count)}" r="2.4" style="fill:var(--accent)"><title>${esc(p.date)}: ${p.count}</title></circle>`).join("")}${points.map((p, i) => i % 4 === 0 ? `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" style="fill:var(--faint)" font-size="9">${esc(p.date.slice(5))}</text>` : "").join("")}</svg></div>`;
+}
+function hbars(series, colorOf) {
+  const max = Math.max(1, ...series.map((s) => s.value));
+  return `<div class="hbars">${series.map((s, i) => `<div class="hbar"><span class="hl" title="${esc(s.label)}">${esc(s.label.replace(/_/g, " "))}</span><span class="ht"><span class="hf" style="width:${(100 * s.value / max).toFixed(1)}%;background:${colorOf ? colorOf(s.label, i) : "var(--accent)"}"></span></span><span class="hv">${s.value}</span></div>`).join("") || empty("No data", "Nothing recorded yet.")}</div>`;
+}
+
+/* ================= views ================= */
+
+async function renderOverview() {
+  $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.") + skeleton();
+  const [o, p, d, logs] = await Promise.all([api("/api/overview"), api("/api/pipeline"), api("/api/dashboard"), api("/api/logs?limit=6")]);
+  const metrics = [
+    ["Total findings", o.total, ""], ["Critical", o.critical, "t-crit"], ["High", o.high, "t-high"],
+    ["Medium", o.medium, "t-med"], ["Low", o.low, "t-low"], ["Confirmed", o.confirmed, "t-accent"],
+    ["Unresolved", o.unresolved, "t-warn"], ["Remediated", o.remediated, "t-ok"],
+    ["False positives", o.false_positives, ""], ["Repositories", o.repositories, ""],
+    ["Integrations", o.integrations_connected + o.integrations_demo, "t-accent"],
+    ["Active sources", o.active_sources, ""], ["Scans", o.scans_total, ""], ["Failed scans", o.scans_failed, o.scans_failed ? "t-danger" : "t-ok"],
+  ];
+  const stage = state.stage ? p.stages.find((s) => s.id === state.stage) : null;
+  const stageLogs = stage ? (await api(`/api/logs?limit=6&source=${encodeURIComponent(stage.logs_source)}`)).logs : [];
+  $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.",
+    canWrite() ? `<button class="btn sm" id="ov-demo">Load demo</button><button class="btn sm ghost" id="ov-reset">Reset demo</button>` : "") +
+    (o.demo ? `<div class="banner"><span class="chip st-triaged">DEMO</span> Synthetic demonstration records are active. They are labeled and isolated from production use.</div>` : "") +
+    `<div class="mgrid">${metrics.map(([l, v, t]) => `<div class="metric ${t}"><div class="mlabel">${l}</div><div class="mvalue">${v}</div><div class="msub">live from storage</div></div>`).join("")}</div>` +
+    panel("Detection pipeline", `<div class="chain">${p.stages.map((s, i) => `${i ? '<span class="chainarrow">→</span>' : ""}<button class="stage ${s.failed ? "failed" : ""} ${state.stage === s.id ? "active" : ""}" data-stage="${s.id}" title="${esc(s.name)}: ${s.events} events, ${s.failed} failed"><span class="sname"><span class="dot"></span>${esc(s.name)}</span><span class="scount">${s.events}</span><span class="smeta">${s.avg_ms} ms avg · ${s.failed} failed</span></button>`).join("")}</div>${stage ? `<div class="stageinspect"><dl class="kv"><dt>Stage</dt><dd>${esc(stage.name)}</dd><dt>Status</dt><dd>${esc(stage.status)}</dd><dt>Events</dt><dd>${stage.events}</dd><dt>Failed operations</dt><dd>${stage.failed}</dd><dt>Avg processing</dt><dd>${stage.avg_ms} ms</dd><dt>Last execution</dt><dd>${utc(stage.last_run)}</dd></dl><div class="dsect" style="margin-top:10px"><h3>Associated logs</h3>${stageLogs.map((l) => `<div class="logrow"><span class="lts">${utc(l.ts)}</span><span class="chip sev-${l.level === "error" ? "critical" : l.level === "warn" ? "medium" : "info"}">${esc(l.level)}</span><span class="lmsg">${esc(l.message)}</span></div>`).join("") || empty("No logs", "This stage has not logged recently.")}</div></div>` : ""}`, "", true) +
+    `<div class="grid c3 mb"><section class="panel"><div class="phead"><span class="ptitle">By severity</span></div><div class="pbody">${donut(d.severity, (l) => SEV_COLOR[l], "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">By status</span></div><div class="pbody">${donut(d.status, (l) => STATUS_COLOR[l] || "var(--accent)", "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">Exposure trend · 14 days</span></div><div class="pbody">${area(d.timeline)}</div></section></div>` +
+    `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Recent activity</span><a class="btn sm ghost" href="#/audit">View all</a></div><div class="pbody flush"><div class="feed">${logs.logs.map((l) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext">${esc(l.message)}</div><div class="fmeta"><span>${esc(l.source)}</span><span title="${utc(l.ts)}">${rel(l.ts)} ago</span></div></div></div>`).join("") || empty("No activity", "Events will appear as scans and actions run.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">Team workload</span></div><div class="pbody flush"><div class="listrows">${d.team.map((t) => `<div class="listrow"><span class="grow"><strong>${esc(t.username)}</strong><span class="cellsub">${esc(t.title || t.role)}</span></span><span class="mono">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div></div></section></div>`;
+  $$("[data-stage]").forEach((b) => (b.onclick = () => { state.stage = state.stage === b.dataset.stage ? null : b.dataset.stage; renderOverview(); }));
+  const demo = $("#ov-demo"); if (demo) demo.onclick = async () => { await api("/api/demo", { method: "POST", body: {} }); toast("Demo data loaded", "ok"); renderOverview(); };
+  const reset = $("#ov-reset"); if (reset) reset.onclick = () => confirmModal("Reset demo data", "Close existing demo findings and reseed a fresh synthetic set.", async () => { const r = await api("/api/demo/reset", { method: "POST", body: {} }); toast(`Demo reset: ${r.seeded} seeded`, "ok"); renderOverview(); }, "Reset");
+}
+
+async function renderPosture() {
+  const p = await api("/api/posture");
+  $("#main").innerHTML = pagehead("Security Posture", "Trends, distributions and remediation performance.") +
+    `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric t-accent"><div class="mlabel">Mean time to remediate</div><div class="mvalue">${p.remediation_performance.mttr_hours}h</div><div class="msub">recorded transitions</div></div><div class="metric"><div class="mlabel">Mean time to detect</div><div class="mvalue">${p.remediation_performance.mttd_hours}h</div><div class="msub">instrumentation pending</div></div><div class="metric t-ok"><div class="mlabel">Remediated rate</div><div class="mvalue">${p.remediation_performance.remediated_rate}%</div><div class="msub">of all findings</div></div></div>` +
+    `<div class="grid c2 mb"><section class="panel"><div class="phead"><span class="ptitle">Exposure trend</span></div><div class="pbody">${area(p.trend)}</div></section><section class="panel"><div class="phead"><span class="ptitle">Findings by age</span></div><div class="pbody">${hbars(p.age_buckets)}</div></section></div>` +
+    `<div class="grid c3 mb"><section class="panel"><div class="phead"><span class="ptitle">By source</span></div><div class="pbody">${hbars(p.sources)}</div></section><section class="panel"><div class="phead"><span class="ptitle">By category</span></div><div class="pbody">${hbars(p.categories)}</div></section><section class="panel"><div class="phead"><span class="ptitle">By environment</span></div><div class="pbody">${hbars(p.environments)}</div></section></div>` +
+    panel("Integration health", `<div class="listrows">${p.integration_health.map((i) => `<div class="listrow"><span class="grow">${esc(i.label)}</span>${statusChip(i.status)}</div>`).join("")}</div>`, "", true);
+}
+
+async function renderIntelligence() {
+  const d = await api("/api/intelligence");
+  $("#main").innerHTML = pagehead("Intelligence Dashboard", "Explainable risk, concentration and remediation priorities.") +
+    `<div class="grid c2 mb"><section class="panel"><div class="phead"><span class="ptitle">Risk distribution</span></div><div class="pbody">${donut(d.risk_distribution, (l) => SEV_COLOR[l], "scored")}</div></section><section class="panel"><div class="phead"><span class="ptitle">Exposure concentration</span></div><div class="pbody flush"><div class="twrap"><table class="tbl"><thead><tr><th>Asset</th><th class="num">Open</th><th class="num">Critical</th><th class="num">Risk</th></tr></thead><tbody>${d.concentration.map((a) => `<tr><td>${esc(a.asset)}</td><td class="num">${a.open}</td><td class="num">${a.critical}</td><td class="num">${riskbar({ score: a.risk, band: a.risk >= 80 ? "critical" : a.risk >= 60 ? "high" : "medium" })}</td></tr>`).join("")}</tbody></table></div></div></section></div>` +
+    `<div class="grid c2 mb"><section class="panel"><div class="phead"><span class="ptitle">Remediation priorities</span></div><div class="pbody flush"><div class="listrows">${d.priorities.map((x) => `<div class="listrow clickable" data-open="${esc(x.id)}"><span class="grow">${esc(x.title)}<span class="cellsub">${esc(x.id)}</span></span>${sevChip(x.severity)}${riskbar({ score: x.score, band: x.band })}</div>`).join("") || empty("No open priorities", "Nothing requires action.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">High-risk assets</span></div><div class="pbody flush"><div class="listrows">${d.high_risk_assets.map((a) => `<div class="listrow"><span class="grow">${esc(a.asset)}</span>${riskbar({ score: a.risk, band: a.risk >= 80 ? "critical" : a.risk >= 60 ? "high" : "medium" })}</div>`).join("")}</div></div></section></div>` +
+    `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Coverage gaps</span></div><div class="pbody">${d.coverage_gaps.map((s) => `<span class="chip st-false_positive" title="No telemetry from this surface yet">${esc(SLABEL[s] || s)}</span>`).join(" ") || empty("Full coverage", "Every surface has telemetry.")}</div></section><section class="panel"><div class="phead"><span class="ptitle">Repeated exposure</span></div><div class="pbody flush"><div class="twrap"><table class="tbl"><thead><tr><th>Pattern</th><th>Evidence</th><th class="num">Sightings</th></tr></thead><tbody>${d.repeated.map((r) => `<tr><td>${esc(r.title)}</td><td class="mono">${esc(r.masked)}</td><td class="num">${r.count}</td></tr>`).join("") || '<tr><td colspan="3">No repeated exposures.</td></tr>'}</tbody></table></div></div></section></div>`;
+  bindOpeners();
+}
+
+const DEFAULT_COLS = ["id", "type", "severity", "confidence", "validation", "source", "asset", "environment", "owner", "first", "last", "status"];
+async function renderFindings() {
+  const f = state.filters;
+  const params = new URLSearchParams({ sort: state.sort, page: state.page, page_size: state.pageSize });
+  for (const [k, v] of Object.entries(f)) if (v) params.set(k, v);
+  const [data, saved] = await Promise.all([api(`/api/findings?${params}`), api("/api/filters")]);
+  if (!state.cols) { try { state.cols = JSON.parse(localStorage.getItem("sx.cols")) || DEFAULT_COLS.slice(); } catch { state.cols = DEFAULT_COLS.slice(); } }
+  const cols = state.cols;
+  const pages = Math.max(1, Math.ceil(data.total / state.pageSize));
+  const cell = (r, c) => ({
+    id: `<span class="mono">${esc(r.id)}</span>`,
+    type: `${esc(r.title)}<span class="cellsub">${esc(r.detector_id)}</span>`,
+    severity: sevChip(r.severity_override || r.severity),
+    confidence: `<span class="mono" title="Detection confidence">${Math.round((r.confidence || 0.6) * 100)}%</span>`,
+    validation: `<span class="chip ${r.validation === "format_validated" ? "st-remediated" : "neutral"}" title="Validation status">${esc((r.validation || "pattern_match").replace(/_/g, " "))}</span>`,
+    source: esc(SLABEL[r.surface] || r.surface),
+    asset: `<span class="mono truncate" title="${esc(r.path)}">${esc(r.path)}:${r.line}</span>`,
+    environment: esc(r.environment || "unknown"),
+    owner: esc(r.assignee || r.owner || "-"),
+    first: `<span title="${utc(r.created_at)}">${rel(r.created_at)}</span>`,
+    last: `<span title="${utc(r.last_seen)}">${rel(r.last_seen)}</span>`,
+    status: stChip(r.status),
+  }[c]);
+  $("#main").innerHTML = pagehead("Findings", "The exposure center: investigate, assign and remediate detections.",
+    `<a class="btn sm" href="/api/export?format=csv">${icon("download")} CSV</a>`) +
+    `<section class="panel"><div class="toolbar">
+      <input class="input grow" id="f-q" placeholder="Search id, title, path, detector" value="${esc(f.q)}">
+      ${["severity", "surface", "status", "environment", "validation"].map((k) => `<select class="input" id="f-${k}" aria-label="${k}"><option value="">All ${k}</option>${(k === "severity" ? SEVS : k === "surface" ? SURFACES : k === "status" ? ["open", "new", "triaged", "assigned", "in_progress", "remediated", "verified", "closed", "false_positive", "accepted_risk", "suppressed", "reopened"] : k === "environment" ? ["production", "non-production", "unknown"] : ["format_validated", "pattern_match"]).map((v) => `<option value="${v}" ${f[k] === v ? "selected" : ""}>${v.replace(/_/g, " ")}</option>`).join("")}</select>`).join("")}
+      <select class="input" id="f-sort" aria-label="Sort">${["created", "severity", "occurrences", "pinned"].map((s) => `<option ${state.sort === s ? "selected" : ""}>${s}</option>`).join("")}</select>
+      <select class="input" id="f-saved" aria-label="Saved filters"><option value="">Saved views</option>${saved.filters.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</select>
+      ${canWrite() ? '<button class="btn sm ghost" id="f-save">Save view</button>' : ""}
+      <button class="btn sm ghost" id="f-cols">Columns</button>
+    </div>
+    ${state.selection.size ? `<div class="bulkbar"><strong>${state.selection.size} selected</strong><select class="input" id="b-status"><option value="">Set status…</option>${LIFE.concat(["false_positive", "accepted_risk", "suppressed", "reopened"]).map((s) => `<option>${s}</option>`).join("")}</select><button class="btn sm" id="b-apply">Apply</button><button class="btn sm" id="b-allow">Allowlist</button><input class="input" id="b-assign" placeholder="Assignee"><button class="btn sm" id="b-assign-btn">Assign</button><input class="input" id="b-tag" placeholder="Tag"><button class="btn sm" id="b-tag-btn">Tag</button><button class="btn sm ghost" id="b-clear">Clear</button></div>` : ""}
+    <div class="twrap cardwrap"><table class="tbl cards"><thead><tr>${canWrite() ? '<th></th>' : ""}${cols.map((c) => `<th class="${["first", "last"].includes(c) ? "" : ""}">${c}</th>`).join("")}</tr></thead>
+    <tbody>${data.findings.map((r) => `<tr class="clickable ${state.selection.has(r.id) ? "selected" : ""}" data-open="${esc(r.id)}">${canWrite() ? `<td data-th="select"><input type="checkbox" data-select="${esc(r.id)}" ${state.selection.has(r.id) ? "checked" : ""} aria-label="Select"></td>` : ""}${cols.map((c) => `<td data-th="${c}">${cell(r, c)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length + 1}">${empty("No findings match", "Adjust filters or run a scan.")}</td></tr>`}</tbody></table></div>
+    <div class="pager"><button class="btn sm ghost" id="pg-prev" ${state.page <= 1 ? "disabled" : ""}>Prev</button><span class="spacer"></span><span>Page ${data.page} of ${pages} · ${data.total} findings</span><span class="spacer"></span><button class="btn sm ghost" id="pg-next" ${state.page >= pages ? "disabled" : ""}>Next</button></div></section>`;
+  const rerender = () => { state.page = 1; renderFindings(); };
+  $("#f-q").oninput = (e) => { clearTimeout(state.qt); state.qt = setTimeout(() => { f.q = e.target.value.trim(); rerender(); }, 300); };
+  for (const k of ["severity", "surface", "status", "environment", "validation"]) $(`#f-${k}`).onchange = (e) => { f[k] = e.target.value; rerender(); };
+  $("#f-sort").onchange = (e) => { state.sort = e.target.value; rerender(); };
+  $("#pg-prev").onclick = () => { state.page--; renderFindings(); };
+  $("#pg-next").onclick = () => { state.page++; renderFindings(); };
+  $("#f-saved").onchange = (e) => { const x = saved.filters.find((y) => y.id === e.target.value); if (x) { Object.assign(f, x.params); rerender(); } };
+  const sv = $("#f-save"); if (sv) sv.onclick = () => { const name = prompt("View name:"); if (name) api("/api/filters", { method: "POST", body: { name, params: f } }).then(() => { toast("View saved", "ok"); renderFindings(); }); };
+  $("#f-cols").onclick = (e) => {
+    closeOverlays("popover");
+    const pop = document.createElement("div"); pop.className = "popover";
+    pop.innerHTML = `<div class="pophead">Columns</div>` + DEFAULT_COLS.map((c) => `<label class="popitem"><input type="checkbox" data-col="${c}" ${cols.includes(c) ? "checked" : ""}> ${c}</label>`).join("");
+    $("#overlays").appendChild(pop);
+    const r = e.target.getBoundingClientRect();
+    pop.style.top = `${r.bottom + 6}px`; pop.style.left = `${Math.max(8, r.left - 180)}px`;
+    $$("[data-col]", pop).forEach((cb) => (cb.onchange = () => {
+      state.cols = cb.checked ? [...cols, cb.dataset.col] : cols.filter((c) => c !== cb.dataset.col);
+      try { localStorage.setItem("sx.cols", JSON.stringify(state.cols)); } catch {}
+      renderFindings();
+    }));
+  };
+  $$("[data-select]").forEach((cb) => (cb.onclick = (e) => e.stopPropagation()));
+  $$("[data-select]").forEach((cb) => (cb.onchange = () => { cb.checked ? state.selection.add(cb.dataset.select) : state.selection.delete(cb.dataset.select); renderFindings(); }));
+  const ids = [...state.selection];
+  const bulk = (action, value) => api("/api/bulk", { method: "POST", body: { ids, action, value } }).then(() => { state.selection.clear(); toast(`Bulk ${action} applied`, "ok"); renderFindings(); });
+  const ba = $("#b-apply"); if (ba) ba.onclick = () => { const v = $("#b-status").value; if (v) bulk("status", v); };
+  const bl = $("#b-allow"); if (bl) bl.onclick = () => confirmModal("Allowlist selected", "Register fingerprints and mark false positive.", () => bulk("allowlist", "bulk"));
+  const bs = $("#b-assign-btn"); if (bs) bs.onclick = () => bulk("assign", $("#b-assign").value.trim());
+  const bt = $("#b-tag-btn"); if (bt) bt.onclick = () => bulk("tag", $("#b-tag").value.trim());
+  const bc = $("#b-clear"); if (bc) bc.onclick = () => { state.selection.clear(); renderFindings(); };
+  bindOpeners();
+}
+
+async function renderSources() {
+  const d = await api("/api/sources");
+  $("#main").innerHTML = pagehead("Detection Sources", "Coverage and telemetry per surface.") +
+    panel("Surfaces", `<div class="twrap"><table class="tbl"><thead><tr><th>Surface</th><th class="num">Findings</th><th>Last event</th><th>Status</th><th></th></tr></thead><tbody>${d.sources.map((s) => `<tr><td>${esc(SLABEL[s.surface] || s.surface)}</td><td class="num">${s.findings}</td><td>${utc(s.last_event)}</td><td><span class="chip ${s.status === "monitored" ? "st-remediated" : "neutral"}">${esc(s.status)}</span></td><td>${canWrite() ? `<button class="btn sm" data-scan="${esc(s.surface)}">Scan now</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`, "", true);
+  $$("[data-scan]").forEach((b) => (b.onclick = async () => { const r = await api("/api/jobs", { method: "POST", body: { path: "examples/vulnerable", surface: b.dataset.scan } }); toast(`Job ${r.id} queued`, "ok"); }));
+}
+
+async function renderRules() {
+  const [d, custom] = await Promise.all([api("/api/detectors"), api("/api/detection-rules")]);
+  $("#main").innerHTML = pagehead("Detection Rules", "One registry across every layer, plus custom enterprise patterns.") +
+    panel("Detector registry", `<div class="twrap"><table class="tbl"><thead><tr><th>Enabled</th><th>Detector</th><th>Category</th><th>Severity</th></tr></thead><tbody>${d.detectors.map((x) => `<tr><td><input type="checkbox" data-det="${esc(x.id)}" ${x.enabled ? "checked" : ""} ${!canWrite() ? "disabled" : ""} aria-label="Enable ${esc(x.id)}"></td><td>${esc(x.title)}<span class="cellsub mono">${esc(x.id)}</span></td><td>${esc(x.family)}</td><td><select class="input" data-detsev="${esc(x.id)}" ${!canWrite() ? "disabled" : ""}>${SEVS.map((s) => `<option ${x.severity === s ? "selected" : ""}>${s}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div>${canWrite() ? '<div class="pager"><button class="btn sm primary" id="det-apply">Apply tuning</button></div>' : ""}`, "", true) +
+    panel("Custom enterprise rules", `${canWrite() ? `<div class="formrow" style="margin-bottom:10px"><div class="field"><input class="input" id="cr-id" placeholder="rule-id"></div><div class="field"><input class="input" id="cr-title" placeholder="Title"></div><div class="field"><select class="input" id="cr-sev">${SEVS.map((s) => `<option>${s}</option>`).join("")}</select></div><div class="field grow"><input class="input mono" id="cr-pattern" placeholder="regex pattern"></div><button class="btn sm primary" id="cr-add">Add rule</button></div><div id="cr-err"></div>` : ""}
+    <div class="listrows">${custom.rules.map((r) => `<div class="listrow"><span class="grow">${esc(r.title)}<span class="cellsub mono">${esc(r.pattern)}</span></span>${sevChip(r.severity)}${canWrite() ? `<button class="btn sm ghost" data-crdel="${esc(r.id)}">Delete</button>` : ""}</div>`).join("") || empty("No custom rules", "Add enterprise-specific patterns above.")}</div>`, "", true);
+  const apply = $("#det-apply");
+  if (apply) apply.onclick = async () => {
+    const disabled = $$("[data-det]").filter((c) => !c.checked).map((c) => c.dataset.det);
+    const overrides = {}; $$("[data-detsev]").forEach((s) => { overrides[s.dataset.detsev] = s.value; });
+    await api("/api/detectors/tuning", { method: "POST", body: { disabled, severity_overrides: overrides } });
+    toast("Tuning applied to new scans", "ok");
+  };
+  const add = $("#cr-add");
+  if (add) add.onclick = async () => {
+    try { await api("/api/detection-rules", { method: "POST", body: { id: $("#cr-id").value || undefined, title: $("#cr-title").value || $("#cr-id").value, severity: $("#cr-sev").value, pattern: $("#cr-pattern").value } }); toast("Rule registered", "ok"); renderRules(); }
+    catch (e) { $("#cr-err").innerHTML = `<div class="errbox">${esc(e.message)}</div>`; }
+  };
+  $$("[data-crdel]").forEach((b) => (b.onclick = () => confirmModal("Delete rule", "Remove this custom detector.", async () => { await api(`/api/detection-rules/${b.dataset.crdel}/delete`, { method: "POST", body: {} }); renderRules(); }, "Delete")));
+}
+
+async function renderPlayground() {
+  $("#main").innerHTML = pagehead("Detection Playground", "Test patterns without persisting anything.") +
+    `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Sample</span></div><div class="pbody"><div class="field"><textarea class="input" id="pg-text" rows="9" placeholder='AWS_KEY = "AKIA..."'></textarea></div><div class="formrow"><div class="field grow"><input class="input" id="pg-path" value="playground.txt"></div><button class="btn primary" id="pg-scan">Scan text</button></div></div></section><section class="panel"><div class="phead"><span class="ptitle">Results</span></div><div class="pbody" id="pg-out">${empty("No results", "Run a scan to see detections with confidence and risk.")}</div></section></div>`;
+  $("#pg-scan").onclick = async () => {
+    const r = await api("/api/scan", { method: "POST", body: { text: $("#pg-text").value, path: $("#pg-path").value || "playground.txt" } });
+    $("#pg-out").innerHTML = r.findings.map((f) => `<div class="rcard"><div class="rhead">${sevChip(f.severity)}<span class="rtitle">${esc(f.title)}</span><span class="chip neutral">${Math.round((f.meta?.confidence || 0.6) * 100)}% confidence</span></div><div class="mono">${esc(f.secret_masked)}</div><div class="fmeta" style="margin-top:6px">${esc(f.path)}:${f.line} · entropy ${f.entropy} · ${esc(f.meta?.validation || "")}</div></div>`).join("") || empty("No secrets detected", "The sample did not match any detector.");
+  };
+}
+
+async function renderScans() {
+  const [jobs, scheds] = await Promise.all([api("/api/jobs"), api("/api/schedules")]);
+  $("#main").innerHTML = pagehead("Scan Management", "Manual and scheduled coverage.") +
+    (canWrite() ? panel("New scan", `<div class="formrow"><div class="field grow"><input class="input" id="sc-path" placeholder="Path on server host"></div><div class="field"><select class="input" id="sc-surface">${SURFACES.map((s) => `<option>${s}</option>`).join("")}</select></div><button class="btn primary" id="sc-run">Run job</button></div>`) : "") +
+    panel("Schedules", `${canWrite() ? `<div class="formrow" style="margin-bottom:10px"><div class="field grow"><input class="input" id="sh-path" placeholder="Path"></div><div class="field"><input class="input" id="sh-int" type="number" value="3600" min="60"></div><button class="btn sm" id="sh-add">Add schedule</button></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>ID</th><th>Path</th><th>Interval</th><th>Enabled</th><th></th></tr></thead><tbody>${scheds.schedules.map((s) => `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.path)}</td><td class="num">${s.interval_seconds}s</td><td>${s.enabled ? "yes" : "no"}</td><td>${canWrite() ? `<button class="btn sm ghost" data-sht="${esc(s.id)}">${s.enabled ? "Disable" : "Enable"}</button> <button class="btn sm ghost" data-shd="${esc(s.id)}">Delete</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">No schedules.</td></tr>'}</tbody></table></div>`, "", true) +
+    panel("Recent executions", `<div class="twrap"><table class="tbl"><thead><tr><th>Job</th><th>Path</th><th>Status</th><th class="num">Files</th><th class="num">New</th></tr></thead><tbody>${jobs.jobs.slice(0, 10).map((j) => `<tr><td class="mono">${esc(j.id)}</td><td class="truncate">${esc(j.path)}</td><td><span class="chip ${j.status === "done" ? "st-remediated" : j.status === "failed" ? "st-false_positive" : "st-open"}">${esc(j.status)}</span></td><td class="num">${j.files}</td><td class="num">${j.findings}</td></tr>`).join("")}</tbody></table></div>`, '<a class="btn sm ghost" href="#/jobs">All jobs</a>', true);
+  const run = $("#sc-run"); if (run) run.onclick = async () => { const r = await api("/api/jobs", { method: "POST", body: { path: $("#sc-path").value || ".", surface: $("#sc-surface").value } }); toast(`Job ${r.id} queued`, "ok"); setTimeout(renderScans, 800); };
+  const add = $("#sh-add"); if (add) add.onclick = async () => { await api("/api/schedules", { method: "POST", body: { path: $("#sh-path").value || ".", interval_seconds: +$("#sh-int").value || 3600 } }); toast("Schedule added", "ok"); renderScans(); };
+  $$("[data-sht]").forEach((b) => (b.onclick = async () => { await api(`/api/schedules/${b.dataset.sht}/toggle`, { method: "POST", body: {} }); renderScans(); }));
+  $$("[data-shd]").forEach((b) => (b.onclick = () => confirmModal("Delete schedule", "Stop this recurring scan.", async () => { await api(`/api/schedules/${b.dataset.shd}/delete`, { method: "POST", body: {} }); renderScans(); }, "Delete")));
+}
+
+const SURFACE_SETS = { repositories: ["git", "pre_push", "ci"], developer: ["ide", "filesystem"], cloud: ["cloud"], cicd: ["ci"], saas: ["slack", "jira", "confluence", "postman"] };
+const SURFACE_TITLES = { repositories: ["Repository Security", "Git, pre-push and CI exposure."], developer: ["Developer Security", "IDE and local filesystem exposure."], cloud: ["Cloud Security", "Lambda code and environment exposure."], cicd: ["CI/CD Security", "Pipeline configuration and diff-gate exposure."], saas: ["SaaS Security", "Collaboration and API-collection exposure."] };
+async function renderSurfaceView() {
+  const set = SURFACE_SETS[state.view];
+  const [title, sub] = SURFACE_TITLES[state.view];
+  const [all, sources] = await Promise.all([api("/api/findings?limit=500"), api("/api/sources")]);
+  const rows = all.findings.filter((f) => set.includes(f.surface));
+  $("#main").innerHTML = pagehead(title, sub, canWrite() ? `<button class="btn sm" id="sv-scan">Scan now</button>` : "") +
+    `<div style="margin-bottom:12px">${set.map((s) => { const src = sources.sources.find((x) => x.surface === s); return `<span class="chip ${src && src.status === "monitored" ? "st-remediated" : "neutral"}" title="${src ? src.findings + " findings" : ""}">${esc(SLABEL[s])}</span>`; }).join(" ")}</div>` +
+    panel(`${rows.length} findings`, `<div class="twrap"><table class="tbl"><thead><tr><th>Severity</th><th>Finding</th><th>Source</th><th>Asset</th><th>Owner</th><th>Status</th></tr></thead><tbody>${rows.map((r) => `<tr class="clickable" data-open="${esc(r.id)}"><td>${sevChip(r.severity)}</td><td>${esc(r.title)}<span class="cellsub mono">${esc(r.detector_id)}</span></td><td>${esc(SLABEL[r.surface])}</td><td class="mono truncate">${esc(r.path)}:${r.line}</td><td>${esc(r.assignee || r.owner || "-")}</td><td>${stChip(r.status)}</td></tr>`).join("") || `<tr><td colspan="6">${empty("No findings", "This surface group is clean.")}</td></tr>`}</tbody></table></div>`, "", true);
+  const scan = $("#sv-scan"); if (scan) scan.onclick = async () => { const r = await api("/api/jobs", { method: "POST", body: { path: "examples/vulnerable", surface: set[0] } }); toast(`Job ${r.id} queued`, "ok"); };
+  bindOpeners();
+}
+
+async function renderAssets() {
+  const d = await api("/api/assets");
+  const critical = d.assets.filter((a) => a.critical > 0).length;
+  $("#main").innerHTML = pagehead("Asset Inventory", "Detection-derived inventory with risk concentration.") +
+    `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric"><div class="mlabel">Assets</div><div class="mvalue">${d.assets.length}</div><div class="msub">monitored</div></div><div class="metric t-crit"><div class="mlabel">With critical findings</div><div class="mvalue">${critical}</div><div class="msub">prioritize</div></div><div class="metric t-ok"><div class="mlabel">Monitored</div><div class="mvalue">${d.assets.filter((a) => a.monitored).length}</div><div class="msub">active coverage</div></div></div>` +
+    panel("Assets", `<div class="twrap"><table class="tbl"><thead><tr><th>Asset</th><th>Type</th><th>Owner</th><th>Environment</th><th class="num">Findings</th><th class="num">Critical</th><th>Risk</th><th>Last scan</th></tr></thead><tbody>${d.assets.map((a) => `<tr><td>${esc(a.name)}<span class="cellsub mono">${esc(a.id)}</span></td><td>${esc(SLABEL[a.type] || a.type)}</td><td>${esc(a.owner || "-")}</td><td>${esc(a.environment)}</td><td class="num">${a.findings}</td><td class="num">${a.critical}</td><td>${riskbar({ score: a.risk, band: a.risk >= 80 ? "critical" : a.risk >= 60 ? "high" : "medium" })}</td><td>${utc(a.last_scan)}</td></tr>`).join("") || '<tr><td colspan="8">No assets derived yet.</td></tr>'}</tbody></table></div>`, "", true);
+}
+
+async function renderRemediation() {
+  const d = await api("/api/remediation");
+  $("#main").innerHTML = pagehead("Remediation Center", "SLA-tracked tasks, checklists and rotation playbooks.") +
+    `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric t-danger"><div class="mlabel">SLA breached</div><div class="mvalue">${d.sla.breached}</div><div class="msub">escalate now</div></div><div class="metric t-warn"><div class="mlabel">At risk</div><div class="mvalue">${d.sla.at_risk}</div><div class="msub">approaching SLA</div></div><div class="metric"><div class="mlabel">Open tasks</div><div class="mvalue">${d.tasks.length}</div><div class="msub">in queue</div></div></div>` +
+    panel("Task queue", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding</th><th>Severity</th><th>Assignee</th><th>SLA</th><th>Age</th><th>Checklist</th><th></th></tr></thead><tbody>${d.tasks.map((t) => `<tr><td>${esc(t.title)}<span class="cellsub mono">${esc(t.finding_id)}</span></td><td>${sevChip(t.severity)}</td><td>${esc(t.assignee || "-")}</td><td class="num">${t.sla_hours}h</td><td class="num" style="${t.breached ? "color:var(--danger)" : ""}">${t.age_hours}h</td><td><span class="progress"><span class="track"><span class="fill" style="width:${20 * t.checklist_done}%"></span></span><span class="pv">${t.checklist_done}/${t.checklist_total}</span></span></td><td><button class="btn sm" data-open="${esc(t.finding_id)}">Open</button></td></tr>`).join("") || '<tr><td colspan="7">Queue is clear.</td></tr>'}</tbody></table></div>`, "", true) +
+    panel("Rotation playbooks", d.playbooks.map((p) => `<div class="acc"><button class="acc-head">${esc(p.family.replace(/-/g, " "))} ${icon("chev")}</button><div class="acc-body"><ol>${p.steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol></div></div>`).join(""));
+  $$(".acc-head").forEach((h) => (h.onclick = () => h.parentElement.classList.toggle("open")));
+  bindOpeners();
+}
+
+async function renderAlerts() {
+  const d = await api("/api/alerts?limit=60");
+  $("#main").innerHTML = pagehead("Security Alerts", "Delivered notifications with acknowledgement state.") +
+    panel("Alerts", `<div class="feed">${d.alerts.map((a) => `<div class="feeditem"><span class="ficon">${icon("bell")}</span><div class="fbody"><div class="ftext">${esc(a.message)}</div><div class="fmeta"><span class="chip neutral">${esc(a.channel)}</span><span>${esc(a.status)}</span><span title="${utc(a.ts)}">${rel(a.ts)} ago</span>${a.ack ? `<span>ack by ${esc(a.ack.username)}</span>` : canWrite() ? `<button class="btn sm ghost" data-ack="${esc(a.id)}">Acknowledge</button>` : ""}</div></div></div>`).join("") || empty("No alerts", "Alerts appear when findings are confirmed.")}</div>`, "", true);
+  $$("[data-ack]").forEach((b) => (b.onclick = async () => { await api(`/api/alerts/${b.dataset.ack}/ack`, { method: "POST", body: {} }); toast("Acknowledged", "ok"); renderAlerts(); }));
+}
+
+async function renderInvestigations() {
+  const d = await api("/api/investigations");
+  $("#main").innerHTML = pagehead("Investigation Center", "Findings with active notes or ownership.") +
+    panel("Open investigations", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding</th><th>Severity</th><th>Status</th><th>Assignee</th><th class="num">Notes</th><th class="num">Related</th><th></th></tr></thead><tbody>${d.investigations.map((i) => `<tr><td>${esc(i.title)}<span class="cellsub mono">${esc(i.id)}</span></td><td>${sevChip(i.severity)}</td><td>${stChip(i.status)}</td><td>${esc(i.assignee || "-")}</td><td class="num">${i.notes}</td><td class="num">${i.related}</td><td><button class="btn sm" data-open="${esc(i.id)}">Investigate</button></td></tr>`).join("") || '<tr><td colspan="7">No active investigations.</td></tr>'}</tbody></table></div>`, "", true);
+  bindOpeners();
+}
+
+async function renderExceptions() {
+  const d = await api("/api/exceptions");
+  $("#main").innerHTML = pagehead("Exception Management", "Allowlist, accepted risk and suppression with audited reasons.") +
+    (canWrite() ? panel("Record exception", `<div class="formrow"><div class="field"><input class="input mono" id="ex-id" placeholder="finding id"></div><div class="field"><select class="input" id="ex-kind"><option value="accepted_risk">accepted risk</option><option value="suppressed">suppressed</option></select></div><div class="field grow"><input class="input" id="ex-reason" placeholder="Reason (audited)"></div><button class="btn sm primary" id="ex-add">Record</button></div>`) : "") +
+    panel("Fingerprint allowlist", `${canWrite() ? `<div class="formrow" style="margin-bottom:10px"><div class="field grow"><input class="input mono" id="al-fp" placeholder="SHA-256 fingerprint"></div><div class="field grow"><input class="input" id="al-reason" placeholder="Reason"></div><button class="btn sm" id="al-add">Add</button></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>Fingerprint</th><th>Reason</th><th>Added</th></tr></thead><tbody>${d.allowlist.map((e) => `<tr><td class="mono truncate">${esc(e.fingerprint)}</td><td>${esc(e.reason)}</td><td>${utc(e.created_at)}</td></tr>`).join("") || '<tr><td colspan="3">No entries.</td></tr>'}</tbody></table></div>`, "", true) +
+    panel("Excepted findings", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding</th><th>Status</th><th>Owner</th><th></th></tr></thead><tbody>${d.exceptions.map((f) => `<tr><td>${esc(f.title)}<span class="cellsub mono">${esc(f.id)}</span></td><td>${stChip(f.status)}</td><td>${esc(f.owner || "-")}</td><td><button class="btn sm" data-open="${esc(f.id)}">Open</button></td></tr>`).join("") || '<tr><td colspan="4">None.</td></tr>'}</tbody></table></div>`, "", true);
+  const ex = $("#ex-add"); if (ex) ex.onclick = async () => { try { await api("/api/exceptions", { method: "POST", body: { finding_id: $("#ex-id").value.trim(), kind: $("#ex-kind").value, reason: $("#ex-reason").value } }); toast("Exception recorded", "ok"); renderExceptions(); } catch (e) { toast(e.message, "error"); } };
+  const al = $("#al-add"); if (al) al.onclick = async () => { await api("/api/allowlist", { method: "POST", body: { fingerprint: $("#al-fp").value.trim(), reason: $("#al-reason").value } }); toast("Allowlisted", "ok"); renderExceptions(); };
+  bindOpeners();
+}
+
+async function renderIntegrations() {
+  const d = await api("/api/integrations");
+  $("#main").innerHTML = pagehead("Integrations", "SENTRIX Connect: honest connection state for every provider.") +
+    `<div class="cardgrid">${d.integrations.map((i) => `<div class="icard"><div class="ihead"><span class="iname">${esc(i.name)}</span>${statusChip(i.status)}</div>
+      <div class="irow"><span class="k">Auth</span><span class="v">${esc(i.auth)}</span></div>
+      <div class="irow"><span class="k">Last sync</span><span class="v">${utc(i.last_sync)}</span></div>
+      <div class="irow"><span class="k">Findings</span><span class="v">${i.findings}</span></div>
+      <div class="irow"><span class="k">Rate limit</span><span class="v">${esc(i.rate_limit)}</span></div>
+      <div class="irow"><span class="k">Resources</span><span class="v">${i.resources.map(esc).join(", ") || "-"}</span></div>
+      <div>${i.permissions.map((p) => `<span class="perm">${esc(p)}</span>`).join("")}</div>
+      ${i.errors.length ? `<div class="errbox">${i.errors.map(esc).join("<br>")}</div>` : ""}
+      ${canWrite() ? `<div class="iactions"><button class="btn sm" data-sync="${esc(i.id)}">Sync</button><button class="btn sm ghost" data-itoggle="${esc(i.id)}">Toggle</button><button class="btn sm ghost" data-idisc="${esc(i.id)}">Disconnect</button></div>` : ""}</div>`).join("")}</div>`;
+  $$("[data-sync]").forEach((b) => (b.onclick = async () => { await api(`/api/integrations/${b.dataset.sync}/sync`, { method: "POST", body: {} }); toast("Sync recorded", "ok"); renderIntegrations(); }));
+  $$("[data-itoggle]").forEach((b) => (b.onclick = async () => { await api(`/api/integrations/${b.dataset.itoggle}/toggle`, { method: "POST", body: {} }); renderIntegrations(); }));
+  $$("[data-idisc]").forEach((b) => (b.onclick = () => confirmModal("Disconnect integration", "Mark this connector disconnected.", async () => { await api(`/api/integrations/${b.dataset.idisc}/disconnect`, { method: "POST", body: {} }); renderIntegrations(); }, "Disconnect")));
+}
+
+async function renderJobs() {
+  const d = await api("/api/jobs");
+  $("#main").innerHTML = pagehead("Background Jobs", "Execution history, cancellation and failure diagnostics.") +
+    panel("Executions", `<div class="twrap"><table class="tbl"><thead><tr><th>Job</th><th>Path</th><th>Initiator</th><th>Status</th><th>Started</th><th>Finished</th><th class="num">Files</th><th class="num">New</th><th></th></tr></thead><tbody>${d.jobs.map((j) => `<tr class="clickable" data-job="${esc(j.id)}"><td class="mono">${esc(j.id)}</td><td class="truncate">${esc(j.path)}</td><td>${esc(j.triggered_by)}</td><td><span class="chip ${j.status === "done" ? "st-remediated" : j.status === "failed" ? "st-false_positive" : j.status === "cancelled" ? "neutral" : "st-open"}" title="Job status">${esc(j.status)}</span></td><td>${utc(j.started)}</td><td>${utc(j.finished)}</td><td class="num">${j.files}</td><td class="num">${j.findings}</td><td>${canWrite() && ["queued", "running"].includes(j.status) ? `<button class="btn sm ghost" data-cancel="${esc(j.id)}">Cancel</button>` : ""}</td></tr>${j.error ? `<tr class="detailrow"><td colspan="9"><div class="errbox">${esc(j.error)}</div></td></tr>` : ""}`).join("") || '<tr><td colspan="9">No jobs yet.</td></tr>'}</tbody></table></div>`, "", true);
+  $$("[data-cancel]").forEach((b) => (b.onclick = async (e) => { e.stopPropagation(); await api(`/api/jobs/${b.dataset.cancel}/cancel`, { method: "POST", body: {} }); toast("Cancellation requested", "warn"); renderJobs(); }));
+}
+
+async function renderLogs() {
+  const d = await api(`/api/logs?limit=200${state.logLevel ? `&level=${state.logLevel}` : ""}`);
+  let logs = d.logs;
+  if (state.logSource) logs = logs.filter((l) => l.source === state.logSource);
+  if (state.logCorr) logs = logs.filter((l) => l.correlation_id === state.logCorr);
+  if (state.logQ) logs = logs.filter((l) => (l.message + l.source + l.component).toLowerCase().includes(state.logQ.toLowerCase()));
+  if (state.logRange !== "all") {
+    const hours = { "1h": 1, "24h": 24, "7d": 168 }[state.logRange];
+    logs = logs.filter((l) => Date.now() - new Date(l.ts + "Z").getTime() < hours * 3600000);
+  }
+  $("#main").innerHTML = pagehead("System Logs", "Structured journal with correlation across pipeline stages.",
+    `<a class="btn sm" href="/api/logs/export">${icon("download")} Export</a>`) +
+    `<section class="panel"><div class="toolbar"><input class="input grow" id="lg-q" placeholder="Search messages" value="${esc(state.logQ)}"><select class="input" id="lg-level"><option value="">All levels</option>${["info", "warn", "error"].map((l) => `<option ${state.logLevel === l ? "selected" : ""}>${l}</option>`).join("")}</select><select class="input" id="lg-source"><option value="">All sources</option>${[...new Set(d.logs.map((l) => l.source))].map((s) => `<option ${state.logSource === s ? "selected" : ""}>${esc(s)}</option>`).join("")}</select><select class="input" id="lg-range">${["all", "1h", "24h", "7d"].map((r) => `<option value="${r}" ${state.logRange === r ? "selected" : ""}>${r === "all" ? "All time" : r}</option>`).join("")}</select><button class="btn sm ghost" id="lg-pause">${state.paused ? "Resume" : "Pause"}</button>${state.logCorr ? `<button class="btn sm" id="lg-clearcorr">corr: ${esc(state.logCorr)} ×</button>` : ""}</div>
+    <div>${logs.map((l) => `<div class="logrow expandable" data-log="${l.id}"><span class="lts">${utc(l.ts)}</span><span class="chip sev-${l.level === "error" ? "critical" : l.level === "warn" ? "medium" : "info"}">${esc(l.level)}</span><span class="chip neutral">${esc(l.source)}</span><span class="lmsg">${esc(l.message)}</span>${l.correlation_id ? `<button class="corrlink" data-corr="${esc(l.correlation_id)}">${esc(l.correlation_id)}</button>` : ""}</div><div class="logdetail" id="ld-${l.id}" hidden><dl class="kv"><dt>Component</dt><dd>${esc(l.component || l.source)}</dd><dt>Event type</dt><dd>${esc(l.event_type || "-")}</dd><dt>Execution id</dt><dd class="mono">${esc(l.exec_id || "-")}</dd><dt>Resource</dt><dd>${esc(l.resource || "-")}</dd><dt>Status</dt><dd>${esc(l.status || "-")}</dd><dt>Correlation</dt><dd class="mono">${esc(l.correlation_id || "-")}</dd></dl></div>`).join("") || empty("No log entries", "Adjust filters or wait for activity.")}</div></section>`;
+  $("#lg-q").oninput = (e) => { clearTimeout(state.lqt); state.lqt = setTimeout(() => { state.logQ = e.target.value; renderLogs(); }, 250); };
+  $("#lg-level").onchange = (e) => { state.logLevel = e.target.value; renderLogs(); };
+  $("#lg-source").onchange = (e) => { state.logSource = e.target.value; renderLogs(); };
+  $("#lg-range").onchange = (e) => { state.logRange = e.target.value; renderLogs(); };
+  $("#lg-pause").onclick = () => { state.paused = !state.paused; renderLogs(); };
+  const cc = $("#lg-clearcorr"); if (cc) cc.onclick = () => { state.logCorr = ""; renderLogs(); };
+  $$("[data-corr]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); state.logCorr = b.dataset.corr; renderLogs(); }));
+  $$("[data-log]").forEach((r) => (r.onclick = () => { const d = $(`#ld-${r.dataset.log}`); d.hidden = !d.hidden; }));
+}
+
+async function renderAudit() {
+  const [a, e] = await Promise.all([api("/api/audit?limit=150"), api("/api/events?limit=100")]);
+  $("#main").innerHTML = pagehead("Activity & Audit", "Accountability trail and pipeline events.") +
+    `<div class="tabs"><button class="tab ${state.auditTab === "audit" ? "active" : ""}" data-atab="audit">Audit</button><button class="tab ${state.auditTab === "events" ? "active" : ""}" data-atab="events">Events</button></div>` +
+    (state.auditTab === "audit" ? panel("Audit trail", `<div class="twrap"><table class="tbl"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead><tbody>${a.audit.map((x) => `<tr><td>${utc(x.ts)}</td><td>${esc(x.username)}</td><td class="mono">${esc(x.action)}</td><td class="truncate">${esc(x.detail)}</td></tr>`).join("")}</tbody></table></div>`, "", true)
+      : panel("Pipeline events", `<div class="feed">${e.events.map((x) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext mono">${esc(x.kind)}</div><div class="fmeta"><span>${esc(x.surface)}</span><span>${utc(x.ts)}</span><span class="mono">${esc(JSON.stringify(x.payload))}</span></div></div></div>`).join("")}</div>`, "", true));
+  $$("[data-atab]").forEach((b) => (b.onclick = () => { state.auditTab = b.dataset.atab; renderAudit(); }));
+}
+
+async function renderHealth() {
+  const h = await api("/api/system/health");
+  $("#main").innerHTML = pagehead("System Health", "Runtime, storage and worker vitals.",
+    isAdmin() ? `<button class="btn sm" id="hl-backup">Backup</button><button class="btn sm ghost" id="hl-vacuum">Vacuum</button>` : "") +
+    `<div class="mgrid" style="grid-template-columns:repeat(4,1fr)"><div class="metric t-accent"><div class="mlabel">Uptime</div><div class="mvalue">${Math.round(h.uptime_seconds / 60)}m</div><div class="msub">${h.uptime_seconds}s</div></div><div class="metric"><div class="mlabel">Database</div><div class="mvalue">${(h.db_bytes / 1024).toFixed(0)}K</div><div class="msub">bytes on disk</div></div><div class="metric"><div class="mlabel">Threads</div><div class="mvalue">${h.threads}</div><div class="msub">active</div></div><div class="metric"><div class="mlabel">Users</div><div class="mvalue">${h.users}</div><div class="msub">accounts</div></div></div>` +
+    `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Jobs by status</span></div><div class="pbody">${hbars(Object.entries(h.jobs).map(([label, value]) => ({ label, value })))}</div></section><section class="panel"><div class="phead"><span class="ptitle">Runtime</span></div><div class="pbody"><dl class="kv"><dt>Version</dt><dd>SENTRIX ${esc(h.version)}</dd><dt>Python</dt><dd>${esc(h.python)}</dd><dt>Storage</dt><dd class="mono">${esc(h.storage)}</dd></dl></div></section></div>`;
+  const b = $("#hl-backup"); if (b) b.onclick = async () => { const r = await api("/api/ops/backup", { method: "POST", body: {} }); toast(`Backup: ${r.path}`, "ok"); };
+  const v = $("#hl-vacuum"); if (v) v.onclick = async () => { await api("/api/ops/vacuum", { method: "POST", body: {} }); toast("Vacuum complete", "ok"); };
+}
+
+async function renderReports() {
+  const d = await api("/api/reports");
+  $("#main").innerHTML = pagehead("Reports", "Governance and posture packs generated from live records.") +
+    (canWrite() ? panel("Generate report", `<div class="formrow"><div class="field grow"><select class="input" id="rp-type">${d.types.map((t) => `<option value="${t.id}">${esc(t.title)}</option>`).join("")}</select></div><div class="field"><select class="input" id="rp-fmt"><option value="csv">CSV</option><option value="json">JSON</option></select></div><button class="btn primary" id="rp-gen">Generate</button></div>`) : "") +
+    panel("Export history", `<div class="twrap"><table class="tbl"><thead><tr><th>ID</th><th>Type</th><th>Format</th><th>By</th><th class="num">Rows</th><th>Created</th><th></th></tr></thead><tbody>${d.reports.map((r) => `<tr><td class="mono">${esc(r.id)}</td><td>${esc(r.type)}</td><td>${esc(r.format)}</td><td>${esc(r.created_by)}</td><td class="num">${r.rows}</td><td>${utc(r.created_at)}</td><td><a class="btn sm" href="${esc(r.id ? `/api/reports/${r.id}/download` : "#")}">${icon("download")} Download</a></td></tr>`).join("") || '<tr><td colspan="7">No reports generated yet.</td></tr>'}</tbody></table></div>`, "", true) +
+    `<p class="pnote" style="color:var(--faint);font-size:11.5px">Reports are evidence generated from storage; they do not certify compliance.</p>`;
+  const g = $("#rp-gen"); if (g) g.onclick = async () => { const r = await api("/api/reports", { method: "POST", body: { type: $("#rp-type").value, format: $("#rp-fmt").value } }); toast(`Report ${r.id} generated (${r.rows} rows)`, "ok"); renderReports(); };
+}
+
+async function renderCompliance() {
+  const d = await api("/api/compliance");
+  $("#main").innerHTML = pagehead("Compliance", "Control-to-evidence mapping across frameworks.") +
+    panel("Evidence mapping", `<div class="twrap"><table class="tbl"><thead><tr><th>Framework</th><th>Control</th><th>Title</th><th>Evidence</th><th>Status</th></tr></thead><tbody>${d.mappings.map((m) => `<tr><td>${esc(m.framework)}</td><td class="mono">${esc(m.control)}</td><td>${esc(m.title)}</td><td>${m.evidence.map((e) => `<span class="chip neutral">${esc(e)}</span>`).join(" ")}</td><td><span class="chip ${m.status === "supported" ? "st-remediated" : "st-triaged"}">${esc(m.status)}</span></td></tr>`).join("")}</tbody></table></div>`, "", true) +
+    `<div class="banner"><span class="chip st-triaged">NOTE</span> ${esc(d.note)}</div>`;
+}
+
+async function renderAccess() {
+  const [u, t] = await Promise.all([api("/api/users"), api("/api/tokens")]);
+  const roles = ["super_admin", "security_admin", "security_analyst", "appsec_engineer", "devsecops_engineer", "developer", "auditor", "viewer"];
+  $("#main").innerHTML = pagehead("Access Management", "Eight-role RBAC, accounts and API tokens.") +
+    panel("Users", `${isAdmin() ? `<div class="formrow" style="margin-bottom:10px"><div class="field"><input class="input" id="us-name" placeholder="username"></div><div class="field"><input class="input" id="us-pw" type="password" placeholder="password (10+)"></div><div class="field"><select class="input" id="us-role">${roles.map((r) => `<option>${r}</option>`).join("")}</select></div><button class="btn sm primary" id="us-add">Add user</button></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>User</th><th>Title</th><th>Role</th><th>Disabled</th><th></th></tr></thead><tbody>${u.users.map((x) => `<tr><td>${esc(x.username)}</td><td>${esc(x.title || "-")}</td><td>${isAdmin() ? `<select class="input" data-urole="${esc(x.username)}">${roles.map((r) => `<option ${x.role === r ? "selected" : ""}>${r}</option>`).join("")}</select>` : esc(x.role)}</td><td>${x.disabled ? "yes" : "no"}</td><td>${isAdmin() ? `<button class="btn sm ghost" data-udis="${esc(x.username)}" data-dis="${x.disabled ? 0 : 1}">${x.disabled ? "Enable" : "Disable"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`, "", true) +
+    panel("API tokens", `${isAdmin() ? `<div class="formrow" style="margin-bottom:10px"><div class="field"><input class="input" id="tk-name" placeholder="token name"></div><div class="field"><select class="input" id="tk-role">${roles.map((r) => `<option>${r}</option>`).join("")}</select></div><button class="btn sm primary" id="tk-create">Create token</button></div><div id="tk-reveal"></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Revoked</th><th></th></tr></thead><tbody>${t.tokens.map((x) => `<tr><td class="mono">${esc(x.id)}</td><td>${esc(x.name)}</td><td>${esc(x.role)}</td><td>${x.revoked ? "yes" : "no"}</td><td>${isAdmin() && !x.revoked ? `<button class="btn sm ghost" data-trev="${esc(x.id)}">Revoke</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">No tokens.</td></tr>'}</tbody></table></div>`, "", true);
+  const ua = $("#us-add"); if (ua) ua.onclick = async () => { try { await api("/api/users", { method: "POST", body: { username: $("#us-name").value, password: $("#us-pw").value, role: $("#us-role").value } }); toast("User added", "ok"); renderAccess(); } catch (e) { toast(e.message, "error"); } };
+  $$("[data-urole]").forEach((s) => (s.onchange = () => api(`/api/users/${s.dataset.urole}/role`, { method: "POST", body: { role: s.value } })));
+  $$("[data-udis]").forEach((b) => (b.onclick = async () => { await api(`/api/users/${b.dataset.udis}/disable`, { method: "POST", body: { disabled: b.dataset.dis === "1" } }); renderAccess(); }));
+  const tc = $("#tk-create"); if (tc) tc.onclick = async () => { const r = await api("/api/tokens", { method: "POST", body: { name: $("#tk-name").value || "ci", role: $("#tk-role").value } }); $("#tk-reveal").innerHTML = `<div class="okbox mono">${esc(r.token)}</div><p style="color:var(--warn);font-size:11.5px">Copy now - shown once.</p>`; };
+  $$("[data-trev]").forEach((b) => (b.onclick = async () => { await api(`/api/tokens/${b.dataset.trev}/revoke`, { method: "POST", body: {} }); renderAccess(); }));
+}
+
+async function renderSettings() {
+  const tabs = [["profile", "Profile"], ["rules", "Alert rules"], ["data", "Data operations"], ["about", "About"]];
+  $("#main").innerHTML = pagehead("Settings", "Profile, alerting policy and data operations.") +
+    `<div class="tabs">${tabs.map(([id, label]) => `<button class="tab ${state.settingsTab === id ? "active" : ""}" data-stab="${id}">${label}</button>`).join("")}</div><div id="st-body">${skeleton()}</div>`;
+  $$("[data-stab]").forEach((b) => (b.onclick = () => { state.settingsTab = b.dataset.stab; renderSettings(); }));
+  const body = $("#st-body");
+  if (state.settingsTab === "profile") {
+    body.innerHTML = panel("Profile", `<dl class="kv"><dt>Username</dt><dd>${esc(state.user.username)}</dd><dt>Role</dt><dd>${esc(state.user.role)}</dd><dt>Title</dt><dd>${esc(state.user.title || "-")}</dd></dl><div class="formrow" style="margin-top:12px"><div class="field"><input class="input" id="pw-old" type="password" placeholder="Current password"></div><div class="field"><input class="input" id="pw-new" type="password" placeholder="New password (10+)"></div><button class="btn primary" id="pw-save">Change password</button></div>`);
+    $("#pw-save").onclick = async () => { try { await api("/api/auth/password", { method: "POST", body: { old: $("#pw-old").value, new: $("#pw-new").value } }); toast("Password changed", "ok"); } catch (e) { toast(e.message, "error"); } };
+  } else if (state.settingsTab === "rules") {
+    const d = await api("/api/rules");
+    body.innerHTML = panel("Channel rules", `${canWrite() ? `<div class="formrow" style="margin-bottom:10px"><div class="field"><select class="input" id="ar-ch">${["console", "outbox", "slack", "webhook"].map((c) => `<option>${c}</option>`).join("")}</select></div><div class="field"><select class="input" id="ar-sev">${SEVS.map((s) => `<option>${s}</option>`).join("")}</select></div><button class="btn sm" id="ar-add">Add rule</button></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>Channel</th><th>Min severity</th><th>Enabled</th><th></th></tr></thead><tbody>${d.rules.map((r) => `<tr><td>${esc(r.channel)}</td><td>${esc(r.min_severity)}</td><td>${r.enabled ? "yes" : "no"}</td><td>${canWrite() ? `<button class="btn sm ghost" data-art="${esc(r.id)}">${r.enabled ? "Disable" : "Enable"}</button> <button class="btn sm ghost" data-ard="${esc(r.id)}">Delete</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="4">No rules - channels receive everything.</td></tr>'}</tbody></table></div>`, "", true);
+    const add = $("#ar-add"); if (add) add.onclick = async () => { await api("/api/rules", { method: "POST", body: { channel: $("#ar-ch").value, min_severity: $("#ar-sev").value } }); renderSettings(); };
+    $$("[data-art]").forEach((b) => (b.onclick = async () => { await api(`/api/rules/${b.dataset.art}/toggle`, { method: "POST", body: {} }); renderSettings(); }));
+    $$("[data-ard]").forEach((b) => (b.onclick = async () => { await api(`/api/rules/${b.dataset.ard}/delete`, { method: "POST", body: {} }); renderSettings(); }));
+  } else if (state.settingsTab === "data") {
+    const ops = await api("/api/ops/stats");
+    body.innerHTML = panel("Data operations", `<dl class="kv"><dt>Database</dt><dd>${(ops.db_bytes / 1024).toFixed(1)} KiB</dd><dt>Jobs</dt><dd>${ops.jobs}</dd><dt>Schedules</dt><dd>${ops.schedules}</dd><dt>Users</dt><dd>${ops.users}</dd></dl>
+      <div class="formrow" style="margin-top:12px"><a class="btn" href="/api/export?format=csv">Export CSV</a><a class="btn" href="/api/export?format=json">Export JSON</a>${isAdmin() ? `<button class="btn" id="do-backup">Backup</button><button class="btn ghost" id="do-vacuum">Vacuum</button>` : ""}</div>
+      ${isAdmin() ? `<div class="formrow" style="margin-top:10px"><div class="field"><input class="input" id="do-days" type="number" value="90" min="1"></div><button class="btn danger" id="do-purge">Purge closed findings older than (days)</button></div>` : ""}
+      ${canWrite() ? `<div class="formrow" style="margin-top:10px"><button class="btn ghost" id="do-demo">Reset demo data</button></div>` : ""}`);
+    const b = $("#do-backup"); if (b) b.onclick = async () => { const r = await api("/api/ops/backup", { method: "POST", body: {} }); toast(`Backup: ${r.path}`, "ok"); };
+    const v = $("#do-vacuum"); if (v) v.onclick = async () => { await api("/api/ops/vacuum", { method: "POST", body: {} }); toast("Vacuum complete", "ok"); };
+    const p = $("#do-purge"); if (p) p.onclick = () => confirmModal("Purge closed findings", "Removes remediated/false-positive findings older than the given days.", async () => { const r = await api("/api/ops/purge", { method: "POST", body: { days: +$("#do-days").value || 90 } }); toast(`Purged ${r.removed}`, "ok"); }, "Purge");
+    const dm = $("#do-demo"); if (dm) dm.onclick = () => confirmModal("Reset demo", "Close and reseed synthetic demo records.", async () => { await api("/api/demo/reset", { method: "POST", body: {} }); toast("Demo reset", "ok"); }, "Reset");
+  } else {
+    const cfg = await api("/api/config");
+    const h = await api("/api/health");
+    body.innerHTML = panel("About SENTRIX", `<dl class="kv"><dt>Product</dt><dd>SENTRIX ${esc(h.version)}</dd><dt>Full name</dt><dd>Secret Exposure & Network Threat Response Intelligence eXchange</dd><dt>Tagline</dt><dd>One Intelligence. Every Exposure. Total Control.</dd><dt>Python</dt><dd>${esc(h.python)}</dd></dl><pre class="codeblock">${esc(JSON.stringify(cfg, null, 2))}</pre>`);
+  }
+}
+
+/* ================= drawer ================= */
+
+function bindOpeners() {
+  $$("[data-open]").forEach((el) => {
+    if (el.dataset.bound) return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("input,select,button[data-select]")) return;
+      state.drawerId = el.dataset.open; state.drawerTab = "overview"; openDrawer();
+    });
+  });
+}
+
+async function openDrawer() {
+  const id = state.drawerId;
+  if (!id) return;
+  $("#overlays").insertAdjacentHTML("beforeend", `<div class="scrim" id="dscrim"></div><aside class="drawer" role="dialog" aria-modal="true"><div class="dbody">${skeleton()}</div></aside>`);
+  $("#dscrim").onclick = closeDrawer;
+  await loadDrawer();
+}
+function closeDrawer() { state.drawerId = null; $("#dscrim")?.remove(); $(".drawer")?.remove(); }
+
+async function loadDrawer() {
+  const id = state.drawerId;
+  if (!id) return;
+  const d = await api(`/api/findings/${id}`);
+  const f = d.finding, ex = d.extra;
+  const tabs = [["overview", "Overview"], ["risk", "Risk"], ["evidence", "Evidence"], ["notes", "Notes"], ["history", "History"], ["checklist", "Checklist"]];
+  const lifeIdx = LIFE.indexOf(f.status === "open" ? "new" : f.status);
+  const body = {
+    overview: `<div class="dsect"><h3>Finding</h3><dl class="kv"><dt>ID</dt><dd class="mono">${esc(f.id)}</dd><dt>Detector</dt><dd class="mono">${esc(f.detector_id)}</dd><dt>Source</dt><dd>${esc(SLABEL[f.surface] || f.surface)}</dd><dt>Asset</dt><dd class="mono">${esc(f.path)}:${f.line}</dd><dt>Environment</dt><dd>${esc(f.meta.environment || "unknown")}</dd><dt>Owner</dt><dd>${esc(f.owner || "-")}</dd><dt>First detected</dt><dd>${utc(ex.first_seen || f.created_at)}</dd><dt>Last observed</dt><dd>${utc(ex.last_seen || f.updated_at)}</dd><dt>Occurrences</dt><dd>${ex.occurrences}</dd></dl></div>
+      <div class="dsect"><h3>Lifecycle</h3><div class="life">${LIFE.map((s, i) => `${i ? '<span class="larrow">→</span>' : ""}<button class="lstep ${i === lifeIdx ? "current" : i < lifeIdx ? "past" : ""}" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div><div class="liferow">${["false_positive", "accepted_risk", "suppressed", "reopened"].map((s) => `<button class="btn sm ghost" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div></div>
+      ${canWrite() ? `<div class="dsect"><h3>Management</h3><div class="formrow"><div class="field"><input class="input" id="d-assign" value="${esc(ex.assignee)}" placeholder="Assignee"></div><button class="btn sm" id="d-assign-btn">Assign</button><div class="field"><input class="input" id="d-tags" value="${esc(ex.tags.join(", "))}" placeholder="Tags"></div><button class="btn sm" id="d-tags-btn">Tags</button></div><div class="formrow" style="margin-top:8px"><button class="btn sm" id="d-allow">Allowlist</button><button class="btn sm ghost" id="d-mute">${ex.muted ? "Unmute" : "Mute"}</button><button class="btn sm ghost" id="d-pin">${ex.pinned ? "Unpin" : "Pin"}</button></div></div>` : ""}
+      <div class="dsect"><h3>Provenance · how did that get there?</h3><dl class="kv">${Object.entries(f.meta.origin || {}).map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(String(v))}</dd>`).join("") || "<dt>Origin</dt><dd>not recorded</dd>"}</dl></div>
+      <div class="dsect"><h3>Related findings</h3>${(await api(`/api/findings/${id}/related`)).findings.map((r) => `<div class="listrow clickable" data-open="${esc(r.id)}"><span class="grow">${esc(r.title)}<span class="cellsub mono">${esc(r.path)}:${r.line}</span></span>${sevChip(r.severity)}</div>`).join("") || '<p style="color:var(--faint);font-size:12px">No related findings.</p>'}</div>`,
+    risk: `<div class="dsect"><h3>Risk assessment</h3>${riskbar(f.meta.risk)}<p style="font-size:12px;color:var(--dim);margin-top:8px">Band: <strong>${esc(f.meta.risk?.band || "-")}</strong> · explainable heuristic, not confirmed credential validity.</p><ul style="margin-top:8px;padding-left:18px;font-size:12px;color:var(--dim);display:flex;flex-direction:column;gap:4px">${(f.meta.risk?.factors || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div><div class="dsect"><h3>Assisted triage</h3>${d.triage ? `<div class="okbox">${esc(d.triage.verdict.replace(/_/g, " "))} · ${Math.round(d.triage.confidence * 100)}% · ${esc(d.triage.source)}<br>${esc(d.triage.recommendation)}</div>` : '<p style="color:var(--faint);font-size:12px">No assessment yet.</p>'}${canWrite() ? '<button class="btn sm" id="d-triage" style="margin-top:8px">Run triage</button>' : ""}</div>`,
+    evidence: `<div class="dsect"><h3>Masked evidence</h3><pre class="codeblock evidence">${esc(f.secret_masked)}</pre><dl class="kv" style="margin-top:10px"><dt>Fingerprint</dt><dd class="mono">${esc(f.fingerprint)}</dd><dt>Entropy</dt><dd>${f.entropy} bits/char</dd><dt>Confidence</dt><dd>${Math.round((f.meta.confidence || 0.6) * 100)}%</dd><dt>Validation</dt><dd>${esc(f.meta.validation || "pattern_match")}</dd></dl><p style="color:var(--faint);font-size:11.5px;margin-top:8px">Raw values are never stored or returned.</p></div>`,
+    notes: `<div class="dsect"><h3>Investigation notes</h3>${d.notes.map((n) => `<div class="feeditem"><span class="ficon">${icon("doc")}</span><div class="fbody"><div class="ftext">${esc(n.body)}</div><div class="fmeta"><span>${esc(n.username)}</span><span>${utc(n.ts)}</span></div></div></div>`).join("") || '<p style="color:var(--faint);font-size:12px">No notes.</p>'}${canWrite() ? `<div class="field" style="margin-top:10px"><textarea class="input" id="d-note" rows="3" placeholder="Add note"></textarea></div><button class="btn sm" id="d-note-btn">Add note</button>` : ""}</div>`,
+    history: `<div class="dsect"><h3>Audit history</h3><div class="feed">${d.history.map((h) => `<div class="feeditem"><span class="ficon">${icon("clock")}</span><div class="fbody"><div class="ftext">${esc(h.old)} → ${esc(h.new)}</div><div class="fmeta"><span>${esc(h.username)}</span><span>${utc(h.ts)}</span></div></div></div>`).join("") || '<p style="color:var(--faint);font-size:12px">No transitions recorded.</p>'}</div></div><div class="dsect"><h3>Remediation log</h3><div class="feed">${d.remediations.map((r) => `<div class="feeditem"><span class="ficon">${icon("wrench")}</span><div class="fbody"><div class="ftext">${esc(r.action)}</div><div class="fmeta"><span>${esc(r.detail)}</span><span>${utc(r.ts)}</span></div></div></div>`).join("") || '<p style="color:var(--faint);font-size:12px">No remediation actions.</p>'}</div></div>`,
+    checklist: `<div class="dsect"><h3>Remediation checklist</h3>${["Rotate the credential at its provider", "Remove the exposure from the source", "Purge from history, docs and chat", "Update consumers to the replacement", "Re-scan and verify remediation"].map((s, i) => `<label class="ckitem ${d.checklist[i]?.done ? "done" : ""}"><input type="checkbox" data-step="${i}" ${d.checklist[i]?.done ? "checked" : ""} ${!canWrite() ? "disabled" : ""}><span><span class="cktext">${esc(s)}</span>${d.checklist[i]?.username ? `<span class="ckmeta">by ${esc(d.checklist[i].username)}</span>` : ""}</span></label>`).join("")}</div>${canWrite() ? `<div class="dsect"><h3>Actions</h3><div class="formrow">${["rotate-guide", "preview-redact", "redact", "quarantine", "restore", "ticket", "verify"].map((a) => `<button class="btn sm" data-rem="${a}">${a.replace(/-/g, " ")}</button>`).join("")}</div><div id="d-rem-out" style="margin-top:8px"></div></div>` : ""}`,
+  }[state.drawerTab];
+  $(".drawer").innerHTML = `<div class="dhead"><div style="min-width:0;flex:1"><div class="dtitle">${esc(f.title)}</div><div class="dsub">${sevChip(f.severity)} ${stChip(f.status)} <span class="mono">${esc(f.id)}</span></div></div><button class="iconbtn" id="d-close" aria-label="Close">${icon("x")}</button></div><div class="dtabs">${tabs.map(([id2, label]) => `<button class="dtab ${state.drawerTab === id2 ? "active" : ""}" data-dtab="${id2}">${label}</button>`).join("")}</div><div class="dbody">${body}</div>`;
+  $("#d-close").onclick = closeDrawer;
+  $$("[data-dtab]").forEach((b) => (b.onclick = () => { state.drawerTab = b.dataset.dtab; loadDrawer(); }));
+  $$("[data-life]").forEach((b) => (b.onclick = async () => { await api(`/api/findings/${id}/status`, { method: "POST", body: { status: b.dataset.life } }); toast("Status recorded", "ok"); loadDrawer(); refresh(); }));
+  $$("[data-step]").forEach((cb) => (cb.onchange = () => api(`/api/findings/${id}/checklist`, { method: "POST", body: { idx: +cb.dataset.step, done: cb.checked } }).then(loadDrawer)));
+  const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+  on("#d-triage", async () => { await api("/api/triage", { method: "POST", body: { id } }); loadDrawer(); });
+  on("#d-note-btn", async () => { await api(`/api/findings/${id}/notes`, { method: "POST", body: { body: $("#d-note").value } }); loadDrawer(); });
+  on("#d-assign-btn", async () => { await api(`/api/findings/${id}/assign`, { method: "POST", body: { assignee: $("#d-assign").value.trim() } }); toast("Assigned", "ok"); loadDrawer(); });
+  on("#d-tags-btn", async () => { await api(`/api/findings/${id}/tags`, { method: "POST", body: { tags: $("#d-tags").value.split(",").map((t) => t.trim()).filter(Boolean) } }); toast("Tags set", "ok"); loadDrawer(); });
+  on("#d-allow", () => confirmModal("Allowlist fingerprint", "Suppress this value across all surfaces.", async () => { await api("/api/allowlist", { method: "POST", body: { fingerprint: f.fingerprint, reason: "drawer" } }); toast("Allowlisted", "ok"); loadDrawer(); refresh(); }));
+  on("#d-mute", async () => { await api(`/api/findings/${id}/mute`, { method: "POST", body: { muted: !ex.muted } }); loadDrawer(); });
+  on("#d-pin", async () => { await api(`/api/findings/${id}/pin`, { method: "POST", body: { pinned: !ex.pinned } }); loadDrawer(); });
+  $$("[data-rem]").forEach((b) => (b.onclick = () => {
+    const action = b.dataset.rem;
+    const exec = async () => { const r = await api("/api/remediate", { method: "POST", body: { id, action } }); $("#d-rem-out").innerHTML = `<pre class="codeblock">${esc(r.detail)}</pre>`; toast(`${action} complete`, "ok"); loadDrawer(); refresh(); };
+    if (["redact", "quarantine"].includes(action)) confirmModal(`${action} finding`, "Modifies or moves the source file. The credential must still be rotated.", exec, action);
+    else exec();
+  }));
+  bindOpeners();
+}
+
+/* ================= shell ================= */
+
+const VIEWS = {
+  overview: renderOverview, posture: renderPosture, intelligence: renderIntelligence,
+  findings: renderFindings, sources: renderSources, rules: renderRules, playground: renderPlayground,
+  scans: renderScans, repositories: renderSurfaceView, developer: renderSurfaceView, cloud: renderSurfaceView,
+  cicd: renderSurfaceView, saas: renderSurfaceView, assets: renderAssets, remediation: renderRemediation,
+  alerts: renderAlerts, investigations: renderInvestigations, exceptions: renderExceptions,
+  integrations: renderIntegrations, jobs: renderJobs, logs: renderLogs, audit: renderAudit,
+  health: renderHealth, reports: renderReports, compliance: renderCompliance, access: renderAccess,
+  settings: renderSettings,
+};
+const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
+
+function refresh() { if (VIEWS[state.view]) VIEWS[state.view](); }
+
+function route() {
+  const hash = location.hash.replace("#/", "") || "overview";
+  state.view = VIEWS[hash] ? hash : "overview";
+  state.selection.clear();
+  $$(".navitem").forEach((a) => a.classList.toggle("active", a.dataset.nav === state.view));
+  $("#main").innerHTML = skeleton();
+  Promise.resolve(VIEWS[state.view]()).catch((e) => {
+    $("#main").innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+  });
+  if (state.mobileSheet) closeSheet();
+}
+
+function buildShell() {
+  $("#topbar").innerHTML = `<a class="brand" href="#/overview"><img src="/logo.svg" alt=""><span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence</span></span></a>
+    <div class="gsearch">${icon("search")}<input class="input" id="gq" placeholder="Search findings…  (Ctrl+K)" aria-label="Global search"></div>
+    <span class="topspacer" style="flex:1"></span>
+    <span class="livedot" id="livedot"><span class="dot"></span><span id="livetxt">Live</span></span>
+    <button class="iconbtn" id="theme-toggle" aria-label="Toggle dark / white theme" title="Toggle theme">${icon("moon")}</button>
+    <button class="userbtn" id="userbtn" aria-haspopup="menu"><span class="avatar">${esc(state.user.username[0].toUpperCase())}</span><span><span class="uname">${esc(state.user.username)}</span><span class="urole" style="display:block">${esc(state.user.role)}</span></span></button>`;
+  $("#sidebar").innerHTML = NAV.map(([group, items], gi) => `<div class="navgroup" data-group="${gi}"><button class="navhead">${esc(group)} ${icon("chev", 12)}</button><div class="navitems">${items.map(([id, label]) => `<a class="navitem" href="#/${id}" data-nav="${id}">${icon(VIEW_ICON[id])} ${esc(label)}</a>`).join("")}</div></div>`).join("") + `<div class="navfoot" style="padding:10px 12px;color:var(--faint);font-size:10px">SENTRIX · One Intelligence. Every Exposure. Total Control.</div>`;
+  $$(".navhead").forEach((h) => (h.onclick = () => h.parentElement.classList.toggle("closed")));
+  const primary = ["overview", "findings", "intelligence", "remediation", "integrations", "logs", "reports", "settings"];
+  $("#tabbar").innerHTML = primary.map((id) => `<a class="tabitem" href="#/${id}" data-nav="${id}">${icon(VIEW_ICON[id], 16)}<span class="tl">${esc((NAV.flatMap((g) => g[1]).find((x) => x[0] === id) || [id, id])[1].split(" ")[0])}</span></a>`).join("") + `<button class="tabitem" id="more-btn">${icon("grid", 16)}<span class="tl">More</span></button>`;
+  $("#more-btn").onclick = openSheet;
+  $("#theme-toggle").onclick = () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("sx.theme", next); } catch {}
+    $("#theme-toggle").innerHTML = icon(next === "dark" ? "moon" : "sun");
+  };
+  $("#userbtn").onclick = (e) => {
+    closeOverlays("popover");
+    const pop = document.createElement("div");
+    pop.className = "popover";
+    pop.innerHTML = `<div class="pophead">${esc(state.user.username)}<span style="color:var(--faint);font-weight:400">${esc(state.user.title || state.user.role)}</span></div><button class="popitem" id="um-settings">${icon("gear")} Settings</button><button class="popitem" id="um-access">${icon("lock")} Access management</button><div class="popsep"></div><button class="popitem danger" id="um-out">${icon("x")} Sign out</button>`;
+    $("#overlays").appendChild(pop);
+    const r = e.currentTarget.getBoundingClientRect();
+    pop.style.top = `${r.bottom + 6}px`; pop.style.left = `${Math.max(8, r.right - 240)}px`;
+    $("#um-settings", pop).onclick = () => { pop.remove(); location.hash = "#/settings"; };
+    $("#um-access", pop).onclick = () => { pop.remove(); location.hash = "#/access"; };
+    $("#um-out", pop).onclick = async () => { await api("/api/auth/logout", { method: "POST", body: {} }); location.href = "/login"; };
+    setTimeout(() => { const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== $("#userbtn")) { pop.remove(); document.removeEventListener("click", off); } }; document.addEventListener("click", off); }, 0);
+  };
+  $("#gq").onkeydown = (e) => { if (e.key === "Enter") { state.filters.q = e.target.value.trim(); state.page = 1; location.hash = "#/findings"; if (state.view === "findings") renderFindings(); } };
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeDrawer(); closeOverlays("popover"); closeOverlays("modalwrap"); closeSheet(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#gq").focus(); }
+  });
+  document.addEventListener("click", (e) => {
+    const h = e.target.closest("[data-help]");
+    if (h) helpPopover(h.dataset.help, h);
+  });
+  window.addEventListener("hashchange", route);
+  setInterval(async () => {
+    const h = await api("/api/health").catch(() => null);
+    $("#livetxt").textContent = h ? "Live" : "Offline";
+    $("#livedot").classList.toggle("down", !h);
+  }, 10000);
+  setInterval(() => { if (!state.paused && ["logs", "audit", "overview", "alerts"].includes(state.view)) refresh(); }, 6000);
+}
+
+function openSheet() {
+  state.mobileSheet = true;
+  $("#overlays").insertAdjacentHTML("beforeend", `<div class="sheet" id="sheet"><div class="sheet-panel"><div class="sheet-head"><strong>All modules</strong><button class="iconbtn" id="sheet-close" aria-label="Close">${icon("x")}</button></div>${NAV.map(([g, items]) => `<div class="navgroup"><div class="navhead" style="cursor:default">${esc(g)}</div><div class="navitems">${items.map(([id, label]) => `<a class="navitem" href="#/${id}" data-nav="${id}">${icon(VIEW_ICON[id])} ${esc(label)}</a>`).join("")}</div></div>`).join("")}</div></div>`);
+  $("#sheet-close").onclick = closeSheet;
+  $("#sheet").onclick = (e) => { if (e.target.id === "sheet") closeSheet(); };
+}
+function closeSheet() { state.mobileSheet = false; $("#sheet")?.remove(); }
+
+async function boot() {
+  try { state.user = (await api("/api/auth/me")).user; } catch { return; }
+  buildShell();
+  route();
+}
+boot();

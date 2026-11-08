@@ -1,439 +1,308 @@
-# REST API
+# SENTRIX API Reference
 
-The dashboard server (`python run.py serve`, default `http://127.0.0.1:8710`) exposes a JSON API alongside the static UI. All responses are `application/json` (except CSV and metrics exports) with `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: no-referrer`. POST bodies are JSON. Errors use `{"error": "..."}` with an appropriate status code (`400` invalid input, `401` unauthenticated, `403` role violation, `404` unknown path or id).
+The JSON API is served by `sentrix/server.py` (stdlib `ThreadingHTTPServer`) on the same host/port as the Command Center (default `http://127.0.0.1:8710`). All request and response bodies are JSON unless noted (CSV, Prometheus text, static files). There are no `PUT`/`PATCH`/`DELETE` verbs: mutations are `POST`, including deletions (`POST /api/<kind>/<id>/delete`).
 
-**Authentication (v1.1):** every endpoint except the public routes below requires either the `wm_session` cookie (set by `POST /api/auth/login`) or an `Authorization: Bearer wmt_...` API token. Roles: `admin` (everything), `analyst` (everything except the admin-only routes noted below), `viewer` (read-only; mutations return `403` except logout and own password change). The server binds to loopback by default.
+## Authentication
 
-Public routes (no auth): `GET /`, `/login`, `/favicon.svg`, `/logo.svg`, `/api/health`, `/static/{index.html,app.js,styles.css,login.html}`, and `POST /api/auth/login`.
+Every non-public route requires one of:
 
-Admin-only routes: anything under `/api/users` and `/api/tokens`, plus `POST /api/ops/restore`, `/api/ops/import`, `/api/ops/purge`.
+1. **Session cookie** — `sx_session=<token>`, issued by `POST /api/auth/login`. `HttpOnly; Path=/; SameSite=Strict`. Server-side expiry: `auth.session_hours` (default 12 h), or 30 days when `remember` is true.
+2. **Bearer token** — `Authorization: Bearer sxt_...`, created via `POST /api/tokens`. Only the SHA-256 hash is stored; revocation is checked on every request. The authenticated identity is `token:<name>` with the token's role.
 
-The v1.0 endpoints below remain valid (now behind auth); see [v1.1 endpoints](#v11-endpoints) for everything added in v1.1.0.
+**Public routes** (no auth): `GET /`, `GET /login`, `GET /static/*`, `GET /favicon.svg`, `GET /logo.svg`, `GET /api/health`, `GET /api/auth/demo-info`, and `POST /api/auth/login`. `GET /` redirects unauthenticated browsers to `/login`.
 
-## Finding object
+**CSRF / origin check:** a cookie-authenticated `POST` that carries an `Origin` header must match the `Host` header, otherwise `403 {"error": "cross-origin request rejected"}`. Bearer-authenticated requests are exempt.
 
-Every finding endpoint returns this shape:
+**Error shape:** `{"error": "<message>"}` with `400` (validation/AuthError), `401` (authentication required), `403` (read-only role, admin required, or cross-origin), `404` (unknown route or id).
 
-```json
-{
-  "id": "a1b2c3d4e5f6",
-  "detector_id": "aws-access-key-id",
-  "title": "AWS Access Key ID",
-  "severity": "high",
-  "surface": "ide",
-  "path": "src/settings.py",
-  "line": 12,
-  "secret_masked": "AKIA********3456",
-  "entropy": 4.31,
-  "fingerprint": "9f2c...64-hex-chars...1a",
-  "status": "open",
-  "owner": "demo-user",
-  "created_at": "2026-11-08T09:15:00",
-  "updated_at": "2026-11-08T09:15:00",
-  "meta": {"family": "cloud", "remediation": "rotate-aws"}
-}
-```
+**Response headers on every reply:** `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `id` | string | 12 hex chars, derived from fingerprint + path + line |
-| `detector_id` | string | Registry id (see [DETECTORS.md](DETECTORS.md)) |
-| `title` | string | Human-readable detector title |
-| `severity` | string | `critical`, `high`, `medium`, `low`, `info` |
-| `surface` | string | `ide`, `pre_push`, `ci`, `git`, `cloud`, `slack`, `confluence`, `jira`, `postman`, `filesystem` |
-| `path` | string | File path or source location (e.g. `slack:#eng/1712345678.001`) |
-| `line` | integer | 1-based line number |
-| `secret_masked` | string | Masked preview only; raw secrets are never stored |
-| `entropy` | number | Shannon entropy of the value, rounded to 2 decimals |
-| `fingerprint` | string | SHA-256 of `detector_id|secret`; stable dedupe/allowlist key |
-| `status` | string | `open`, `triaged`, `false_positive`, `remediated` |
-| `owner` | string | Source author when known (e.g. Slack user), else empty |
-| `created_at` / `updated_at` | string | UTC ISO timestamps (`YYYY-MM-DDTHH:MM:SS`) |
-| `meta` | object | Family, remediation hint, `triage` result, surface extras (`env_key`, `json_path`, `demo`) |
+## Roles matrix
 
-## GET endpoints
+Eight roles are defined in `sentrix/auth.py`:
 
-### `GET /api/health`
-
-```json
-{"status": "ok", "product": "Wintermute", "version": "1.1.0", "uptime_seconds": 123, "python": "3.12.0"}
-```
-
-### `GET /api/stats`
-
-```json
-{
-  "total": 12, "open": 9,
-  "by_severity": {"high": 5, "critical": 4, "medium": 3},
-  "by_surface": {"ide": 2, "slack": 3, "ci": 1},
-  "by_status": {"open": 9, "triaged": 2, "remediated": 1},
-  "alerts_sent": 12, "events_processed": 8, "remediations": 2
-}
-```
-
-### `GET /api/findings`
-
-Query filters (all optional, combined with AND): `status`, `severity`, `surface`, `q` (substring match on title, path, or detector id), `limit` (default 500). v1.1 adds `sort` (`created` default, `severity`, `occurrences`, `pinned`), `page` (default 1), and `page_size` (default 50). Each returned finding is merged with its management extras (`assignee`, `tags`, `pinned`, `muted`, `occurrences`, `severity_override`).
-
-```json
-{"findings": [ { "...": "Finding object + extras" } ], "total": 123, "page": 1, "page_size": 50}
-```
-
-Example: `GET /api/findings?severity=critical&status=open&sort=occurrences&page=1&page_size=50`
-
-### `GET /api/findings/{id}`
-
-```json
-{
-  "finding": { "...": "Finding object" },
-  "extra": {"assignee": "", "tags": [], "severity_override": "", "pinned": 0,
-            "muted": 0, "occurrences": 3, "first_seen": "2026-11-08T09:15:00",
-            "last_seen": "2026-11-08T11:02:00"},
-  "notes": [ {"id": 1, "finding_id": "a1b2c3d4e5f6", "username": "admin", "body": "...", "ts": "..."} ],
-  "history": [ {"id": 1, "finding_id": "a1b2c3d4e5f6", "old": "open", "new": "triaged", "username": "admin", "ts": "..."} ],
-  "checklist": { "0": {"step_idx": 0, "done": 1, "username": "admin", "ts": "..."} },
-  "remediations": [
-    {"id": "rm-18f...", "finding_id": "a1b2c3d4e5f6", "action": "rotate-guide",
-     "detail": "Rotation guide written to data/remediation/a1b2c3d4e5f6.md", "ts": "2026-11-08T09:20:00"}
-  ],
-  "triage": {"source": "heuristic", "confidence": 0.85, "verdict": "likely_true_positive",
-             "reasons": ["..."], "recommendation": "..."}
-}
-```
-
-`triage` is `null` until triage runs. `extra`, `notes`, `history`, and `checklist` are new in v1.1. `404` if the id is unknown.
-
-### `GET /api/events?limit=50`
-
-```json
-{"events": [
-  {"id": "ev-18f...", "kind": "scan.cli", "surface": "filesystem",
-   "payload": {"new": 2, "known": 1, "paths": ["src/settings.py"]}, "ts": "2026-11-08T09:15:00"}
-]}
-```
-
-Event kinds include `scan.cli`, `scan.path`, `gate.blocked`, `gate.passed`, `ingest.<surface>`, `demo.seeded`, `selftest`, `watch.changed`.
-
-### `GET /api/alerts?limit=50`
-
-```json
-{"alerts": [
-  {"id": "al-18f...", "finding_id": "a1b2c3d4e5f6", "channel": "outbox",
-   "message": "[HIGH] AWS Access Key ID on ide at src/settings.py:12 (masked: AKIA********3456)",
-   "status": "sent", "ts": "2026-11-08T09:15:01",
-   "ack": {"alert_id": "al-18f...", "username": "admin", "ts": "2026-11-08T09:40:00"} }
-]}
-```
-
-`status` is `sent`, `dry-run`, `deferred-quiet-hours`, `http-<code>`, or `failed: <reason>`. `ack` is `null` until acknowledged (v1.1).
-
-### `GET /api/allowlist`
-
-```json
-{"entries": [
-  {"fingerprint": "9f2c...1a", "reason": "Synthetic fixture in docs", "created_at": "2026-11-08T09:30:00"}
-]}
-```
-
-### `GET /api/config`
-
-Returns the full merged configuration (defaults + `config.toml` + `config.local.toml`). Secret values are never included — only the names of environment variables to read.
-
-## POST endpoints
-
-### `POST /api/scan`
-
-Two modes:
-
-- **Text (Playground):** scans ad-hoc text without storing anything.
-
-  ```json
-  {"text": "key = \"AWS_KEY_REDACTED\"", "path": "playground.txt", "surface": "filesystem"}
-  ```
-
-  `path` and `surface` are optional (defaults `playground.txt`, `filesystem`).
-
-- **Path:** scans a file or tree (relative paths resolve against the project root) and ingests findings.
-
-  ```json
-  {"path": "examples/lambda"}
-  ```
-
-Response:
-
-```json
-{"findings": [ { "...": "Finding object" } ], "scanned_files": 3}
-```
-
-`400` if the path does not exist.
-
-### `POST /api/demo`
-
-Seeds synthetic demo findings. Body ignored.
-
-```json
-{"ok": true, "seeded": 10}
-```
-
-### `POST /api/allowlist`
-
-Adds a fingerprint to the false-positive registry and marks all matching stored findings `false_positive`.
-
-```json
-{"fingerprint": "9f2c...1a", "reason": "Synthetic fixture in docs"}
-```
-
-Response: `{"ok": true}`. `400` if `fingerprint` is missing.
-
-### `POST /api/triage`
-
-Runs GPT triage when configured, otherwise the deterministic heuristic. The result is stored in `finding.meta.triage`.
-
-```json
-{"id": "a1b2c3d4e5f6"}
-```
-
-Response:
-
-```json
-{"ok": true, "triage": {
-  "source": "heuristic",
-  "confidence": 0.85,
-  "verdict": "likely_true_positive",
-  "reasons": ["High Shannon entropy consistent with a generated credential."],
-  "recommendation": "Rotate the credential and remove the exposure; follow the rotation guide."
-}}
-```
-
-`verdict` is `likely_true_positive`, `likely_false_positive`, or `needs_review`; `source` is `gpt` or `heuristic`. `404` if the id is unknown.
-
-### `POST /api/remediate`
-
-```json
-{"id": "a1b2c3d4e5f6", "action": "rotate-guide"}
-```
-
-`action` is one of `rotate-guide`, `redact`, `preview-redact`, `quarantine`, `restore`, `ticket`, `verify` (the last three additions are new in v1.1). Response:
-
-```json
-{"ok": true, "detail": "Rotation guide written to data/remediation/a1b2c3d4e5f6.md"}
-```
-
-Status transitions: `rotate-guide`/`ticket` → `triaged`; `redact`/`quarantine` → `remediated`; `verify` → `remediated` only when the rescan finds nothing at the recorded location. `preview-redact` returns a before/after preview and changes nothing; `restore` moves a quarantined file back. `400` for unknown actions, `404` for unknown ids. See [REMEDIATION.md](REMEDIATION.md).
-
-### `POST /api/findings/{id}/status`
-
-```json
-{"status": "triaged"}
-```
-
-`status` must be one of `open`, `triaged`, `false_positive`, `remediated`. Response:
-
-```json
-{"ok": true, "finding": { "...": "updated Finding object" }}
-```
-
-`400` for invalid status values, `404` for unknown ids.
-
-## v1.1 endpoints
-
-Everything below was added in v1.1.0. Unless marked public or admin-only, routes require a session cookie or Bearer token and accept `analyst` and `admin`; `viewer` is limited to the GET routes. Deletions use `POST .../delete` (the server implements GET and POST only). Every mutation except login is written to the system log; security-relevant actions also land in the audit trail.
-
-### Auth
-
-#### `POST /api/auth/login` (public)
-
-```json
-{"username": "admin", "password": "..."}
-```
-
-Success: `{"ok": true, "user": {"username": "admin", "role": "admin"}}` plus `Set-Cookie: wm_session=<token>; HttpOnly; Path=/; SameSite=Strict; Max-Age=<session_hours*3600>`. Failures return `400` with `{"error": "Invalid credentials."}`; exceeding the per-IP rate limit (default 5 attempts per rolling 60s) returns `400` with `{"error": "Too many attempts; wait a minute."}`. Failed logins are audited.
-
-#### `POST /api/auth/logout`
-
-Body ignored. Deletes the current session. `{"ok": true}`. Allowed for all roles.
-
-#### `POST /api/auth/password`
-
-```json
-{"old": "current-password", "new": "new-password-10-chars-min"}
-```
-
-Verifies the current password; new password must be at least 10 characters. Re-salts and re-hashes; audited. `{"ok": true}`. Allowed for all roles.
-
-#### `GET /api/auth/me`
-
-```json
-{"user": {"username": "admin", "role": "admin"}}
-```
-
-`401` when unauthenticated. For Bearer tokens the username is `token:<name>`.
-
-### Users (admin-only)
-
-| Method and path | Payload | Effect |
-| --- | --- | --- |
-| `GET /api/users` | — | `{"users": [{"username", "role", "disabled", "created_at"}]}` (hashes never returned) |
-| `POST /api/users` | `{"username": "ana", "password": "min-10-chars", "role": "analyst"}` | Create account; roles `admin`/`analyst`/`viewer`; audited |
-| `POST /api/users/{username}/role` | `{"role": "viewer"}` | Change role; audited |
-| `POST /api/users/{username}/disable` | `{"disabled": true}` | Disable (`false` re-enables); cannot disable yourself; audited |
-
-### API tokens (admin-only)
-
-| Method and path | Payload | Effect |
-| --- | --- | --- |
-| `GET /api/tokens` | — | `{"tokens": [{"id", "name", "role", "created_by", "created_at", "revoked"}]}` (hashes never returned) |
-| `POST /api/tokens` | `{"name": "ci", "role": "analyst"}` | `{"ok": true, "token": "wmt_..."}` — raw value shown once; only its SHA-256 hash is stored; audited |
-| `POST /api/tokens/{id}/revoke` | `{}` | Revoke immediately; audited |
-
-Use tokens as `Authorization: Bearer wmt_...`. The token's role applies to every request it authenticates.
-
-### Finding subroutes
-
-All take the finding id in the path; `404` for unknown ids. GET variants are readable by all roles; POST variants require analyst/admin.
-
-| Method and path | Payload | Effect |
-| --- | --- | --- |
-| `GET /api/findings/{id}/notes` | — | `{"notes": [...]}` |
-| `POST /api/findings/{id}/notes` | `{"body": "Reviewed with the team."}` | Add a note attributed to the caller |
-| `GET /api/findings/{id}/history` | — | `{"history": [...]}` status transitions |
-| `GET /api/findings/{id}/related` | — | `{"findings": [...]}` other findings with the same fingerprint |
-| `GET /api/findings/{id}/checklist` | — | `{"checklist": {"0": {"step_idx", "done", "username", "ts"}, ...}}` |
-| `POST /api/findings/{id}/checklist` | `{"idx": 0, "done": true}` | Persist one checklist step with actor and timestamp |
-| `POST /api/findings/{id}/tags` | `{"tags": ["prod", "rotate"]}` | Replace the tag list |
-| `POST /api/findings/{id}/assign` | `{"assignee": "ana"}` | Set assignee (empty string clears) |
-| `POST /api/findings/{id}/severity` | `{"severity": "critical"}` | Per-finding override; empty string clears; invalid values → `400` |
-| `POST /api/findings/{id}/pin` | `{"pinned": true}` | Pin/unpin |
-| `POST /api/findings/{id}/mute` | `{"muted": true}` | Mute/unmute alerting for this finding |
-
-`POST /api/findings/{id}/status` is unchanged from v1.0 but now records a `status_history` row with the acting user.
-
-### Bulk actions
-
-#### `POST /api/bulk`
-
-```json
-{"ids": ["a1b2c3d4e5f6", "b2c3d4e5f6a1"], "action": "status", "value": "triaged"}
-```
-
-`action` is one of:
-
-- `status` — set `value` (must be a valid status) on every id
-- `allowlist` — allowlist each finding's fingerprint with `value` as the reason (default "bulk allowlist") and mark it `false_positive`
-- `assign` — set assignee to `value`
-- `tag` — append `value` to each finding's tags (deduplicated)
-
-Response: `{"ok": true, "affected": 2}`. Audited as `bulk.<action>`.
-
-### Saved filters
-
-| Method and path | Payload | Effect |
-| --- | --- | --- |
-| `GET /api/filters` | — | Caller's presets: `{"filters": [{"id", "name", "params"}]}` |
-| `POST /api/filters` | `{"name": "Critical open", "params": {"severity": "critical", "status": "open"}}` | `{"ok": true, "id": "flt-..."}` |
-| `POST /api/filters/{id}/delete` | `{}` | Delete a preset |
-
-### Jobs
-
-| Method and path | Payload | Effect |
-| --- | --- | --- |
-| `GET /api/jobs` | — | `{"jobs": [...]}` latest 50: `id`, `path`, `surface`, `status`, `triggered_by`, `started`, `finished`, `files`, `findings`, `error` |
-| `GET /api/jobs/{id}` | — | `{"job": {...}}`; `404` if unknown |
-| `POST /api/jobs` | `{"path": "examples/lambda", "surface": "filesystem"}` | Queue a background scan; `{"ok": true, "id": "job-..."}` |
-| `POST /api/jobs/{id}/cancel` | `{}` | Cooperative cancel (checked between files) |
-
-Job statuses: `queued`, `running`, `done`, `cancelled`, `failed`. At most two jobs run concurrently; unchanged files (mtime + size) are served from the incremental cache. Relative paths resolve against the project root.
-
-### Schedules
-
-| Method and path | Payload | Effect |
-| --- | --- | --- |
-| `GET /api/schedules` | — | `{"schedules": [{"id", "path", "surface", "interval_seconds", "enabled", "last_run"}]}` |
-| `POST /api/schedules` | `{"path": ".", "surface": "filesystem", "interval_seconds": 3600}` | `{"ok": true, "id": "sch-..."}` |
-| `POST /api/schedules/{id}/toggle` | `{}` | Flip `enabled` |
-| `POST /api/schedules/{id}/delete` | `{}` | Delete |
-
-The scheduler loop ticks every 10 seconds and submits a job for each due schedule.
-
-### Alert rules and acknowledgement
-
-| Method and path | Payload | Effect |
-| --- | --- | --- |
-| `GET /api/rules` | — | `{"rules": [{"id", "channel", "min_severity", "enabled"}]}` |
-| `POST /api/rules` | `{"channel": "slack", "min_severity": "high"}` | `{"ok": true, "id": "rule-..."}` |
-| `POST /api/rules/{id}/toggle` | `{}` | Flip `enabled` |
-| `POST /api/rules/{id}/delete` | `{}` | Delete |
-| `POST /api/alerts/{id}/ack` | `{}` | Record acknowledgement (actor + timestamp); appears as `ack` on `GET /api/alerts` |
-
-A rule gates its channel: alerts below `min_severity` are skipped for that channel. With no enabled rule for a channel, all severities pass.
-
-### Logs and audit
-
-| Method and path | Query | Response |
-| --- | --- | --- |
-| `GET /api/logs` | `limit` (default 200), `level` (`info`/`warn`/`error`) | `{"logs": [{"id", "ts", "level", "source", "message"}]}` newest first |
-| `GET /api/audit` | `limit` (default 200) | `{"audit": [{"id", "ts", "username", "action", "detail"}]}` newest first |
-
-System log sources: `auth`, `http`, `scan`, `jobs`, `scheduler`, `escalation`, `remediation`, `demo`. Audit actions include `login.ok`, `login.failed`, `logout`, `password.changed`, `user.*`, `token.*`, `bulk.*`, `ops.*`, `detectors.tuning`.
-
-### Detectors and tuning
-
-#### `GET /api/detectors`
-
-```json
-{"detectors": [
-  {"id": "aws-access-key-id", "title": "AWS Access Key ID", "severity": "high",
-   "family": "cloud", "enabled": true}
-]}
-```
-
-`severity` reflects overrides; `enabled` is false for disabled ids. Includes custom detectors registered from config.
-
-#### `POST /api/detectors/tuning`
-
-```json
-{"disabled": ["high-entropy-string"], "severity_overrides": {"jwt": "low"}}
-```
-
-Applies immediately to the running engine (runtime only — persist durable changes in `config.local.toml`; see [DETECTORS.md](DETECTORS.md)). Audited as `detectors.tuning`. `{"ok": true}`.
-
-### Overview and digest
-
-#### `GET /api/overview`
-
-```json
-{
-  "stages": {"events": 8, "scans": 3, "findings": 12, "alerts": 12, "remediations": 2},
-  "detectors": 26,
-  "surfaces": ["ide", "pre_push", "ci", "git", "cloud", "slack", "confluence", "jira", "postman", "filesystem"],
-  "how": ["1. Events arrive from a surface...", "..."]
-}
-```
-
-#### `GET /api/digest`
-
-```json
-{"period_hours": 24, "total": 12, "open": 9,
- "by_severity": {"critical": 4, "high": 5, "medium": 3},
- "alerts_sent": 12, "open_critical": 4}
-```
-
-### Export and metrics
-
-| Method and path | Query/payload | Response |
-| --- | --- | --- |
-| `GET /api/export` | `format=csv` | CSV with columns `id,severity,title,surface,path,line,status,assignee,created_at` (up to 5000 findings) |
-| `GET /api/export` | omitted or `format=json` | `{"findings": [...]}` (up to 5000) |
-| `GET /api/metrics` | — | Prometheus text format (`text/plain; version=0.0.4`): `wintermute_findings_total`, `wintermute_findings_open`, `wintermute_alerts_sent_total`, `wintermute_events_processed_total`, `wintermute_remediations_total`, `wintermute_uptime_seconds` |
-
-### Ops
-
-| Method and path | Payload | Role | Effect |
+| Role | Read (GET) | Write (POST) | Admin routes |
 | --- | --- | --- | --- |
-| `GET /api/ops/stats` | — | any | `{"db_bytes": 123456, "jobs": 3, "schedules": 1, "users": 2}` |
-| `GET /api/ops/dump` | — | any | JSON dump of `findings`, `events`, `alerts`, `allowlist`, `remediations`, `notes`, `finding_extra`, `saved_filters`, `schedules`, `alert_rules` |
-| `POST /api/ops/backup` | `{}` | analyst+ | Online SQLite backup to `data/backups/wintermute-<epoch>.db`; `{"ok": true, "path": "..."}`; audited |
-| `POST /api/ops/restore` | `{"path": "data/backups/wintermute-1762...db"}` | admin | Replace the live database from a backup file and reopen storage; audited |
-| `POST /api/ops/purge` | `{"days": 90}` | admin | Delete `remediated`/`false_positive` findings older than N days plus their notes/history/extras/checklists and old system-log rows; `{"ok": true, "removed": 4}`; audited |
-| `POST /api/ops/vacuum` | `{}` | analyst+ | Reclaim database space; `{"ok": true}` |
-| `POST /api/ops/import` | `{"findings": [...], "allowlist": [...]}` | admin | Import rows into whitelisted tables (`findings`, `allowlist`, `notes`, `finding_extra`, `schedules`, `alert_rules`, `saved_filters`); `{"ok": true, "imported": 12}`; audited |
+| `super_admin` | yes | yes | yes |
+| `security_admin` | yes | yes | yes |
+| `security_analyst` | yes | yes | no |
+| `appsec_engineer` | yes | yes | no |
+| `devsecops_engineer` | yes | yes | no |
+| `developer` | yes | no (except logout / own password) | no |
+| `auditor` | yes | no (except logout / own password) | no |
+| `viewer` | yes | no (except logout / own password) | no |
+
+- **Write roles** = the first five. Any other role receives `403 {"error": "role is read-only"}` on POST, except `POST /api/auth/logout` and `POST /api/auth/password`, which every authenticated role may call.
+- **Admin routes** = any path starting with `/api/users`, `/api/tokens`, `/api/ops/restore`, `/api/ops/import`, `/api/ops/purge` (GET included). Non-admin roles receive `403 {"error": "security administrator role required"}`.
+- Legacy roles are migrated on database open: `admin` -> `super_admin`, `analyst` -> `security_analyst`.
+
+## Endpoint inventory
+
+### Auth and identity
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| POST | `/api/auth/login` | public | Sign in, issue session cookie |
+| POST | `/api/auth/logout` | any role | Delete current session |
+| GET | `/api/auth/me` | session/token | Current user |
+| POST | `/api/auth/password` | any role | Change own password |
+| GET | `/api/auth/demo-info` | public | Local demo roster (loopback + demo mode only) |
+
+**POST /api/auth/login** — body `{"username": "admin", "password": "...", "remember": false}`. Success: `200 {"ok": true, "user": {"username", "role", "title"}}` plus `Set-Cookie: sx_session=...; HttpOnly; Path=/; SameSite=Strict; Max-Age=<session_hours*3600>`. With `remember: true` the server-side session expires after 30 days. Failures: `400 {"error": "Invalid credentials."}` or `{"error": "Too many failed attempts; wait a minute."}` — the per-IP limit (default 5) counts **failed attempts only** in a rolling 60-second window.
+
+**GET /api/auth/me** — `{"user": {"username", "role", "title"}}`; `401 {"error": "unauthenticated"}` when no valid credentials.
+
+**POST /api/auth/password** — body `{"old": "...", "new": "..."}`; new password must be at least 10 characters; `{"ok": true}`.
+
+**GET /api/auth/demo-info** — `{"enabled": bool, "accounts": [{"username", "password", "role", "title"}], "username": "...", "password": "..."}`. `enabled` is true only when `auth.demo_mode` is on, the server host is `127.0.0.1`/`localhost`, and at least one account still has its unchanged demo password. Otherwise `{"enabled": false, "accounts": []}`.
+
+### Console aggregates
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/health` | Public liveness probe |
+| GET | `/api/stats` | Store-wide counters |
+| GET | `/api/dashboard` | KPIs and chart series for the Overview |
+| GET | `/api/overview` | Pipeline stage counters + how-it-works |
+| GET | `/api/pipeline` | Per-stage operational monitor |
+| GET | `/api/posture` | Posture analytics |
+| GET | `/api/intelligence` | Risk prioritization |
+| GET | `/api/digest` | 24-hour summary |
+| GET | `/api/metrics` | Prometheus text exposition |
+
+**GET /api/health** — `{"status": "ok", "product": "SENTRIX", "version": "2.0.0", "uptime_seconds": int, "python": "3.x.y"}`.
+
+**GET /api/stats** — `{"total", "open", "by_severity": {}, "by_surface": {}, "by_status": {}, "alerts_sent", "events_processed", "remediations"}`. `open` counts status `open` only.
+
+**GET /api/dashboard** — `{"kpis": {"total", "open", "critical_high", "alerts", "remediations", "false_positives"}, "severity": [{"label","value"}], "status": [...], "surfaces": [...], "timeline": [{"date","count"} x 14 days], "channels": [...], "scatter": [{"entropy","occurrences","severity","title"} up to 300], "team": [{"username","title","role","owned","assigned"}]}`.
+
+**GET /api/overview** — `{"stages": {"events", "scans", "findings", "alerts", "remediations"}, "detectors": <registry size>, "surfaces": [10 surface ids], "how": [6 explanatory strings]}`.
+
+**GET /api/pipeline** — `{"stages": [{"id", "name", "status": "operational", "events", "failed", "avg_ms", "last_run", "logs_source"}]}` for eleven stages: `source`, `ingestion`, `normalization`, `detection`, `validation`, `dedup`, `risk`, `finding`, `alerting`, `remediation`, `verification`. Counts are derived from live storage; `avg_ms` is the mean job duration; `failed` reflects failed jobs on ingestion/detection.
+
+**GET /api/posture** — `{"trend", "severity", "sources", "categories": [{"label","value"}], "environments": [...], "remediation_performance": {"mttr_hours", "mttd_hours", "remediated_rate"}, "age_buckets": [{"label": "<1d"|"1-7d"|"7-30d"|">30d","value"}], "integration_health": [{"label","value","status"}]}`. MTTR is computed from status history entries reaching `remediated`/`verified`/`closed`; `mttd_hours` is currently `0.0` (not measured).
+
+**GET /api/intelligence** — `{"risk_distribution": [{"label": band,"value"}], "concentration": [top 8 assets by open findings], "high_risk_assets": [top 6 by max risk], "priorities": [{"id","title","score","band","severity"} top 10 unresolved], "coverage_gaps": [surfaces with no findings], "repeated": [{"title","masked","count"} up to 8]}`.
+
+**GET /api/digest** — `{"period_hours": 24, "total", "open", "by_severity", "alerts_sent", "open_critical"}`.
+
+**GET /api/metrics** — `text/plain; version=0.0.4` with `sentrix_findings_total`, `sentrix_findings_open`, `sentrix_alerts_sent_total`, `sentrix_events_processed_total`, `sentrix_remediations_total`, `sentrix_uptime_seconds`.
+
+### Findings and lifecycle
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/findings` | Filtered, sorted, paginated list |
+| GET | `/api/findings/{id}` | Full detail bundle |
+| GET | `/api/findings/{id}/related` | Same-fingerprint findings elsewhere |
+| GET | `/api/findings/{id}/notes` | Notes |
+| GET | `/api/findings/{id}/history` | Status history |
+| GET | `/api/findings/{id}/checklist` | Remediation checklist state |
+| POST | `/api/findings/{id}/status` | Set lifecycle status |
+| POST | `/api/findings/{id}/notes` | Add note |
+| POST | `/api/findings/{id}/tags` | Replace tags |
+| POST | `/api/findings/{id}/assign` | Set assignee |
+| POST | `/api/findings/{id}/severity` | Severity override |
+| POST | `/api/findings/{id}/pin` | Pin/unpin |
+| POST | `/api/findings/{id}/mute` | Mute/unmute alerts |
+| POST | `/api/findings/{id}/checklist` | Tick a checklist step |
+| POST | `/api/bulk` | Bulk status/allowlist/assign/tag |
+| GET | `/api/filters` | Current user's saved filters |
+| POST | `/api/filters` | Save a filter |
+| POST | `/api/filters/{id}/delete` | Delete a saved filter |
+
+**GET /api/findings** — query: `status`, `severity`, `surface`, `q` (matches title/path/detector_id), `limit` (default 500), `sort` = `created` (default) | `severity` | `occurrences` | `pinned`, `page` (default 1), `page_size` (default 50). Response: `{"findings": [Finding + extras], "total", "page", "page_size"}` where each item is the finding dict (`id, detector_id, title, severity, surface, path, line, secret_masked, entropy, fingerprint, status, owner, created_at, updated_at, meta`) merged with `assignee, tags, pinned, muted, occurrences, severity_override, last_seen` and meta projections `confidence, validation, environment, risk`.
+
+**GET /api/findings/{id}** — `{"finding": {...}, "extra": {...}, "notes": [...], "history": [...], "checklist": {"0": {"step_idx","done","username","ts"}, ...}, "remediations": [...], "triage": {...}|null}`; `404` when unknown.
+
+**POST /api/findings/{id}/status** — body `{"status": "<one of 12>"}`. Valid statuses: `open, new, triaged, assigned, in_progress, remediated, verified, closed, false_positive, accepted_risk, suppressed, reopened`. Response `{"ok": true, "finding": {...}}`; invalid value -> `400`. Every change appends `status_history` (old, new, username, ts).
+
+Other subresource bodies: notes `{"body": "..."}`; tags `{"tags": ["a","b"]}`; assign `{"assignee": "m.ross"}`; severity `{"severity": "high"|""}` (empty clears the override); pin `{"pinned": true|false}`; mute `{"muted": true|false}`; checklist `{"idx": 0..4, "done": true|false}`. All return `{"ok": true}`.
+
+**POST /api/bulk** — body `{"ids": [...], "action": "status"|"allowlist"|"assign"|"tag", "value": "..."}`. `status` applies a valid status to each id; `allowlist` registers each finding's fingerprint (reason = value) and marks it `false_positive`; `assign` sets assignee; `tag` appends a tag. Response `{"ok": true, "affected": <len(ids)>}`; audited as `bulk.<action>`.
+
+**Saved filters** — `POST /api/filters` body `{"name": "...", "params": {"severity","surface","status","q"}}` -> `{"ok": true, "id": "flt-..."}`. `GET /api/filters` -> `{"filters": [{"id","name","params"}]}` (per user). `POST /api/filters/{id}/delete` -> `{"ok": true}`.
+
+### Detection and scanning
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/scan` | Playground text scan (not stored) or path scan (ingested) |
+| GET | `/api/detectors` | Registry with tuning applied |
+| POST | `/api/detectors/tuning` | Disable detectors / override severities |
+| GET | `/api/detection-rules` | Persisted custom rules |
+| POST | `/api/detection-rules` | Create + register a custom rule |
+| POST | `/api/detection-rules/{id}/delete` | Delete a custom rule |
+| POST | `/api/triage` | Run triage for one finding |
+| GET | `/api/allowlist` | Fingerprint registry |
+| POST | `/api/allowlist` | Add fingerprint, mark matches false positive |
+| POST | `/api/demo` | Seed synthetic findings |
+| POST | `/api/demo/reset` | Close demo findings and reseed |
+
+**POST /api/scan** — with `{"text": "...", "path": "playground.txt", "surface": "filesystem"}`: runs the engine only, returns `{"findings": [...], "scanned_files": 1}` and stores nothing. With `{"path": "some/dir"}`: scans the tree (relative paths resolve against the SENTRIX root), ingests results, returns the same shape with the real file count. Missing both -> `400`; nonexistent path -> `400`.
+
+**GET /api/detectors** — `{"detectors": [{"id","title","severity","family","enabled"}]}` with current tuning applied.
+
+**POST /api/detectors/tuning** — body `{"disabled": ["id", ...], "severity_overrides": {"id": "high"}}`; applies immediately via `engine.configure`, audited. Note: tuning is runtime state; persist the same values in `config.toml` to survive restarts.
+
+**POST /api/detection-rules** — body `{"id"?: "custom-...", "title": "...", "severity": "medium", "pattern": "<regex>"}`. The pattern is compiled first; invalid regex -> `400 {"error": "invalid pattern: ..."}`. Success registers the detector immediately (family `custom`) and persists it: `{"ok": true, "id": "..."}`. `GET` returns `{"rules": [{"id","title","severity","pattern","created_by","created_at","enabled"}]}`. `POST /api/detection-rules/{id}/delete` removes the stored row (the in-memory detector remains until restart; see [DETECTION_ENGINE.md](DETECTION_ENGINE.md)).
+
+**POST /api/triage** — body `{"id": "<finding id>"}` -> `{"ok": true, "triage": {"source": "heuristic"|"gpt", "confidence": 0..1, "verdict", "reasons": [...], "recommendation"}}`; stored in `finding.meta.triage`.
+
+**POST /api/allowlist** — body `{"fingerprint": "<sha256>", "reason": "..."}`; registers the fingerprint, refreshes the pipeline allowlist and marks matching stored findings `false_positive`. Missing fingerprint -> `400`.
+
+**POST /api/demo** — `{"ok": true, "seeded": <count>}`. **POST /api/demo/reset** — closes existing findings flagged `meta.demo` and reseeds: `{"ok": true, "closed": n, "seeded": m}`.
+
+### Exposure surface and Connect
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/sources` | Per-surface coverage |
+| GET | `/api/assets` | Asset inventory derived from findings |
+| GET | `/api/integrations` | Nine-provider hub inventory |
+| POST | `/api/integrations/{pid}/sync` | Record a manual sync request |
+| POST | `/api/integrations/{pid}/toggle` | Re-enable provider (audit recorded) |
+| POST | `/api/integrations/{pid}/disconnect` | Disable provider (audit recorded) |
+
+**GET /api/sources** — `{"sources": [{"surface", "findings", "last_event", "status": "monitored"|"idle"}]}` for the ten surfaces (`ide, pre_push, ci, git, cloud, slack, confluence, jira, postman, filesystem`).
+
+**GET /api/assets** — `{"assets": [{"id": "asset-<key>", "name", "type", "owner", "environment", "integration", "monitored": true, "last_scan", "findings", "critical", "risk"}]}` sorted by risk. Assets are keyed by the first path segment of finding locations (repository/host prefix); they are a derived view, not a separate registry.
+
+**GET /api/integrations** — `{"integrations": [{"id","name","surface","status":"connected"|"demo"|"disconnected","auth","permissions":[...],"rate_limit","last_sync","last_scan","resources":[...],"findings","errors":[...],"enabled":true}]}`. See [INTEGRATIONS.md](INTEGRATIONS.md) for the state model.
+
+**POST /api/integrations/{pid}/sync** — records an `integration.sync` event and a structured log entry; returns `{"ok": true, "status": "sync-recorded"}`. It does not fetch provider data itself. `toggle`/`disconnect` update an in-memory disabled set and write an audit row (`integration.toggle` / `integration.disconnect`); return `{"ok": true}`.
+
+### Response
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/remediation` | SLA task board + playbooks |
+| POST | `/api/remediate` | Execute a response action |
+| GET | `/api/investigations` | Active investigations |
+| GET | `/api/alerts` | Alert feed with acknowledgements |
+| POST | `/api/alerts/{id}/ack` | Acknowledge an alert |
+| GET | `/api/events` | Pipeline event feed |
+| GET | `/api/rules` | Alert channel rules |
+| POST | `/api/rules` | Add channel rule |
+| POST | `/api/rules/{id}/toggle` / `delete` | Manage a rule |
+
+**GET /api/remediation** — `{"tasks": [{"finding_id","title","severity","assignee","status","sla_hours","age_hours","breached","checklist_done","checklist_total":5}], "playbooks": [{"family","steps":[...]} x 11], "sla": {"breached", "at_risk"}}`. Tasks cover unresolved findings; SLA hours by severity: critical 24, high 72, medium 168, low 336, info 720. `at_risk` = age beyond 70% of SLA; tasks sort breached-first.
+
+**POST /api/remediate** — body `{"id": "<finding id>", "action": "rotate-guide"|"preview-redact"|"redact"|"quarantine"|"restore"|"ticket"|"verify"}` -> `{"ok": true, "detail": "<result text>"}`. Actions, status effects and file effects are documented in [OPERATIONS.md](OPERATIONS.md); unknown action -> `400`.
+
+**GET /api/investigations** — `{"investigations": [{"id","title","severity","status","assignee","notes","related"}]}` for unresolved findings that have notes or an assignee.
+
+**GET /api/alerts?limit=50** — `{"alerts": [{"id","finding_id","channel","message","status","ts","ack": {"alert_id","username","ts"}|null}]}`. Alert statuses: `sent`, `deferred-quiet-hours`, `dry-run`, `http-<code>`, `failed: <reason>`.
+
+**POST /api/alerts/{id}/ack** — `{"ok": true}`; records actor and time.
+
+**GET /api/events?limit=50** — `{"events": [{"id","kind","surface","payload","ts"}]}`.
+
+**Alert rules** — `POST /api/rules` body `{"channel": "console"|"outbox"|"slack"|"webhook", "min_severity": "high"}` -> `{"ok": true, "id": "rule-..."}`. `GET /api/rules` -> `{"rules": [{"id","channel","min_severity","enabled"}]}`. Toggle/delete via `POST /api/rules/{id}/toggle|delete`.
+
+### Jobs and schedules
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/jobs` | Submit a background scan |
+| GET | `/api/jobs` | Recent jobs (50) |
+| GET | `/api/jobs/{id}` | One job |
+| POST | `/api/jobs/{id}/cancel` | Cooperative cancel |
+| GET | `/api/schedules` | List schedules |
+| POST | `/api/schedules` | Add schedule |
+| POST | `/api/schedules/{id}/toggle` / `delete` | Manage a schedule |
+
+**POST /api/jobs** — body `{"path": ".", "surface": "filesystem"}` -> `{"ok": true, "id": "job-..."}`. Job rows: `{"id","path","surface","status","triggered_by","started","finished","files","findings","error"}`; statuses `queued -> running -> done | cancelled | failed`. At most two jobs run concurrently.
+
+**POST /api/schedules** — body `{"path": ".", "surface": "filesystem", "interval_seconds": 3600}` -> `{"ok": true, "id": "sch-..."}`. Rows add `enabled`, `last_run` (epoch). The scheduler loop checks every 10 seconds.
+
+### Governance, reports and compliance
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/exceptions` | Allowlist + exception findings |
+| POST | `/api/exceptions` | Record an exception with reason |
+| GET | `/api/compliance` | Control-to-evidence mapping |
+| GET | `/api/reports` | Report history + available types |
+| POST | `/api/reports` | Generate a report |
+| GET | `/api/reports/{id}/download` | Download stored report body |
+| GET | `/api/audit?limit=200` | Audit trail |
+| GET | `/api/logs?limit=200&level=` | Structured system log |
+| GET | `/api/logs/export?limit=1000&level=` | CSV log export |
+| GET | `/api/export?format=csv\|json` | Findings export (up to 5000) |
+
+**GET /api/exceptions** — `{"allowlist": [{"fingerprint","reason","created_at"}], "exceptions": [findings with status accepted_risk | suppressed | false_positive]}`.
+
+**POST /api/exceptions** — body `{"finding_id": "...", "kind": "accepted_risk"|"suppressed", "reason": "..."}`; sets the status, adds a note `Exception <kind>: <reason>`, writes audit `exception.<kind>`. Invalid kind -> `400`; unknown finding -> `404`.
+
+**GET /api/compliance** — `{"mappings": [{"framework","control","title","evidence":[...],"status":"supported"|"partial"} x 6], "note": "Evidence mapping only. Generating a report does not certify compliance."}`. Full table in [COMPLIANCE.md](COMPLIANCE.md).
+
+**POST /api/reports** — body `{"type": "<one of 11>", "format": "csv"|"json"}` -> `{"ok": true, "id": "rpt-...", "rows": n, "download": "/api/reports/<id>/download"}`. Types: `executive, exposure, critical, repository, cloud, saas, remediation, effectiveness, false_positive, integration_health, audit`. Unknown type -> `400`. **GET /api/reports** -> `{"reports": [{"id","type","format","created_by","rows","created_at"} up to 100], "types": [{"id","title"}]}`. **Download** returns the stored body as `text/csv` or `application/json`.
+
+**GET /api/logs** — `{"logs": [{"id","ts","level","source","message","component","event_type","exec_id","resource","status","correlation_id"}]}` newest first; optional `level` filter (`info|warn|error`). **GET /api/logs/export** returns the same fields as CSV with a header row.
+
+**GET /api/audit** — `{"audit": [{"id","ts","username","action","detail"}]}` newest first.
+
+**GET /api/export** — CSV columns `id,severity,title,surface,path,line,status,assignee,created_at`; JSON `{"findings": [...]}` (default).
+
+### Administration and operations
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/users` | admin | List accounts (no hashes) |
+| POST | `/api/users` | admin | Create account |
+| POST | `/api/users/{username}/role` | admin | Change role |
+| POST | `/api/users/{username}/disable` | admin | Disable/enable |
+| GET | `/api/tokens` | admin | List tokens (no hashes) |
+| POST | `/api/tokens` | admin | Create token (raw shown once) |
+| POST | `/api/tokens/{id}/revoke` | admin | Revoke token |
+| GET | `/api/config` | any | Effective configuration |
+| GET | `/api/system/health` | any | Detailed health |
+| GET | `/api/ops/stats` | any | DB size and object counts |
+| GET | `/api/ops/dump` | any | JSON dump (10 tables) |
+| POST | `/api/ops/backup` | write | Online SQLite backup |
+| POST | `/api/ops/restore` | admin | Restore from a backup file |
+| POST | `/api/ops/purge` | admin | Retention purge |
+| POST | `/api/ops/vacuum` | write | Reclaim space |
+| POST | `/api/ops/import` | admin | Import a JSON dump |
+
+**POST /api/users** — body `{"username", "password" (10+ chars), "role" (one of the 8)}` -> `{"ok": true}`; duplicate user or invalid role -> `400`. **Role** — `{"role": "..."}`. **Disable** — `{"disabled": true|false}`; disabling yourself -> `400`.
+
+**POST /api/tokens** — body `{"name": "ci", "role": "security_analyst"}` -> `{"ok": true, "token": "sxt_<40 hex>"}` (only time the raw value is returned). Listing never exposes hashes or raw values.
+
+**GET /api/system/health** — `{"uptime_seconds", "version", "db_bytes", "storage", "jobs": {"queued": n, "running": n, ...}, "users", "threads", "python"}`.
+
+**GET /api/ops/stats** — `{"db_bytes", "jobs", "schedules", "users"}`. **GET /api/ops/dump** — JSON object keyed by table for `findings, events, alerts, allowlist, remediations, notes, finding_extra, saved_filters, schedules, alert_rules`.
+
+**POST /api/ops/backup** — `{"ok": true, "path": "data/backups/sentrix-<epoch>.db"}`. **POST /api/ops/restore** — body `{"path": "<backup file>"}`; closes the store, copies the file over `storage.path`, reopens and rewires pipeline/auth; missing file -> `400`. **POST /api/ops/purge** — body `{"days": 90}` -> `{"ok": true, "removed": n}` (remediated/false-positive findings older than the cutoff plus old log lines). **POST /api/ops/vacuum** — `{"ok": true}`. **POST /api/ops/import** — body = a dump object -> `{"ok": true, "imported": <rows>}` (whitelisted tables, `INSERT OR REPLACE`).
+
+### Static console routes
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/` | Console shell (redirects to `/login` when unauthenticated) |
+| GET | `/login` | Sign-in page |
+| GET | `/static/{index.html,app.js,styles.css,login.html}` | Whitelisted static files only |
+| GET | `/favicon.svg`, `/logo.svg` | Brand assets |
+
+## Usage examples
+
+```sh
+# Sign in and keep the cookie
+curl -c jar.txt -X POST http://127.0.0.1:8710/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"sentrix-demo"}'
+
+# List critical open findings
+curl -b jar.txt "http://127.0.0.1:8710/api/findings?severity=critical&status=open"
+
+# CI gate usage with a Bearer token
+curl -H "Authorization: Bearer sxt_..." \
+  -X POST http://127.0.0.1:8710/api/jobs \
+  -H "Content-Type: application/json" -d '{"path":".","surface":"ci"}'
+
+# Generate and download a report
+curl -b jar.txt -X POST http://127.0.0.1:8710/api/reports \
+  -H "Content-Type: application/json" -d '{"type":"executive","format":"csv"}'
+curl -b jar.txt -o report.csv http://127.0.0.1:8710/api/reports/rpt-.../download
+```

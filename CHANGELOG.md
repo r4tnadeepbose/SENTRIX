@@ -24,12 +24,12 @@
 
 ## 1.2.0 - 2026-11-08
 
-- Renamed the project to **Wintermute** (package, CLI, environment variables, session cookie and token prefixes).
-- Demo credentials are now `admin` / `wintermute-demo` while demo mode is active.
+- Renamed the project to **SENTRIX** (package, CLI, environment variables, session cookie and token prefixes).
+- Demo credentials are now `admin` / `sentrix-demo` while demo mode is active.
 
 # Changelog
 
-All notable changes to Wintermute are documented here. The format follows
+All notable changes to SENTRIX are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -44,11 +44,11 @@ Major upgrade: authenticated operations platform around the unified pipeline —
   default), PBKDF2-HMAC-SHA256 password hashing with 200,000 iterations and
   per-user salts, per-IP login rate limiting (default 5/minute), and initial
   admin bootstrap via `data/INITIAL_ADMIN_PASSWORD.txt` or
-  `WINTERMUTE_ADMIN_PASSWORD`.
+  `SENTRIX_ADMIN_PASSWORD`.
 - RBAC with admin/analyst/viewer roles; viewer read-only enforcement; admin-only
   user management, tokens, restore, import, and purge; self-service password
   change; account disable/enable.
-- API tokens for CI and scripts: named `wmt_...` Bearer tokens with a role,
+- API tokens for CI and scripts: named `sxt_...` Bearer tokens with a role,
   hash-only storage, one-time display, and instant revocation; CLI `users`,
   `tokens`, `backup`, `schedules`, and `jobs` commands.
 - Audit trail for security-relevant actions plus a system log written by
@@ -124,7 +124,7 @@ Initial release.
   (in-place replacement), quarantine (move to `data/quarantine`), ticket (Jira or
   outbox draft); status lifecycle open → triaged → false_positive/remediated.
 - Optional GPT triage via any OpenAI-compatible endpoint (`[ai]`,
-  `WINTERMUTE_AI_KEY`) with deterministic heuristic fallback; prompts carry masked
+  `SENTRIX_AI_KEY`) with deterministic heuristic fallback; prompts carry masked
   values only.
 - Stdlib dashboard at `http://127.0.0.1:8710` with dark and light themes and views
   for Overview, Findings, Playground, Activity, Allowlist, and Settings.

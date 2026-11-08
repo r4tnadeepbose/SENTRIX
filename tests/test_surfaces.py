@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.config import load_config
-from wintermute.surfaces import cloud, confluence, git, jira, postman, slack
+from sentrix.config import load_config
+from sentrix.surfaces import cloud, confluence, git, jira, postman, slack
 
 AWS = "AWS_KEY_REDACTED"
 

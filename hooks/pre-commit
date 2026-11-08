@@ -1,9 +1,9 @@
 #!/bin/sh
-# Wintermute pre-commit gate: block commits that introduce secrets.
+# SENTRIX pre-commit gate: block commits that introduce secrets.
 ROOT="$(git rev-parse --show-toplevel)"
-WINTERMUTE_HOME="${WINTERMUTE_HOME:-$(cd "$ROOT/../Wintermute" 2>/dev/null && pwd)}"
-if [ -z "$WINTERMUTE_HOME" ] || [ ! -f "$WINTERMUTE_HOME/run.py" ]; then
-  echo "Wintermute: installation not found; set WINTERMUTE_HOME to your Wintermute folder." >&2
+SENTRIX_HOME="${SENTRIX_HOME:-$(cd "$ROOT/../SENTRIX" 2>/dev/null && pwd)}"
+if [ -z "$SENTRIX_HOME" ] || [ ! -f "$SENTRIX_HOME/run.py" ]; then
+  echo "SENTRIX: installation not found; set SENTRIX_HOME to your SENTRIX folder." >&2
   exit 0
 fi
-python "$WINTERMUTE_HOME/run.py" gate --staged --repo "$ROOT"
+python "$SENTRIX_HOME/run.py" gate --staged --repo "$ROOT"

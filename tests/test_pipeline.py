@@ -10,11 +10,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.alerting.router import AlertRouter
-from wintermute.config import load_config
-from wintermute.core.engine import scan_text
-from wintermute.core.pipeline import Pipeline
-from wintermute.core.storage import Storage
+from sentrix.alerting.router import AlertRouter
+from sentrix.config import load_config
+from sentrix.core.engine import scan_text
+from sentrix.core.pipeline import Pipeline
+from sentrix.core.storage import Storage
 
 
 def aws_findings():

@@ -1,31 +1,18 @@
-# Wintermute
+# SENTRIX
 
-![Wintermute logo](assets/logo.svg)
+**Secret Exposure & Network Threat Response Intelligence eXchange**
+
+> One Intelligence. Every Exposure. Total Control.
+
+![SENTRIX logo](assets/logo.svg)
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Stdlib only](https://img.shields.io/badge/dependencies-stdlib--only-brightgreen.svg)](docs/INSTALL.md)
+[![Stdlib only](https://img.shields.io/badge/dependencies-stdlib--only-brightgreen.svg)](docs/DEPLOYMENT.md)
 
-Wintermute - named after the orchestrating AI in William Gibson's *Neuromancer* - is a layered secret-detection system that follows one unified flow — **event → scan → alert → remediation** — from the editor to the cloud. A single shared detector registry (regex + entropy + validators) powers every layer: local IDE on-save checks, git hooks, CI diff gates, cloud function code and environment scanning, SaaS monitoring, and filesystem watching. Findings are masked, fingerprinted, deduplicated, and stored in SQLite; raw secrets are never persisted. Everything works offline with zero required dependencies.
+SENTRIX is an enterprise security intelligence platform for secret security: it detects credential exposure across every surface a modern engineering organization uses, scores and prioritizes the risk, routes alerts to the right people, and drives remediation to verified closure. One shared intelligence core — a registry of 26 detectors plus entropy scoring, validation heuristics, allowlisting and explainable risk scoring — powers the editor, git hooks, CI gates, cloud functions, collaboration tools and the filesystem alike. Findings are masked, fingerprinted and deduplicated; raw secrets are never stored. The entire platform runs on the Python 3.11+ standard library with zero required dependencies and works fully offline.
 
-**New in v1.1:** an authenticated graphite dashboard with a login page, role-based access (admin/analyst/viewer), API tokens for CI, audit trail and live system log, full findings management, background scan jobs and schedules, alert rules with quiet hours and escalation, previewable remediation with verification, and backup/export/metrics operations — **100 features in v1.1**, cataloged in [docs/OVERVIEW.md](docs/OVERVIEW.md).
-
-## Features
-
-- **One pattern set, many layers.** 26 built-in detectors for cloud keys, SaaS tokens, private keys, connection URIs, and generic high-entropy assignments — reused identically everywhere, plus custom detectors from config.
-- **Unified pipeline.** Every surface feeds the same engine, allowlist, storage, alert router, and remediation playbooks.
-- **Authenticated access.** Login page with HttpOnly SameSite session cookies, PBKDF2 hashing (200k iterations), login rate limiting, three-role RBAC, and revocable `wmt_` API tokens for CI (Bearer auth).
-- **Privacy by default.** Raw secrets are never stored: only a masked preview and a SHA-256 fingerprint. IDE and git-hook layers are fully local.
-- **Findings management.** Notes, tags, assignee, severity override, pin, mute, occurrences, first/last seen, status history, related findings, bulk actions, saved filters, sorting, pagination, and search.
-- **Background jobs and schedules.** Incremental scan cache, cancellation, a concurrency cap, job history, and recurring scheduled scans.
-- **Dedupe everywhere.** Findings dedupe by fingerprint + path + line; alerts dedupe within a configurable window.
-- **Alert channels with rules.** Console, file outbox (`data/outbox`), and webhook channels (`slack`, `webhook`), governed by per-channel severity rules, quiet hours, retry backoff, acknowledgement, mute, escalation, and a digest endpoint. Unconfigured network channels run in dry-run mode.
-- **Actionable remediation.** Rotation playbooks, redaction with before/after preview, quarantine and restore, ticketing, verification rescans, and persisted checklists.
-- **Audit and live logs.** Security-relevant actions land in an audit trail; every subsystem writes a system log you can tail live, filter by level, and pause.
-- **Operations.** Backup/restore, retention purge, vacuum, JSON dump/import, CSV and JSON export, Prometheus metrics, and database size stats.
-- **Optional GPT triage.** Any GPT-compatible chat endpoint; deterministic heuristic fallback when offline or unconfigured. Only masked values are ever sent.
-- **Graphite dashboard.** Stdlib `http.server` at `http://127.0.0.1:8710` with a minimalist single-theme graphite UI, login, and views for Overview, Findings, Jobs, Logs, Playground, Activity, Allowlist, and Settings — plus help popovers, a Ctrl+K command palette, and keyboard shortcuts.
-- **Zero required dependencies.** Python 3.11+ standard library only; optional `boto3` for live cloud scanning.
+SENTRIX is built for DevSecOps teams that need exposure detection, investigation workflow, automated response and audit-ready evidence in one console rather than five disconnected tools.
 
 ## Quickstart
 
@@ -35,190 +22,164 @@ Wintermute - named after the orchestrating AI in William Gibson's *Neuromancer* 
 run.bat
 ```
 
-Or explicitly:
-
-```bat
-python run.py
-```
-
 ### Kali / Linux / macOS
 
 ```sh
 ./run.sh
 ```
 
-Or explicitly:
+### Any platform, explicitly
 
 ```sh
-python3 run.py
+python run.py          # Python 3.11+; starts the Command Center
 ```
 
-With no arguments, Wintermute starts the dashboard at **http://127.0.0.1:8710**. On first run it creates an `admin` account and writes the initial password to **`data/INITIAL_ADMIN_PASSWORD.txt`** (or uses `WINTERMUTE_ADMIN_PASSWORD` from the environment when set). Open the dashboard, sign in at the login page, and change the password in Settings. See [docs/INSTALL.md](docs/INSTALL.md) for platform setup, first-run login, optional installs, and environment variables.
+With no arguments SENTRIX serves the console at **http://127.0.0.1:8710**. On first run it creates the `admin` account (role `super_admin`) and, unless `SENTRIX_ADMIN_PASSWORD` is set, writes the initial password to `data/INITIAL_ADMIN_PASSWORD.txt`. If the findings store is empty, synthetic demo findings are seeded automatically so every view is explorable immediately.
 
-### First-run demo
+### Login and the demo roster
 
-```sh
-python run.py demo     # seed synthetic findings across every surface
-python run.py serve    # then open http://127.0.0.1:8710 and sign in
-```
+The shipped `config.toml` enables `auth.demo_mode`. While demo mode is on **and** the server listens on loopback, the login page shows a demo company roster with one-click sign-in:
 
-The demo uses synthetic values only. Explore the Findings view, run triage, and try a remediation action safely.
+| Account | Role | Title | Demo password |
+| --- | --- | --- | --- |
+| `admin` | `super_admin` | Platform Administrator | `sentrix-demo` |
+| `s.chen` | `appsec_engineer` | Security Engineer | `s.chen-demo` |
+| `m.ross` | `security_analyst` | SOC Analyst | `m.ross-demo` |
+| `i.kumar` | `devsecops_engineer` | Incident Responder | `i.kumar-demo` |
+| `a.diaz` | `auditor` | Compliance Officer | `a.diaz-demo` |
+| `j.lee` | `developer` | Software Developer | `j.lee-demo` |
 
-## Authentication
+These credentials are **local-only**: the roster card disappears as soon as an account's password is changed, when the server binds to a non-loopback host, or when `auth.demo_mode = false` (production mode). In production mode no demo accounts are seeded and no credentials are ever displayed. Change the admin password after first login and delete the plaintext password file. See [docs/SECURITY.md](docs/SECURITY.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-The dashboard and JSON API require sign-in (session cookie) or an API token (Bearer). The server still binds to loopback by default.
+## The platform at a glance
 
-| Role | Can do |
-| --- | --- |
-| `admin` | Everything, including user management, API tokens, restore, import, and retention purge |
-| `analyst` | Scan, manage findings, run jobs and schedules, configure rules and detector tuning, remediate, back up, export |
-| `viewer` | Read-only browsing (plus logout and own password change) |
+SENTRIX is organized into five module sub-brands, all served by one modular monolith:
 
-- **Sessions:** `HttpOnly`, `SameSite=Strict` cookie, 12-hour default lifetime (`auth.session_hours`); login attempts are rate-limited per IP (`auth.login_rate_limit`, default 5 per minute).
-- **Initial admin:** password in `data/INITIAL_ADMIN_PASSWORD.txt` on first run, or set `WINTERMUTE_ADMIN_PASSWORD` beforehand. Change it after first login; delete the file once stored safely.
-- **API tokens for CI:** admins create named `wmt_...` tokens with a role; only a SHA-256 hash is stored and the raw value is shown once. Use `Authorization: Bearer wmt_...` against the API; revoke tokens at any time.
+### SENTRIX Command Center
+The enterprise console: unified Overview with live pipeline counters and KPIs, security Posture analytics (trend, severity, MTTR, age buckets), Intelligence prioritization, and a Pipeline stage monitor. Dark and light themes, command palette, help popovers, keyboard navigation, mobile layouts.
 
-```sh
-curl -H "Authorization: Bearer wmt_..." http://127.0.0.1:8710/api/findings
-```
+### SENTRIX Intelligence Core
+One detector registry (26 detectors across cloud, crypto, SaaS, AI and generic families), Shannon entropy scoring, format validation heuristics, environment classification, SHA-256 fingerprinting, cross-surface dedupe, allowlisting, custom detection rules, and an explainable 0-100 risk engine with per-factor justification. Optional assisted triage (deterministic heuristic by default; any GPT-compatible endpoint when configured, masked values only).
 
-Details: [docs/API.md](docs/API.md) and [SECURITY.md](SECURITY.md).
+### SENTRIX Connect
+The integrations hub: nine providers (GitHub, GitLab, Bitbucket, Jenkins, AWS, Slack, Jira, Confluence, Postman) with honest connection states (`connected` / `demo` / `disconnected`), declared permissions and rate limits, sync records, and per-provider finding counts. Slack, Jira and Confluence support live REST polling with tokens; AWS supports live Lambda scanning with optional `boto3`; Postman is export-based; code hosts and Jenkins integrate through CI gates, hooks and exports. See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+
+### SENTRIX Exposure Center
+Attack-surface management: asset inventory derived from finding locations, source coverage across ten surfaces, coverage-gap analysis, findings investigation with a full detail drawer (provenance, notes, history, checklist, triage, remediation), bulk actions, saved filters, and exception management (accepted risk / suppressed / false positive).
+
+### SENTRIX Response
+Alert routing (console, outbox, Slack webhook, generic webhook) with channel rules, quiet hours, dedupe windows, retries, acknowledgement and SLA escalation; eleven rotation playbooks; redact with preview, quarantine and restore, ticketing (live Jira or outbox draft), verification rescans; remediation task board with per-severity SLAs; background scan jobs, schedules and reports.
+
+## Feature summary
+
+- **Unified pipeline.** Event -> scan -> alert -> remediation, identical on every surface: IDE on-save, pre-commit/pre-push hooks, CI diff gates, git history diffs, cloud Lambda code and environment, Slack/Confluence/Jira/Postman exports or live polls, filesystem watch and scheduled jobs.
+- **Privacy by default.** Only masked previews (`AKIA********3456` style) and SHA-256 fingerprints are persisted. Raw secrets never touch the database, logs, alerts or AI prompts.
+- **Enterprise auth.** Eight roles, PBKDF2-SHA256 (200,000 iterations), HttpOnly SameSite=Strict sessions, remember-me (30-day server-side session), per-IP failure rate limiting, origin-checked CSRF protection, revocable `sxt_` Bearer tokens stored as hashes.
+- **Full finding lifecycle.** Twelve statuses from `new`/`open` through `assigned`, `in_progress`, `remediated`, `verified`, `closed`, plus `false_positive`, `accepted_risk`, `suppressed`, `reopened`; every transition recorded with actor and timestamp.
+- **Operations.** Incremental scan cache, two-slot job concurrency, cancellation, 10-second scheduler loop, structured system logs with correlation fields, audit trail, online backup/restore, retention purge, vacuum, CSV/JSON export, Prometheus metrics, health endpoints.
+- **Governance.** Eleven report types with download history, compliance evidence mapping (SOC 2, ISO 27001, PCI DSS, NIST CSF), exception registry with reasons, allowlist keyed by fingerprint.
+- **Zero required dependencies.** Python 3.11+ standard library only; `boto3` is the single optional extra (live AWS).
 
 ## CLI
 
-All commands run as `python run.py <cmd>` (or `python3` on Linux/macOS). No arguments starts `serve`.
+`python run.py <command>` (or `sentrix <command>` after `pip install -e .`). With no command, `serve` runs.
 
 | Command | Purpose |
 | --- | --- |
-| `serve [--port N]` | Run the dashboard and JSON API (default port 8710) |
-| `scan PATH [--surface S] [--json] [--no-store] [--strict]` | Scan a file or tree; `--strict` exits 1 at/above `fail_on` |
-| `gate [--staged \| --range BASE..HEAD \| --base B --head H] [--repo PATH]` | Diff-only gate for hooks and CI; exits 1 when blocking findings exist |
-| `hooks install\|uninstall [--repo PATH]` | Install or remove the pre-commit and pre-push git hooks |
-| `demo` | Seed synthetic demo findings |
-| `selftest` | Run internal sanity checks (registry, detection, allowlist, dedupe) |
-| `report [--format md\|json]` | Print a findings report |
-| `watch PATH [--interval S]` | Poll a tree and scan files on change |
-| `surfaces` | List available surface adapters |
-| `allowlist add FP --reason R` / `allowlist list` | Manage the false-positive registry by fingerprint |
-| `triage ID` | AI/heuristic triage for one finding |
-| `remediate ID --action redact\|quarantine\|ticket\|rotate-guide` | Run a remediation action (preview-redact, restore, and verify are available in the dashboard/API) |
-| `ingest --surface slack\|confluence\|jira\|postman\|postman-env\|cloud\|ide [--file PATH]` | Scan a SaaS/cloud export or live source |
-| `users add USERNAME --password P --role R` / `users list` | Manage local accounts (admin/analyst/viewer) |
-| `tokens create --name N --role R` / `tokens list` / `tokens revoke --id ID` | Manage `wmt_` API tokens for CI and scripts |
-| `backup [--dest PATH]` | Write a SQLite backup (default `data/backups/`) |
-| `schedules add --path P --interval S` / `schedules list` | Manage scheduled scans |
-| `jobs` | List background scan jobs and their status |
+| `serve [--port N]` | Run the Command Center and JSON API |
+| `scan PATH [--surface S] [--json] [--no-store] [--strict]` | Scan a file or tree; `--strict` exits 1 at/above `scan.fail_on` |
+| `gate [--staged \| --range BASE..HEAD \| --base B --head H] [--repo R] [--json]` | Diff-only blocking gate for hooks and CI |
+| `hooks install\|uninstall [--repo R]` | Install/remove pre-commit and pre-push gates |
+| `demo` | Seed synthetic findings across every surface |
+| `selftest` | Internal sanity checks (registry, detection, allowlist, dedupe) |
+| `report [--format md\|json]` | Print a findings report from the store |
+| `watch PATH [--interval S]` | Poll a tree and scan changed files (IDE-style) |
+| `surfaces` | List surface adapters |
+| `allowlist add FP [--reason R] \| list` | Manage the false-positive registry |
+| `triage ID` | Heuristic/GPT triage for one finding |
+| `remediate ID --action redact\|quarantine\|ticket\|rotate-guide` | Run a remediation action |
+| `ingest --surface S [--file F] [--json]` | Ingest a SaaS/cloud export or live source |
+| `users add USERNAME --password P [--role R] \| list` | Manage local accounts (see note) |
+| `tokens create [--name N] [--role R] \| list \| revoke --id ID` | Manage API tokens (see note) |
+| `backup [--dest PATH]` | Write an online SQLite backup |
+| `schedules add [--path P] [--surface S] [--interval N] \| list` | Manage scheduled scans |
+| `jobs` | List background scan jobs |
 
-Make targets: `serve`, `scan`, `demo`, `test`, `selftest`, `hooks`, `report`.
-
-## Layers
-
-| Layer | Where it runs | How it is triggered |
-| --- | --- | --- |
-| IDE on-save | Local machine only | `ingest --surface ide --file PATH`, or `watch PATH` for any editor |
-| Git hooks | Local machine only | `hooks install`, then pre-commit (`gate --staged`) and pre-push (`gate --range`) |
-| CI diff gate | Any CI system | `gate --base origin/main --head HEAD` (or `--range`); non-zero exit blocks the pipeline |
-| Cloud / serverless | Local exports or live provider scans | `ingest --surface cloud`; scans function code and environment variables |
-| SaaS monitoring | `slack`, `confluence`, `jira`, `postman` surfaces | `ingest --surface ... --file export.json`, or live mode with tokens |
-| Filesystem watch | Local machine only | `watch PATH --interval 2` |
-
-In v1.1, background jobs and scheduled scans add two more event sources from the dashboard itself (Jobs view).
+Note: the `users`/`tokens` CLI role choices still list the legacy names (`admin`, `analyst`, `viewer`); the auth layer validates against the eight current roles, so use `viewer` from the CLI and manage the full role set through the console or API. Global flags: `--version`, `--config ROOT`.
 
 ## Screenshots
 
-| Dashboard (graphite) | Dashboard (white) |
+Screenshots are recaptured from the current console; files live in `docs/screenshots/`.
+
+| | |
 | --- | --- |
-| ![Dashboard, graphite theme](docs/screenshots/dashboard-dark.png) | ![Dashboard, white theme](docs/screenshots/dashboard-light.png) |
-
-| Login with company demo roster | Findings detail drawer |
-| --- | --- |
-| ![Login page](docs/screenshots/login.png) | ![Finding drawer](docs/screenshots/findings-drawer.png) |
-
-## Configuration
-
-Wintermute reads `config.toml`, then optional `config.local.toml` (gitignored), then environment variables for secrets. Safe defaults work out of the box:
-
-```toml
-[server]
-host = "127.0.0.1"
-port = 8710
-
-[auth]
-session_hours = 12
-login_rate_limit = 5      # attempts per IP per rolling minute
-
-[scan]
-entropy_threshold = 4.5
-fail_on = "high"          # gate/strict threshold: critical | high | medium | low | info
-
-[alerting]
-channels = ["console", "outbox"]   # add "slack" or "webhook" when configured
-slack_webhook = ""
-webhook_url = ""
-dedupe_window_seconds = 3600
-escalate_after_hours = 24
-
-[detectors]
-disabled = []             # detector ids to turn off
-severity_overrides = {}   # detector id -> severity
-
-[ai]
-enabled = false
-model = "gpt-4o-mini"     # any GPT-compatible chat endpoint via base_url
-api_key_env = "WINTERMUTE_AI_KEY"
-```
-
-See [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md), [docs/SURFACES.md](docs/SURFACES.md), and [docs/PRIVACY.md](docs/PRIVACY.md) for the full picture.
-
-## Project layout
-
-```text
-Wintermute/
-├── run.py                  # entry point (no args = serve)
-├── run.bat / run.sh        # one-click launchers (Windows / Linux+macOS)
-├── config.toml             # safe defaults; override in config.local.toml
-├── pyproject.toml          # packaging; zero required dependencies
-├── Makefile                # serve scan demo test selftest hooks report
-├── assets/                 # logo.svg + monochrome favicon.svg
-├── hooks/                  # pre-commit and pre-push hook scripts
-├── wintermute/
-│   ├── cli.py              # command line
-│   ├── config.py           # layered config loading
-│   ├── server.py           # stdlib HTTP server: login, dashboard + authenticated JSON API
-│   ├── auth.py             # sessions, RBAC, API tokens, rate limits, audit + system log
-│   ├── watch.py            # polling filesystem watcher
-│   ├── demo.py             # synthetic demo seeding
-│   ├── core/               # models, engine, pipeline, storage, extensions, jobs, allowlist, entropy, util
-│   ├── detectors/          # shared registry: cloud, saas, crypto, generic (+ config-defined custom)
-│   ├── surfaces/           # filesystem, git, ide, slack, confluence, jira, postman, cloud
-│   ├── alerting/           # channel router: rules, quiet hours, dedupe, retries, dry-run
-│   ├── remediation/        # playbooks: rotate-guide, redact, preview, quarantine, restore, ticket, verify
-│   ├── ai/                 # GPT client, prompts, heuristic triage
-│   └── dashboard/          # graphite single-theme UI + login page
-├── examples/               # synthetic fixtures for ingest and demos
-├── docs/                   # overview, architecture, install, detectors, surfaces, API, privacy
-└── data/                   # runtime state (gitignored): SQLite DB, outbox, quarantine, backups,
-                            # INITIAL_ADMIN_PASSWORD.txt (first run only)
-```
-
-## Privacy
-
-Raw secrets are never stored or transmitted by default. Findings keep only a masked preview (first/last four characters) and a SHA-256 fingerprint. Network activity happens only when you explicitly configure it: alert webhooks, live SaaS reads, security ticket creation, and optional GPT triage (masked values only). Details: [docs/PRIVACY.md](docs/PRIVACY.md).
+| ![Command Center, dark theme](docs/screenshots/dashboard-dark.png) | ![Command Center, light theme](docs/screenshots/dashboard-light.png) |
+| Dark theme (default) | Light theme |
+| ![Login](docs/screenshots/login.png) | ![Finding drawer](docs/screenshots/findings-drawer.png) |
+| Sign-in with local demo roster | Finding detail drawer |
 
 ## Documentation
 
-- [Overview](docs/OVERVIEW.md) — purpose, layers, pipeline, module map, auth flow, storage, and the 100-feature catalog
-- [Architecture](docs/ARCHITECTURE.md) — module map, data flow, storage schema, design decisions
-- [Flowcharts](docs/FLOWCHART.md) — event → scan → alert → remediation, per layer
-- [Install](docs/INSTALL.md) — Windows, Kali/Debian, macOS, optional extras, env vars
-- [Detectors](docs/DETECTORS.md) — full registry, adding detectors, tuning
-- [Surfaces](docs/SURFACES.md) — per-surface usage, fixtures, live mode, rate limiting
-- [API](docs/API.md) — REST contract and JSON shapes
-- [Remediation](docs/REMEDIATION.md) — playbooks, actions, status lifecycle
-- [Privacy](docs/PRIVACY.md) — what stays local, what can leave, and when
-- [AI triage](docs/AI_TRIAGE.md) — enabling GPT triage, fallback, prompt privacy
-- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+| Document | Contents |
+| --- | --- |
+| [docs/OVERVIEW.md](docs/OVERVIEW.md) | Product overview, seven layers, module map, capability honesty |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modular monolith, concurrency, migrations, extraction boundaries |
+| [docs/API.md](docs/API.md) | Complete endpoint inventory, auth, roles, request/response shapes |
+| [docs/DATABASE.md](docs/DATABASE.md) | All 23 tables, ER diagram, indexes, retention, backup |
+| [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | Detector registry, entropy, validation, risk tuning |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | SENTRIX Connect providers, states, permissions, sync semantics |
+| [docs/SECURITY.md](docs/SECURITY.md) | Auth model, RBAC matrix, hardening, disclosure |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Platform install, production mode, config reference |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Jobs, schedules, logs, alerting, SLAs, retention, metrics |
+| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Walkthrough of all 27 console views |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Port conflicts, login, migrations, diagnostics |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Planned work, clearly labeled not implemented |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Release history through the 2.0.0 SENTRIX transformation |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Dev setup, tests, style, security-sensitive rules |
+| [docs/AUDIT.md](docs/AUDIT.md) | Pre-transformation repository audit and executed migration plan |
+| [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | Control-to-evidence mapping (not a certification) |
+
+## Repository layout
+
+```text
+SENTRIX/
+├── run.py / run.bat / run.sh     One-click entry points
+├── config.toml                   Safe defaults (override in config.local.toml)
+├── Makefile / pyproject.toml     Dev targets and packaging (MIT, stdlib-only)
+├── sentrix/
+│   ├── server.py                 Stdlib HTTP server: JSON API + console
+│   ├── auth.py                   Sessions, RBAC (8 roles), tokens, audit
+│   ├── cli.py / config.py        CLI commands; layered configuration
+│   ├── demo.py / watch.py        Synthetic seeding; filesystem watcher
+│   ├── core/                     engine, pipeline, storage, extensions,
+│   │                             jobs, risk, reports, integrations, models
+│   ├── detectors/                base registry + cloud/crypto/saas/generic
+│   ├── surfaces/                 ide, git, filesystem, cloud, slack,
+│   │                             confluence, jira, postman
+│   ├── alerting/router.py        Channels, rules, quiet hours, retries
+│   ├── remediation/playbooks.py  Rotation guides and response actions
+│   ├── ai/                       Heuristic + optional GPT triage
+│   └── dashboard/                Command Center SPA (HTML/CSS/JS)
+├── hooks/                        pre-commit / pre-push gates
+├── ci/                           GitLab CI and Jenkins pipelines
+├── editors/vscode/               On-save scanning extension
+├── examples/                     Synthetic fixtures (vulnerable + clean + exports)
+├── scripts/                      Kali setup, demo, scan-all, hook installer
+├── sql/schema.sql                Reference DDL for the core tables
+├── tests/                        Unit + server integration suite (stdlib unittest)
+├── assets/                       Logo and favicon (SVG)
+├── data/                         Runtime state (gitignored): sentrix.db,
+│                                 outbox, quarantine, backups, remediation
+└── docs/                         This documentation system + screenshots
+```
+
+## Tests
+
+```sh
+python -m unittest discover -s tests -v   # or: make test
+python run.py selftest
+```
 
 ## License
 
-[MIT](LICENSE)
+MIT. See [LICENSE](LICENSE).

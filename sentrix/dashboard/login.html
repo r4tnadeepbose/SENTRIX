@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in - SENTRIX</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="stylesheet" href="/static/styles.css">
+<script>
+  try {
+    var t = localStorage.getItem("sx.theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+</script>
+</head>
+<body>
+<div class="login-page">
+  <button class="iconbtn login-theme" id="theme-toggle" aria-label="Toggle dark / white theme">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M20 13.5A8 8 0 0110.5 4a8 8 0 109.5 9.5z"/></svg>
+  </button>
+  <form class="login-card" id="form" autocomplete="on">
+    <div class="login-brand">
+      <img src="/logo.svg" alt="SENTRIX logo">
+      <span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence Console</span></span>
+    </div>
+    <p class="login-tag">One Intelligence. Every Exposure. Total Control.</p>
+    <div class="field">
+      <label class="check" style="margin-bottom:5px" for="username">Email or username</label>
+      <input class="input" id="username" name="username" autocomplete="username" required autofocus>
+    </div>
+    <div class="field">
+      <label class="check" style="margin-bottom:5px" for="password">Password</label>
+      <div class="pwwrap">
+        <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="iconbtn eye" id="eye" type="button" aria-label="Show password">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="login-row">
+      <label class="check"><input type="checkbox" id="remember"> Remember me for 30 days</label>
+    </div>
+    <button class="btn primary login-submit" id="submit" type="submit">Sign in</button>
+    <div class="errbox" id="error" role="alert" hidden style="margin-top:12px"></div>
+    <div class="demo-card" id="roster" hidden>
+      <div class="demo-head"><span class="chip st-triaged">DEMO</span> Company roster - demonstration only</div>
+      <div id="roster-rows"></div>
+    </div>
+    <p class="login-foot" style="margin-top:14px;color:var(--faint);font-size:11px">
+      Demo credentials appear only on local demonstration installations and disappear
+      when production mode is enabled or passwords are changed.
+    </p>
+  </form>
+</div>
+<script>
+  const form = document.getElementById("form");
+  const error = document.getElementById("error");
+  const submit = document.getElementById("submit");
+  document.getElementById("theme-toggle").addEventListener("click", () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("sx.theme", next); } catch (e) {}
+  });
+  document.getElementById("eye").addEventListener("click", () => {
+    const pw = document.getElementById("password");
+    pw.type = pw.type === "password" ? "text" : "password";
+    document.getElementById("eye").setAttribute("aria-label", pw.type === "password" ? "Show password" : "Hide password");
+  });
+  async function signIn(username, password, remember) {
+    error.hidden = true;
+    submit.disabled = true;
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, remember: !!remember }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Sign-in failed.");
+      location.href = "/";
+    } catch (err) {
+      error.textContent = err.message;
+      error.hidden = false;
+      submit.disabled = false;
+    }
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    signIn(document.getElementById("username").value.trim(),
+           document.getElementById("password").value,
+           document.getElementById("remember").checked);
+  });
+  fetch("/api/auth/demo-info").then((r) => r.json()).then((info) => {
+    if (!info.enabled || !info.accounts || !info.accounts.length) return;
+    document.getElementById("roster").hidden = false;
+    document.getElementById("roster-rows").innerHTML = info.accounts.map((a, i) => `
+      <div class="demo-row">
+        <div class="dwho">
+          <div style="font-size:12.5px;font-weight:600">${a.username} <span class="chip neutral" style="margin-left:4px">${a.role.replace(/_/g, " ")}</span></div>
+          <div style="font-size:11px;color:var(--dim)">${a.title || ""}</div>
+          <div class="mono" style="font-size:10.5px;color:var(--faint);margin-top:2px">${a.username} / ${a.password}</div>
+        </div>
+        <button class="btn sm" type="button" data-acct="${i}">Sign in</button>
+      </div>`).join("");
+    document.querySelectorAll("[data-acct]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const a = info.accounts[+btn.dataset.acct];
+        document.getElementById("username").value = a.username;
+        document.getElementById("password").value = a.password;
+        signIn(a.username, a.password, false);
+      });
+    });
+  }).catch(() => {});
+</script>
+</body>
+</html>

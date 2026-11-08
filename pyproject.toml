@@ -3,13 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wintermute"
-version = "1.4.1"
-description = "Layered secret detection from keystroke to cloud: event, scan, alert, remediation."
+name = "sentrix"
+version = "2.0.0"
+description = "SENTRIX - enterprise secret exposure and network threat response intelligence exchange."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Wintermute contributors" }]
+authors = [{ name = "SENTRIX contributors" }]
 keywords = ["security", "secrets", "detection", "devsecops", "dlp"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -24,10 +24,10 @@ dependencies = []
 aws = ["boto3"]
 
 [project.scripts]
-wintermute = "wintermute.cli:main"
+sentrix = "sentrix.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["wintermute*"]
+include = ["sentrix*"]
 
 [tool.setuptools.package_data]
-wintermute = ["dashboard/*.html", "dashboard/*.css", "dashboard/*.js"]
+sentrix = ["dashboard/*.html", "dashboard/*.css", "dashboard/*.js"]

@@ -1,10 +1,10 @@
 {
   "_note": "SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.",
-  "name": "wintermute",
-  "displayName": "Wintermute",
-  "description": "Scan files with Wintermute on save and on demand, and show findings as diagnostics.",
+  "name": "sentrix",
+  "displayName": "SENTRIX",
+  "description": "Scan files with SENTRIX on save and on demand, and show findings as diagnostics.",
   "version": "0.1.0",
-  "publisher": "wintermute",
+  "publisher": "sentrix",
   "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
@@ -21,22 +21,22 @@
   "contributes": {
     "commands": [
       {
-        "command": "wintermute.scanFile",
-        "title": "Wintermute: Scan File"
+        "command": "sentrix.scanFile",
+        "title": "SENTRIX: Scan File"
       }
     ],
     "configuration": {
-      "title": "Wintermute",
+      "title": "SENTRIX",
       "properties": {
-        "wintermute.home": {
+        "sentrix.home": {
           "type": "string",
           "default": "",
-          "description": "Path to the Wintermute project root (directory containing run.py). Empty resolves to two levels up from the workspace folder."
+          "description": "Path to the SENTRIX project root (directory containing run.py). Empty resolves to two levels up from the workspace folder."
         },
-        "wintermute.python": {
+        "sentrix.python": {
           "type": "string",
           "default": "python",
-          "description": "Python executable used to run the Wintermute CLI."
+          "description": "Python executable used to run the SENTRIX CLI."
         }
       }
     }

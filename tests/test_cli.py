@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.config import ROOT as PROJECT_ROOT
+from sentrix.config import ROOT as PROJECT_ROOT
 
 RUN_PY = str(PROJECT_ROOT / "run.py")
 AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'

@@ -10,12 +10,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.ai.triage import heuristic_triage
-from wintermute.config import load_config, resolve_path
-from wintermute.core.engine import scan_text
-from wintermute.core.models import Finding
-from wintermute.core.storage import Storage
-from wintermute.remediation.playbooks import execute, rotation_guide
+from sentrix.ai.triage import heuristic_triage
+from sentrix.config import load_config, resolve_path
+from sentrix.core.engine import scan_text
+from sentrix.core.models import Finding
+from sentrix.core.storage import Storage
+from sentrix.remediation.playbooks import execute, rotation_guide
 
 VERDICTS = {"likely_true_positive", "likely_false_positive", "needs_review"}
 AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'

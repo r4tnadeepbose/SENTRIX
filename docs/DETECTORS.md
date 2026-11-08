@@ -1,6 +1,6 @@
 # Detectors
 
-All layers share one registry (`wintermute/detectors/`). Each detector combines a keyword pre-filter, a regex pattern, an optional validator, and a severity. Matches are masked, fingerprinted (SHA-256), and allowlist-checked before becoming findings. The registry currently holds **26 detectors**; `selftest` verifies at least 25 are registered.
+All layers share one registry (`sentrix/detectors/`). Each detector combines a keyword pre-filter, a regex pattern, an optional validator, and a severity. Matches are masked, fingerprinted (SHA-256), and allowlist-checked before becoming findings. The registry currently holds **26 detectors**; `selftest` verifies at least 25 are registered.
 
 ## Registry
 
@@ -37,12 +37,12 @@ Severity order for gating: `critical > high > medium > low > info`. The gate/`--
 
 ## Adding a detector
 
-Detectors are plain dataclass registrations. Add one to an existing family module in `wintermute/detectors/` (or create a new module and import it from `wintermute/detectors/__init__.py` so registration runs at startup):
+Detectors are plain dataclass registrations. Add one to an existing family module in `sentrix/detectors/` (or create a new module and import it from `sentrix/detectors/__init__.py` so registration runs at startup):
 
 ```python
-# wintermute/detectors/saas.py (or a new module imported by __init__.py)
+# sentrix/detectors/saas.py (or a new module imported by __init__.py)
 import re
-from wintermute.detectors.base import Detector, register
+from sentrix.detectors.base import Detector, register
 
 register(Detector(
     id="acme-api-key",                 # unique, kebab-case
@@ -62,13 +62,13 @@ Field notes:
 - `secret_group` selects the capture group that is masked, fingerprinted, and entropy-scored; the full match is used for line context.
 - `keywords` short-circuit the regex when none appear in the text — keep them distinctive.
 - `validator` runs on the extracted value; use it for entropy or format checks (see `high-entropy-string`).
-- `remediation` maps to a playbook in `wintermute/remediation/playbooks.py`; unknown keys fall back to the generic `rotate` guide. Add a family-specific playbook there when useful.
+- `remediation` maps to a playbook in `sentrix/remediation/playbooks.py`; unknown keys fall back to the generic `rotate` guide. Add a family-specific playbook there when useful.
 
 After adding: run `python run.py selftest`, scan a synthetic fixture (`python run.py scan examples/ --no-store`), and confirm the finding appears with the right severity. Never test with real credentials.
 
 ## Tuning entropy
 
-The catch-all `high-entropy-string` detector validates candidates with `looks_random(value, 4.5)` in `wintermute/detectors/generic.py`: minimum length 16 and Shannon entropy ≥ 4.5 bits/character. To tune:
+The catch-all `high-entropy-string` detector validates candidates with `looks_random(value, 4.5)` in `sentrix/detectors/generic.py`: minimum length 16 and Shannon entropy ≥ 4.5 bits/character. To tune:
 
 - **Fewer false positives:** raise the threshold in that validator (e.g. 4.8) or raise the minimum length.
 - **More coverage:** lower the threshold (e.g. 4.2), expecting more review noise.

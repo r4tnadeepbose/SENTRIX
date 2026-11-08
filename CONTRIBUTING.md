@@ -1,37 +1,37 @@
-# Contributing to Wintermute
+# Contributing to SENTRIX
 
-Thanks for helping improve Wintermute. This project is stdlib-only Python 3.11+; please keep it that way.
+Thanks for helping improve SENTRIX. This project is stdlib-only Python 3.11+; please keep it that way.
 
 ## Ground rules
 
 - **No required third-party dependencies.** The standard library is the platform. `boto3` remains the only optional extra (live AWS).
 - **Never commit real secrets.** All fixtures, demos, and tests must use synthetic values. The allowlist recognizes common placeholder forms, but do not rely on it — keep test material obviously fake.
-- **One pattern set, many layers.** Detection logic belongs in `wintermute/detectors/`, not in surface adapters. Surfaces extract text; the engine decides.
+- **One pattern set, many layers.** Detection logic belongs in `sentrix/detectors/`, not in surface adapters. Surfaces extract text; the engine decides.
 - **Privacy invariants are non-negotiable:** raw secrets are never stored, logged, alerted, or sent to AI endpoints. Only masked previews and SHA-256 fingerprints leave the scanner.
 
 ## Development setup
 
 ```sh
 git clone <your-fork-url>
-cd Wintermute
+cd SENTRIX
 python3 --version          # 3.11+
 python3 run.py selftest    # sanity checks
 python3 run.py demo        # synthetic data for the dashboard
 python3 run.py serve       # http://127.0.0.1:8710
 ```
 
-Optional editable install: `python -m pip install -e .` (adds the `wintermute` console command). Run the unit suite with `make test` (`python3 -m unittest discover -s tests -v`).
+Optional editable install: `python -m pip install -e .` (adds the `sentrix` console command). Run the unit suite with `make test` (`python3 -m unittest discover -s tests -v`).
 
 ## Where things live
 
 | Change | Location |
 | --- | --- |
-| New/updated detector | `wintermute/detectors/` (see [docs/DETECTORS.md](docs/DETECTORS.md)) |
-| New surface adapter | `wintermute/surfaces/` + register in `SURFACE_MODULES` + CLI `ingest` branch |
-| Alert channel | `wintermute/alerting/router.py` |
-| Remediation playbook/action | `wintermute/remediation/playbooks.py` |
-| API endpoint | `wintermute/server.py` + document in `docs/API.md` |
-| Dashboard view | `wintermute/dashboard/` |
+| New/updated detector | `sentrix/detectors/` (see [docs/DETECTORS.md](docs/DETECTORS.md)) |
+| New surface adapter | `sentrix/surfaces/` + register in `SURFACE_MODULES` + CLI `ingest` branch |
+| Alert channel | `sentrix/alerting/router.py` |
+| Remediation playbook/action | `sentrix/remediation/playbooks.py` |
+| API endpoint | `sentrix/server.py` + document in `docs/API.md` |
+| Dashboard view | `sentrix/dashboard/` |
 
 ## Adding a detector: checklist
 

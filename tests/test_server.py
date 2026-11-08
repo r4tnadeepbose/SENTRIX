@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from wintermute.config import load_config
-from wintermute.server import make_server
+from sentrix.config import load_config
+from sentrix.server import make_server
 
 AWS_TEXT = 'AWS_KEY = "AWS_KEY_REDACTED"'
 ADMIN_PASSWORD = "test-admin-pass-123"
@@ -37,15 +37,15 @@ class ServerTests(unittest.TestCase):
         cfg["alerting"]["channels"] = ["outbox"]
         # make_server creates the admin account from this env var; restore it
         # right after so the rest of the suite sees the original environment.
-        previous = os.environ.get("WINTERMUTE_ADMIN_PASSWORD")
-        os.environ["WINTERMUTE_ADMIN_PASSWORD"] = ADMIN_PASSWORD
+        previous = os.environ.get("SENTRIX_ADMIN_PASSWORD")
+        os.environ["SENTRIX_ADMIN_PASSWORD"] = ADMIN_PASSWORD
         try:
             self.server = make_server(cfg)
         finally:
             if previous is None:
-                os.environ.pop("WINTERMUTE_ADMIN_PASSWORD", None)
+                os.environ.pop("SENTRIX_ADMIN_PASSWORD", None)
             else:
-                os.environ["WINTERMUTE_ADMIN_PASSWORD"] = previous
+                os.environ["SENTRIX_ADMIN_PASSWORD"] = previous
         self.port = self.server.server_address[1]
         self.base = f"http://127.0.0.1:{self.port}"
         self.thread = threading.Thread(
@@ -82,8 +82,8 @@ class ServerTests(unittest.TestCase):
             "/api/auth/login", {"username": username, "password": password})
         self.assertEqual(code, 200, body.decode(errors="replace"))
         cookie = SimpleCookie(headers.get("Set-Cookie", ""))
-        self.assertIn("wm_session", cookie)
-        return cookie["wm_session"].value
+        self.assertIn("sx_session", cookie)
+        return cookie["sx_session"].value
 
     def _request(self, path, payload=None, cookie=_DEFAULT_COOKIE,
                  method=None, headers=None, expect=200):
@@ -92,7 +92,7 @@ class ServerTests(unittest.TestCase):
             cookie = self.cookie
         merged = dict(headers or {})
         if cookie:
-            merged["Cookie"] = f"wm_session={cookie}"
+            merged["Cookie"] = f"sx_session={cookie}"
         code, _, body = self._http(path, payload, method=method, headers=merged)
         self.assertEqual(code, expect, body.decode(errors="replace"))
         return json.loads(body.decode())
@@ -126,7 +126,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(code, 200)
         payload = json.loads(body.decode())
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["product"], "Wintermute")
+        self.assertEqual(payload["product"], "SENTRIX")
         self.assertIn("version", payload)
 
     def test_unauthenticated_requests_rejected(self):
@@ -143,7 +143,7 @@ class ServerTests(unittest.TestCase):
     def test_login_session_identifies_admin(self):
         me = self._request("/api/auth/me")
         self.assertEqual(me["user"]["username"], "admin")
-        self.assertEqual(me["user"]["role"], "admin")
+        self.assertEqual(me["user"]["role"], "super_admin")
 
     # -- role based access control
 
@@ -159,7 +159,7 @@ class ServerTests(unittest.TestCase):
 
     def test_users_endpoint_admin_only(self):
         self._request("/api/users", {
-            "username": "analyst1", "password": "analyst-pass-123", "role": "analyst"})
+            "username": "analyst1", "password": "analyst-pass-123", "role": "security_analyst"})
         analyst_cookie = self._login("analyst1", "analyst-pass-123")
         self._request("/api/users", cookie=analyst_cookie, expect=403)
         users = self._request("/api/users")["users"]
@@ -334,7 +334,7 @@ class ServerTests(unittest.TestCase):
         self._seed()
         code, headers, body = self._http(
             "/api/export?format=csv",
-            headers={"Cookie": f"wm_session={self.cookie}"})
+            headers={"Cookie": f"sx_session={self.cookie}"})
         self.assertEqual(code, 200)
         self.assertIn("text/csv", headers.get("Content-Type", ""))
         self.assertTrue(body.decode().startswith("id,severity"))
@@ -350,9 +350,9 @@ class ServerTests(unittest.TestCase):
         self.assertGreater(path.stat().st_size, 0)
 
     def test_token_create_use_and_revoke(self):
-        body = self._request("/api/tokens", {"name": "ci-test", "role": "analyst"})
+        body = self._request("/api/tokens", {"name": "ci-test", "role": "security_analyst"})
         token = body["token"]
-        self.assertTrue(token.startswith("wmt_"))
+        self.assertTrue(token.startswith("sxt_"))
         bearer = {"Authorization": f"Bearer {token}"}
         stats = self._request("/api/stats", cookie=None, headers=bearer)
         self.assertIn("total", stats)

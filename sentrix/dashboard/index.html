@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="SENTRIX Command Center — secret exposure and network threat response intelligence console.">
+  <meta name="robots" content="noindex, nofollow">
+  <title>SENTRIX Command Center</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    /* Apply persisted theme before first paint. */
+    try {
+      var t = localStorage.getItem("sx.theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) { /* storage unavailable */ }
+  </script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar" id="topbar" role="banner"></header>
+  <nav class="sidebar" id="sidebar" aria-label="Primary navigation"></nav>
+  <main class="main" id="main" tabindex="-1"></main>
+  <nav class="tabbar" id="tabbar" aria-label="Primary navigation (mobile)"></nav>
+  <div id="overlays"></div>
+  <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+  <noscript><p style="padding:80px 20px;text-align:center">SENTRIX Command Center requires JavaScript.</p></noscript>
+  <script src="/static/app.js"></script>
+</body>
+</html>

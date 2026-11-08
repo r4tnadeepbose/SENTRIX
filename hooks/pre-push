@@ -1,18 +1,18 @@
 #!/bin/sh
-# Wintermute pre-push gate: scan the commits about to be pushed.
+# SENTRIX pre-push gate: scan the commits about to be pushed.
 ROOT="$(git rev-parse --show-toplevel)"
-WINTERMUTE_HOME="${WINTERMUTE_HOME:-$(cd "$ROOT/../Wintermute" 2>/dev/null && pwd)}"
-if [ -z "$WINTERMUTE_HOME" ] || [ ! -f "$WINTERMUTE_HOME/run.py" ]; then
-  echo "Wintermute: installation not found; set WINTERMUTE_HOME to your Wintermute folder." >&2
+SENTRIX_HOME="${SENTRIX_HOME:-$(cd "$ROOT/../SENTRIX" 2>/dev/null && pwd)}"
+if [ -z "$SENTRIX_HOME" ] || [ ! -f "$SENTRIX_HOME/run.py" ]; then
+  echo "SENTRIX: installation not found; set SENTRIX_HOME to your SENTRIX folder." >&2
   exit 0
 fi
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
   if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
     RANGE="$local_sha"
-    python "$WINTERMUTE_HOME/run.py" gate --range "$(git rev-list --max-parents=0 "$local_sha" | tail -1)..$local_sha" --repo "$ROOT" || exit 1
+    python "$SENTRIX_HOME/run.py" gate --range "$(git rev-list --max-parents=0 "$local_sha" | tail -1)..$local_sha" --repo "$ROOT" || exit 1
   else
-    python "$WINTERMUTE_HOME/run.py" gate --range "$remote_sha..$local_sha" --repo "$ROOT" || exit 1
+    python "$SENTRIX_HOME/run.py" gate --range "$remote_sha..$local_sha" --repo "$ROOT" || exit 1
   fi
 done
 exit 0

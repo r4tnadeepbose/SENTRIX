@@ -18,11 +18,11 @@ Behavior details:
 - **rotate-guide** selects the playbook from the detector's `remediation` key (see below); unknown keys fall back to the generic rotation guide. The guide includes finding id, severity, surface, and location.
 - **redact** re-applies the detector pattern to the recorded line. If the file is gone, the line no longer exists, or the pattern no longer matches, it reports that manual redaction and rotation are required instead of guessing.
 - **quarantine** is the safe choice when a file is mostly secret material (key files, credential dumps) or the exposure cannot be surgically removed. The move is recorded with both source and destination paths.
-- **ticket** uses `[surfaces.jira]` `base_url` + `WINTERMUTE_JIRA_TOKEN`; the ticket summary is `[Wintermute] <title> in <path>`, priority follows severity, and the description carries the masked value and rotation guidance. Without Jira configuration, the draft lands in the outbox for manual filing — nothing is sent.
+- **ticket** uses `[surfaces.jira]` `base_url` + `SENTRIX_JIRA_TOKEN`; the ticket summary is `[SENTRIX] <title> in <path>`, priority follows severity, and the description carries the masked value and rotation guidance. Without Jira configuration, the draft lands in the outbox for manual filing — nothing is sent.
 
 ## Playbooks by family
 
-Playbooks live in `wintermute/remediation/playbooks.py`. Summary of each:
+Playbooks live in `sentrix/remediation/playbooks.py`. Summary of each:
 
 | Playbook | Applies to | Core steps |
 | --- | --- | --- |

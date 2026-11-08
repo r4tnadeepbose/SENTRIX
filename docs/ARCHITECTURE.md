@@ -1,125 +1,157 @@
-# Architecture
+# SENTRIX Architecture
 
-Wintermute is a stdlib-only Python 3.11+ system built around one idea: **every layer feeds the same pipeline**. A finding produced by an IDE on-save check, a CI gate, a chat export, or a cloud function environment scan is the same object, scanned by the same detectors, deduplicated the same way, and remediated with the same playbooks.
+SENTRIX is a **modular monolith**: one Python process, one SQLite database, strict internal module boundaries. This document describes the structure as implemented in the `sentrix/` package.
 
-v1.1 wraps that pipeline in an operational shell: an auth layer (sessions, RBAC, API tokens), extended storage for finding management, background jobs and a scheduler, alert channel rules, and an audit/system-log pair — all surfaced in a minimalist graphite dashboard. See [OVERVIEW.md](OVERVIEW.md) for the full feature catalog.
+## Why a modular monolith
 
-## Module map
+- **Zero-dependency deployment.** The platform installs and runs anywhere Python 3.11+ exists — a workstation, a Kali laptop, an air-gapped server — with no message broker, no ORM, no container orchestration.
+- **One consistent transaction boundary.** Finding ingestion, dedupe, occurrence counting, status history and event recording happen against a single store; there is no distributed consistency problem to solve.
+- **Enforced internal interfaces.** Layers interact through shared dataclasses (`Finding`, `Event`, `Alert`, `Remediation`) and a small set of collaborator objects (`Storage`/`ExtStorage`, `Pipeline`, `AlertRouter`, `JobRunner`, `AuthManager`). Each collaborator is constructed once in `AppState` and injected, which is what makes future extraction feasible.
+- **Honest scale.** SQLite with thread-local connections and a write lock comfortably serves a team-scale console. The single-node limit is documented, not hidden ([ROADMAP.md](ROADMAP.md)).
 
-| Module | Responsibility |
+## Layer diagram
+
+```mermaid
+flowchart TB
+    subgraph L1["1 - Collection"]
+        IDE["IDE on-save<br/>surfaces/ide.py, watch.py, editors/vscode"]
+        GIT["Git hooks + CI gates<br/>surfaces/git.py, hooks/, ci/"]
+        FS["Filesystem trees<br/>surfaces/filesystem.py"]
+        CLOUD["Cloud artifacts / live AWS<br/>surfaces/cloud.py"]
+        SAAS["Slack / Jira / Confluence / Postman<br/>export + live REST"]
+    end
+    subgraph L3["3 - Intelligence Core"]
+        ENGINE["engine.scan_text / scan_file / scan_tree"]
+        REG["detectors/ registry (26 + custom)"]
+        ENT["entropy.py"]
+        AL["allowlist.py"]
+        RISK["risk.py"]
+        TRIAGE["ai/triage.py"]
+    end
+    subgraph L2["2 - Ingestion"]
+        PIPE["Pipeline.ingest<br/>provenance, dedupe upsert, events"]
+    end
+    subgraph L4["4 - Security Management"]
+        EXT["ExtStorage: extras, notes,<br/>history, checklists, filters"]
+    end
+    subgraph L5["5 - Response"]
+        ROUTER["AlertRouter<br/>rules, quiet hours, retries"]
+        PLAY["playbooks.py<br/>redact / quarantine / ticket / verify"]
+        JOBS["JobRunner + scheduler"]
+    end
+    subgraph L6["6 - Control Plane"]
+        SERVER["server.py<br/>JSON API + static console"]
+        AUTH["auth.py<br/>sessions, RBAC, tokens"]
+        UI["dashboard/ SPA"]
+        REPORTS["reports.py"]
+        HUB["integrations.py (Connect)"]
+        CLI["cli.py"]
+    end
+    subgraph L7["7 - Storage"]
+        DB[("SQLite data/sentrix.db<br/>23 tables")]
+    end
+    IDE --> ENGINE
+    GIT --> ENGINE
+    FS --> ENGINE
+    CLOUD --> ENGINE
+    SAAS --> ENGINE
+    REG --> ENGINE
+    ENT --> ENGINE
+    AL --> ENGINE
+    ENGINE --> PIPE
+    RISK --> PIPE
+    PIPE --> DB
+    PIPE --> ROUTER
+    PIPE --> TRIAGE
+    ROUTER --> DB
+    ROUTER --> PLAY
+    JOBS --> ENGINE
+    JOBS --> PIPE
+    SERVER --> AUTH
+    SERVER --> EXT
+    SERVER --> PIPE
+    SERVER --> JOBS
+    SERVER --> REPORTS
+    SERVER --> HUB
+    UI --> SERVER
+    CLI --> PIPE
+    EXT --> DB
+    AUTH --> DB
+    REPORTS --> DB
+```
+
+## Component interfaces
+
+| Interface | Contract |
 | --- | --- |
-| `wintermute/core/models.py` | Dataclasses shared by all layers: `Finding`, `Event`, `Alert`, `Remediation`; severity/status/surface enums |
-| `wintermute/core/engine.py` | Scanning engine: `scan_text`, `scan_file`, `scan_tree`; applies the detector registry, config tuning and custom detectors, allowlist, masking, entropy, and fingerprinting |
-| `wintermute/core/pipeline.py` | Unified flow orchestration: ingest findings, filter allowlist, upsert with dedupe, record events, route alerts |
-| `wintermute/core/storage.py` | v1 SQLite persistence for findings, events, alerts, allowlist, remediations; thread-safe writes |
-| `wintermute/core/extensions.py` | v2 extended storage (`ExtStorage`): users, sessions, tokens, audit, system log, finding extras/notes/history, saved filters, jobs, cache, schedules, rules, acks, checklists, backup/purge/vacuum/dump/import |
-| `wintermute/core/jobs.py` | `JobRunner`: background scans with incremental cache, cooperative cancel, concurrency cap of 2; `start_scheduler`: 10-second loop for due schedules and SLA escalation |
-| `wintermute/core/allowlist.py` | False-positive registry: fingerprint set, built-in safe values/patterns, configurable regex patterns |
-| `wintermute/core/entropy.py` | Shannon entropy scoring (`shannon`, `looks_random`) |
-| `wintermute/core/util.py` | Masking (`mask_secret`), fingerprinting (`fingerprint`), severity comparison (`at_least`) |
-| `wintermute/auth.py` | `AuthManager`: PBKDF2 hashing (200k iterations), sessions, login rate limiting, RBAC helpers, API tokens, initial admin bootstrap, audit and system-log writers |
-| `wintermute/detectors/` | One shared registry (`base.py`: `Detector`, `register`, `REGISTRY`); pattern modules `cloud.py`, `saas.py`, `crypto.py`, `generic.py`; custom detectors registered from config at startup |
-| `wintermute/surfaces/` | Adapters that turn each layer's input into text for the engine: `filesystem`, `git` (diff-only), `ide`, `slack`, `confluence`, `jira`, `postman`, `cloud` (serverless functions); `common.py` provides REST, pagination, and rate-limit helpers |
-| `wintermute/alerting/router.py` | Channel routing (console, outbox, webhook channels) with per-channel severity rules, quiet hours, mute, dedupe window, retry backoff, dry-run when unconfigured |
-| `wintermute/remediation/playbooks.py` | Rotation guides per family plus `redact`, `preview-redact`, `quarantine`, `restore`, `ticket`, `verify` actions; records remediations and advances status |
-| `wintermute/ai/` | `gpt.py` (GPT-compatible chat client), `prompts.py` (masked-only prompt construction), `triage.py` (GPT with deterministic heuristic fallback) |
-| `wintermute/server.py` | Stdlib `http.server`: login page, static dashboard, authenticated JSON API with role enforcement and security headers, bound to `127.0.0.1:8710` by default; wires storage, auth, router, pipeline, jobs, scheduler in `AppState` |
-| `wintermute/cli.py` | One entry point for every layer: `serve`, `scan`, `gate`, `hooks`, `demo`, `selftest`, `report`, `watch`, `surfaces`, `allowlist`, `triage`, `remediate`, `ingest`, plus v1.1 `users`, `tokens`, `backup`, `schedules`, `jobs` |
-| `wintermute/watch.py` | Polling filesystem watcher: mtime comparison, scan-on-change, ingest into the pipeline |
-| `wintermute/config.py` | Layered config: defaults < `config.toml` < `config.local.toml` < environment (for secrets, via `*_env` indirection) |
-| `wintermute/demo.py` | Synthetic findings across all surfaces for first-run exploration |
-| `wintermute/dashboard/` | Graphite single-theme dashboard + login page: Overview, Findings, Jobs, Logs, Playground, Activity, Allowlist, Settings; command palette, keyboard shortcuts, help popovers |
+| `engine.scan_text(text, path, surface, allowlist) -> list[Finding]` | Pure detection: no storage, no network. Applies registry, entropy, validators, allowlist; returns masked, fingerprinted findings with `meta` (family, confidence, validation, environment, remediation) |
+| `engine.scan_file / scan_tree` | File hygiene (size cap, binary skip, ignore rules) around `scan_text` |
+| `Pipeline.ingest(findings, kind, owner, provenance) -> {"new": [...], "known": [...]}` | The only write path for detections: allowlist re-check, provenance + risk stamping, dedupe upsert, event record, SaaS triage branch, alert trigger, auto-ticket |
+| `Storage / ExtStorage` | All SQL lives here. `upsert_finding` returns True only for new findings; `set_status` records history; every mutation takes the write lock |
+| `AlertRouter.send(finding) -> list[Alert]` | Dedupe window, mute check, channel rules, quiet hours, delivery with retries; persists every alert row |
+| `playbooks.execute(action, finding, cfg, storage) -> str` | Performs one response action, updates status where appropriate, records a `Remediation` row, returns a human-readable detail |
+| `JobRunner.submit(path, surface, by) -> job_id` | Queues a background scan; runner owns cache reuse and status transitions |
+| `AuthManager` | `login / session_user / bearer_user / add_user / set_role / create_token / audit / log`; the server asks it on every request |
+| `integrations.inventory(cfg, storage, demo) -> list[dict]` | Read-only projection of provider state; never contacts providers |
+| `reports.generate(type, format, storage, user) -> dict` | Read-only aggregation; persists body + metadata into `report_history` |
+| Surface adapters | `scan_export(path)` / `live_scan(cfg)` / `scan_*(...) -> list[Finding]`; extraction only, detection delegated to the engine |
 
-## Auth layer
+## Concurrency model
 
-`AppState` constructs one `AuthManager` over the extended storage. Request handling in `server.py`:
+The server is `http.server.ThreadingHTTPServer`: one thread per request, plus daemon threads for jobs and the scheduler. SQLite is made safe by three mechanisms in `sentrix/core/storage.py` and `jobs.py`:
 
-1. **Public routes** — `GET /`, `/login`, `/favicon.svg`, `/logo.svg`, `/api/health`, `/static/*`, and `POST /api/auth/login` need no identity.
-2. **Identity** — the `wm_session` cookie is resolved against the `sessions` table (expiry checked, disabled accounts rejected on every request); otherwise `Authorization: Bearer wmt_...` is matched by SHA-256 hash against `tokens` (revoked tokens rejected). Missing identity → `401`.
-3. **Roles** — `viewer` is read-only (mutations → `403`, except logout and own password change); admin-only prefixes are `/api/users`, `/api/tokens`, `/api/ops/restore`, `/api/ops/import`, `/api/ops/purge`; `analyst` covers everything else.
-4. **Login** — per-IP rolling-window rate limit (`auth.login_rate_limit`, default 5/minute), PBKDF2-HMAC-SHA256 with 200,000 iterations and per-user salt, constant-time comparison; success issues a random session token as an `HttpOnly; SameSite=Strict` cookie (`auth.session_hours`, default 12).
-5. **Bootstrap** — on first run (no users), an `admin` account is created from `WINTERMUTE_ADMIN_PASSWORD` or a random value, written to `data/INITIAL_ADMIN_PASSWORD.txt`.
-6. **Headers** — every response carries `no-store`, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
+1. **Thread-local connections.** `Storage._db` lazily opens one `sqlite3` connection per thread (`check_same_thread=False`, `timeout=10`, `Row` factory). Cursors never interleave across request threads on a shared connection. All connections are tracked in a registry so `close()` can shut every one of them down (used by restore and server shutdown).
+2. **Global write lock.** A single `threading.Lock` serializes all mutations (inserts, updates, purges, backups). Reads run concurrently on per-thread connections; SQLite's own locking plus the 10-second busy timeout handles file-level contention.
+3. **Job semaphore.** `JobRunner` holds a `threading.Semaphore(2)`: at most two scans run concurrently; further submissions stay `queued` until a slot frees. Cancellation is cooperative — the cancelled-id set is checked before start and between files.
 
-Passwords are never stored in plaintext; API tokens are stored only as SHA-256 hashes and the raw `wmt_` value is returned exactly once at creation.
+The scheduler is one daemon loop ticking every 10 seconds: due schedules -> job submission; SLA escalation for stale `open` findings; heuristic triage sweep for untriaged open findings. It exits cleanly on the stop event (server shutdown) or a closed-store `ProgrammingError`.
 
-## Data flow: event → scan → alert → remediation
+There is no async code, no shared mutable global state beyond the detector registry and engine tuning (both replaced atomically via `engine.configure`), and no background work that outlives the process.
 
-1. **Event.** A surface adapter observes a change: a file save (`ide`), a staged diff or push range (`git`), a CI diff (`ci`), a SaaS export or live API page (`slack`, `confluence`, `jira`, `postman`), a Lambda config/code artifact (`cloud`), or a watched file mtime change (`filesystem`/`watch`).
-2. **Scan.** The adapter hands text (or file paths) to `core/engine.py`. The engine runs every registered detector — keyword pre-filter, regex match, optional validator — then applies the allowlist, computes Shannon entropy, masks the secret, and derives a SHA-256 fingerprint. The result is a list of `Finding` objects. Diff-based surfaces scan only added lines and map findings back to real file/line positions.
-3. **Ingest.** `Pipeline.ingest` re-checks the allowlist, upserts each finding into SQLite keyed by `(fingerprint, path, line)`, and splits results into `new` vs `known`. Re-detections bump the `finding_extra` occurrence counter and `last_seen` while preserving status and triage state. An `Event` row records the batch (kind, surface, counts, paths). Only **new** findings proceed to alerting.
-4. **Alert.** `AlertRouter.send` checks the per-finding dedupe window (`alerting.dedupe_window_seconds`, default 3600) and the finding's mute flag, then evaluates per-channel rules (`alert_rules`: minimum severity, enable toggle). Network channels are deferred inside quiet hours (UTC, wrap-around supported) and posted with up to three attempts and 1s/2s backoff; console and outbox always deliver. Missing URLs produce `dry-run` alerts instead of network calls. Every attempt is recorded in the `alerts` table; operators acknowledge alerts (`alert_acks`), and the scheduler re-alerts findings still open past `alerting.escalate_after_hours` (default 24).
-5. **Remediation.** An operator (dashboard, CLI, or API) triages a finding — GPT when configured, deterministic heuristic otherwise — then runs an action: `rotate-guide` (markdown playbook), `preview-redact` (before/after, no write), `redact` (in-place `<REDACTED:detector>` replacement), `quarantine` (move to `data/quarantine`), `restore` (move back), `ticket` (ticketing surface or an outbox draft), or `verify` (rescan the recorded location; mark remediated only when clean). The action is recorded in `remediations`, checklist progress persists per step, and the finding status advances (`open → triaged → remediated`, or `false_positive` via the allowlist) with every transition written to `status_history`.
+## Migration and compatibility strategy
 
-The dashboard and REST API sit on top of the same storage and pipeline behind the auth layer; the Playground endpoint scans ad-hoc text without storing it.
+Schema evolution is additive and idempotent, executed in `ExtStorage.__init__` on every open:
 
-### Jobs and scheduler
+| Mechanism | Behavior |
+| --- | --- |
+| **Legacy database rename** | If `data/sentrix.db` does not exist, the first existing legacy file in the same directory — `wintermute.db`, then `keysentry.db` — is renamed to `sentrix.db` (atomic `Path.replace`). All data is preserved; covered by `tests/test_sentrix.py::test_legacy_database_migrates` |
+| **Base + extension schemas** | `CREATE TABLE IF NOT EXISTS` for the 5 core and 18 extension tables; opening an old file simply adds what is missing |
+| **Column additions** | `ALTER TABLE ... ADD COLUMN` wrapped in `try/except OperationalError` for `users.title` and the six structured `system_log` columns (`component`, `event_type`, `exec_id`, `resource`, `status`, `correlation_id`) — safe to re-run |
+| **Role migration** | `UPDATE users SET role='super_admin' WHERE role='admin'` and `role='security_analyst' WHERE role='analyst'` on every open; legacy three-role accounts keep working under the eight-role model |
+| **Status superset** | The twelve-value `STATUSES` tuple is a superset of the original four (`open`, `triaged`, `remediated`, `false_positive`); existing rows remain valid, new lifecycle states are additive |
+| **Migration ledger** | `migrations` rows for versions 2 and 3 are inserted with `INSERT OR IGNORE`, recording that the extension schema and structured-log upgrades were applied |
+| **Brand strings** | Package, CLI, cookie (`sx_session`), token prefix (`sxt_`), environment variables (`SENTRIX_*`) and UI strings use the SENTRIX identity; legacy names survive only in the migration path itself |
 
-`JobRunner` accepts scan submissions (`POST /api/jobs`), persists a `scan_jobs` row, and runs the scan on a daemon thread gated by a semaphore (at most two concurrent jobs). Each file is checked against `scan_cache` (path + mtime + size); unchanged files reuse cached findings, changed files are rescanned and re-cached. Cancellation is cooperative — the flag is checked between files — and jobs end as `done`, `cancelled`, or `failed` with counts and error detail. `start_scheduler` ticks every 10 seconds: it submits jobs for due `schedules` (interval-based, toggleable) and performs the escalation pass described above. Both write system-log entries (`jobs`, `scan`, `scheduler`, `escalation` sources).
+Compatibility rules for contributors: never drop or rename a column in place; add columns with defaults, backfill with idempotent statements, and record a migration version. Old databases must open cleanly in the new code, and dumps from `GET /api/ops/dump` must import into a fresh store.
 
-## Storage schema summary
+## Request authorization flow
 
-SQLite database at `data/wintermute.db` (configurable via `storage.path`). All timestamps are UTC ISO strings. `core/storage.py` creates the v1 tables; `core/extensions.py` (`ExtStorage`) adds the v2 tables on top and records version 2 in `migrations`.
+```mermaid
+sequenceDiagram
+    participant C as Client (SPA / CI)
+    participant H as Handler._authorized
+    participant A as AuthManager
+    participant S as ExtStorage
+    C->>H: request (cookie sx_session or Bearer sxt_)
+    H->>H: public path? (login, /login, static, health, demo-info)
+    H->>A: session_user(token) or bearer_user(header)
+    A->>S: sessions / tokens / users lookup
+    S-->>A: row (expiry, revoked, disabled checked)
+    A-->>H: user {username, role} or None
+    H->>H: write method? role in WRITE_ROLES
+    H->>H: admin prefix? role in ADMIN_ROLES
+    H->>H: cookie POST? Origin host == Host
+    H-->>C: 401 / 403 or dispatch
+```
 
-### v1 tables
+## Boundaries for future service extraction
 
-| Table | Key columns | Notes |
-| --- | --- | --- |
-| `findings` | `id` (PK), `detector_id`, `title`, `severity`, `surface`, `path`, `line`, `secret_masked`, `entropy`, `fingerprint`, `status`, `owner`, `created_at`, `updated_at`, `meta` (JSON) | Indexed on `status` and `fingerprint`; `meta` holds family, remediation hint, triage result, surface extras |
-| `events` | `id` (PK), `kind`, `surface`, `payload` (JSON), `ts` | Batch record of scans, gates, ingests, jobs, demo seeding |
-| `alerts` | `id` (PK), `finding_id`, `channel`, `message`, `status`, `ts` | `status` is `sent`, `dry-run`, `deferred-quiet-hours`, `http-<code>`, or `failed: ...` |
-| `allowlist` | `fingerprint` (PK), `reason`, `created_at` | False-positive registry shared by every layer |
-| `remediations` | `id` (PK), `finding_id`, `action`, `detail`, `ts` | One row per executed action |
+The monolith is deliberately seam-ready. Candidate extraction boundaries, in order of least coupling:
 
-### v2 tables (extensions)
+1. **Collection workers** — surface adapters and `JobRunner` already communicate through `Pipeline.ingest` and the jobs table; a distributed worker would poll `scan_jobs` and call the same ingest path (see ROADMAP).
+2. **Alert delivery** — `AlertRouter` is injected into the pipeline; an outbox-worker service could consume the `alerts` table and own retries/delivery without touching detection.
+3. **Connectors** — `surfaces/*` are pure functions returning findings; each could become an independent poller posting to `POST /api/scan`-style ingestion endpoints with a Bearer token.
+4. **Reporting** — `reports.generate` only reads storage; it can move to a read replica or a separate process once PostgreSQL exists.
+5. **Auth** — `AuthManager` is the single authority; replacing it with an OIDC provider requires implementing the same `session_user`/`bearer_user` contract.
 
-| Table | Key columns | Notes |
-| --- | --- | --- |
-| `users` | `username` (PK), `pw_hash`, `salt`, `role`, `disabled`, `created_at` | PBKDF2-HMAC-SHA256, 200k iterations |
-| `sessions` | `token` (PK), `username`, `role`, `expires_at` | Cookie sessions; expired rows purged on login |
-| `tokens` | `id` (PK), `name`, `token_hash`, `role`, `created_by`, `created_at`, `revoked` | API tokens stored as SHA-256 hashes only |
-| `audit` | `id`, `ts`, `username`, `action`, `detail` | Security-relevant actions |
-| `system_log` | `id`, `ts`, `level`, `source`, `message` | Operational log from auth/http/scan/jobs/scheduler/escalation/remediation/demo |
-| `notes` | `id`, `finding_id`, `username`, `body`, `ts` | Per-finding notes |
-| `finding_extra` | `finding_id` (PK), `assignee`, `tags` (JSON), `severity_override`, `pinned`, `muted`, `occurrences`, `first_seen`, `last_seen` | Management metadata |
-| `status_history` | `id`, `finding_id`, `old`, `new`, `username`, `ts` | Every status transition |
-| `saved_filters` | `id` (PK), `username`, `name`, `params` (JSON), `ts` | Per-user presets |
-| `schedules` | `id` (PK), `path`, `surface`, `interval_seconds`, `enabled`, `last_run` | Recurring scans |
-| `scan_jobs` | `id` (PK), `path`, `surface`, `status`, `triggered_by`, `started`, `finished`, `files`, `findings`, `error` | Job lifecycle and results |
-| `scan_cache` | `path` (PK), `mtime`, `size`, `findings` (JSON), `scanned_at` | Incremental scan cache |
-| `alert_rules` | `id` (PK), `channel`, `min_severity`, `enabled` | Per-channel severity gates |
-| `alert_acks` | `alert_id` (PK), `username`, `ts` | Acknowledgements |
-| `checklists` | `id`, `finding_id`, `step_idx`, `done`, `username`, `ts` | Unique per (finding, step) |
-| `migrations` | `version` (PK), `applied_at` | Schema version marker |
-
-Identity rules:
-
-- **Fingerprint** = `SHA-256(detector_id + "|" + secret.strip())` — stable across surfaces, derived from the raw value which is then discarded.
-- **Finding id** = first 12 hex chars of `SHA-256(fingerprint + "|" + path + "|" + line)`.
-- **Dedupe** = upsert on `(fingerprint, path, line)`; re-detections refresh `updated_at` and preserve the existing status.
-
-## Design decisions
-
-### One pattern set, many layers
-
-Detectors live in a single registry and are imported once at startup. Surfaces are thin adapters: they extract text and label the surface, nothing more. This guarantees that a token caught in the IDE is caught identically in CI, Slack, and Lambda env vars, and that allowlist decisions apply everywhere. Adding a detector or tuning a pattern improves every layer at once.
-
-### Masking instead of storage
-
-The raw secret is used only in memory: to validate, fingerprint, and mask. Storage, alerts, tickets, dashboards, and AI prompts carry `secret_masked` (first four + last four characters for values longer than 8; shorter values keep only a two-character prefix) plus the fingerprint. This keeps the database and every downstream channel safe to share, while still letting an operator recognize the credential.
-
-### Dedupe at two levels
-
-Finding-level dedupe (`fingerprint + path + line`) prevents repeated scans from flooding the dashboard and preserves triage state across re-detections. Alert-level dedupe (per finding, within `dedupe_window_seconds`) prevents notification storms when a watcher or poller re-reports the same exposure.
-
-### Offline-first, zero required dependencies
-
-The default configuration uses only the Python standard library: `sqlite3`, `http.server`, `urllib`, `tomllib`, `re`, `hashlib`, `secrets`, `threading`. Console and outbox alerting work with no network at all; unconfigured webhook channels record `dry-run` alerts. AI triage falls back to a deterministic heuristic when disabled, unkeyed, or unreachable. Live cloud scanning is the only feature that needs a third-party package (`boto3`), and it is strictly optional. The server binds to loopback by default and requires authentication on every non-public route, so nothing is exposed beyond the local machine unless an operator deliberately changes it.
-
-### Fail-closed auth, two log streams
-
-Unauthenticated requests get `401`; role violations get `403`; there is no anonymous API access beyond the health check and static assets. Operational events go to `system_log` (live-tailed in the Logs view), while security-relevant actions — logins, account and token changes, bulk operations, ops actions, detector tuning — additionally go to the append-only `audit` table. Keeping the streams separate lets operators debug scans without scrolling past security events, and auditors review security events without operational noise.
-
-### Minimalist graphite interface
-
-The dashboard is a single monochrome graphite theme served as static files by the same stdlib server — no build step, no framework, no theme switcher. Density is reserved for data: a pipeline Overview, tabbed finding drawer, bulk bar, live Logs, command palette (Ctrl+K), keyboard shortcuts, and per-section help popovers. The same restraint applies to the login page and the monochrome favicon.
+The storage layer is the hard boundary: everything currently assumes one SQLite file. PostgreSQL support (ROADMAP) means re-implementing `Storage`/`ExtStorage` behind the same method surface, not changing callers.

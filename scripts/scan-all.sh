@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials.
-# Scan a path (default: the whole Wintermute tree) with the filesystem surface.
+# Scan a path (default: the whole SENTRIX tree) with the filesystem surface.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

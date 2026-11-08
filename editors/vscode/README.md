@@ -1,9 +1,9 @@
 <!-- SYNTHETIC FIXTURE - fake values for scanner testing only, not real credentials. -->
-# Wintermute editor extension
+# SENTRIX editor extension
 
-Scans the current file with the Wintermute CLI on every save and on demand, then
+Scans the current file with the SENTRIX CLI on every save and on demand, then
 publishes the findings as editor diagnostics (Problems panel) with an output
-channel named `Wintermute` for the raw CLI log.
+channel named `SENTRIX` for the raw CLI log.
 
 ## Install
 
@@ -13,7 +13,7 @@ Option 1 - package and install:
 npm install -g @vsce/vsce   # if the packaging tool is not installed yet
 cd editors/vscode
 vsce package
-code --install-extension wintermute-0.1.0.vsix
+code --install-extension sentrix-0.1.0.vsix
 ```
 
 Option 2 - run from source:
@@ -24,7 +24,7 @@ Option 2 - run from source:
 ## Usage
 
 - Save any file: it is scanned automatically.
-- Command palette: `Wintermute: Scan File` scans the active editor's file.
+- Command palette: `SENTRIX: Scan File` scans the active editor's file.
 - Findings appear as diagnostics: critical/high = Error, medium = Warning,
   low = Information, anything else = Hint.
 
@@ -35,10 +35,10 @@ parses the JSON array printed to stdout. Nothing is stored by the scan.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `wintermute.home` | `""` (empty) | Wintermute project root (the folder containing `run.py`). When empty, resolves to two levels up from the workspace folder (the `editors/vscode` layout), falling back to the workspace folder itself if it contains `run.py`. |
-| `wintermute.python` | `"python"` | Python executable used to run the CLI. Use `python3` or a full path if needed. |
+| `sentrix.home` | `""` (empty) | SENTRIX project root (the folder containing `run.py`). When empty, resolves to two levels up from the workspace folder (the `editors/vscode` layout), falling back to the workspace folder itself if it contains `run.py`. |
+| `sentrix.python` | `"python"` | Python executable used to run the CLI. Use `python3` or a full path if needed. |
 
 ## Requirements
 
-- Python 3.11+ on PATH (or set `wintermute.python`).
-- A Wintermute checkout reachable via `wintermute.home`.
+- Python 3.11+ on PATH (or set `sentrix.python`).
+- A SENTRIX checkout reachable via `sentrix.home`.
