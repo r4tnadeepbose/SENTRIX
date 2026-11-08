@@ -58,6 +58,8 @@ const state = {
   user: null, view: "overview", filters: { severity: "", surface: "", status: "", q: "", environment: "", validation: "" },
   sort: "created", page: 1, pageSize: 25, selection: new Set(), cols: null,
   drawerId: null, drawerTab: "overview", stage: null, paused: false,
+  scanTimer: null,
+  coordination: { audit: 0, ping: 0 },
   logQ: "", logLevel: "", logSource: "", logRange: "all", logCorr: "", logTab: "system",
   auditTab: "audit", settingsTab: "profile", mobileSheet: false,
 };
@@ -206,7 +208,7 @@ async function renderOverview() {
     canWrite() ? `<button class="btn sm" id="ov-demo">Load demo</button><button class="btn sm ghost" id="ov-reset">Reset demo</button>` : "") +
     (o.demo ? `<div class="banner"><span class="chip st-triaged">DEMO</span> Synthetic demonstration records are active. They are labeled and isolated from production use.</div>` : "") +
     `<div class="mgrid">${metrics.map(([l, v, t]) => `<div class="metric ${t}"><div class="mlabel">${l}</div><div class="mvalue">${v}</div><div class="msub">live from storage</div></div>`).join("")}</div>` +
-    panel("Detection pipeline", `<div class="chain">${p.stages.map((s, i) => `${i ? '<span class="chainarrow">→</span>' : ""}<button class="stage ${s.failed ? "failed" : ""} ${state.stage === s.id ? "active" : ""}" data-stage="${s.id}" title="${esc(s.name)}: ${s.events} events, ${s.failed} failed"><span class="sname"><span class="dot"></span>${esc(s.name)}</span><span class="scount">${s.events}</span><span class="smeta">${s.avg_ms} ms avg · ${s.failed} failed</span></button>`).join("")}</div>${stage ? `<div class="stageinspect"><dl class="kv"><dt>Stage</dt><dd>${esc(stage.name)}</dd><dt>Status</dt><dd>${esc(stage.status)}</dd><dt>Events</dt><dd>${stage.events}</dd><dt>Failed operations</dt><dd>${stage.failed}</dd><dt>Avg processing</dt><dd>${stage.avg_ms} ms</dd><dt>Last execution</dt><dd>${utc(stage.last_run)}</dd></dl><div class="dsect" style="margin-top:10px"><h3>Associated logs</h3>${stageLogs.map((l) => `<div class="logrow"><span class="lts">${utc(l.ts)}</span><span class="chip sev-${l.level === "error" ? "critical" : l.level === "warn" ? "medium" : "info"}">${esc(l.level)}</span><span class="lmsg">${esc(l.message)}</span></div>`).join("") || empty("No logs", "This stage has not logged recently.")}</div></div>` : ""}`, "", true) +
+    panel("Detection pipeline", `<div class="chain">${p.stages.map((s, i) => `${i ? '<span class="chainarrow" aria-hidden="true">→</span>' : ""}<button class="stage stage-${esc(s.status)} ${state.stage === s.id ? "active" : ""}" data-stage="${s.id}" aria-pressed="${state.stage === s.id}" title="${esc(s.name)}: ${s.events} events, ${s.failed} failed"><span class="sname"><span class="dot"></span><span class="stage-label">${esc(s.name)}</span><span class="stage-status">${s.status === "operational" ? "Healthy" : esc(s.status)}</span></span><span class="scount">${s.events}</span><span class="smeta">${s.avg_ms} ms avg · ${s.failed} failed</span></button>`).join("")}</div>${stage ? `<div class="stageinspect"><dl class="kv"><dt>Stage</dt><dd>${esc(stage.name)}</dd><dt>Status</dt><dd><span class="chip stage-chip-${esc(stage.status)}">${esc(stage.status)}</span></dd><dt>Events</dt><dd>${stage.events}</dd><dt>Failed operations</dt><dd>${stage.failed}</dd><dt>Avg processing</dt><dd>${stage.avg_ms} ms</dd><dt>Last execution</dt><dd>${utc(stage.last_run)}</dd></dl><div class="dsect" style="margin-top:10px"><h3>Associated logs</h3>${stageLogs.map((l) => `<div class="logrow"><span class="lts">${utc(l.ts)}</span><span class="chip sev-${l.level === "error" ? "critical" : l.level === "warn" ? "medium" : "info"}">${esc(l.level)}</span><span class="lmsg">${esc(l.message)}</span></div>`).join("") || empty("No logs", "This stage has not logged recently.")}</div></div>` : ""}`, "", true) +
     `<div class="grid c3 mb"><section class="panel"><div class="phead"><span class="ptitle">By severity</span></div><div class="pbody">${donut(d.severity, (l) => SEV_COLOR[l], "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">By status</span></div><div class="pbody">${donut(d.status, (l) => STATUS_COLOR[l] || "var(--accent)", "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">Exposure trend · 14 days</span></div><div class="pbody">${area(d.timeline)}</div></section></div>` +
     `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Recent activity</span><a class="btn sm ghost" href="#/audit">View all</a></div><div class="pbody flush"><div class="feed">${logs.logs.map((l) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext">${esc(l.message)}</div><div class="fmeta"><span>${esc(l.source)}</span><span title="${utc(l.ts)}">${rel(l.ts)} ago</span></div></div></div>`).join("") || empty("No activity", "Events will appear as scans and actions run.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">Team workload</span></div><div class="pbody flush"><div class="listrows">${d.team.map((t) => `<div class="listrow"><span class="grow"><strong>${esc(t.username)}</strong><span class="cellsub">${esc(t.title || t.role)}</span></span><span class="mono">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div></div></section></div>`;
   $$("[data-stage]").forEach((b) => (b.onclick = () => { state.stage = state.stage === b.dataset.stage ? null : b.dataset.stage; renderOverview(); }));
@@ -341,14 +343,73 @@ async function renderPlayground() {
 
 async function renderScans() {
   const [jobs, scheds] = await Promise.all([api("/api/jobs"), api("/api/schedules")]);
-  $("#main").innerHTML = pagehead("Scan Management", "Manual and scheduled coverage.") +
-    (canWrite() ? panel("New scan", `<div class="formrow"><div class="field grow"><input class="input" id="sc-path" placeholder="Path on server host"></div><div class="field"><select class="input" id="sc-surface">${SURFACES.map((s) => `<option>${s}</option>`).join("")}</select></div><button class="btn primary" id="sc-run">Run job</button></div>`) : "") +
+  const active = jobs.jobs.filter((j) => ["queued", "running"].includes(j.status)).length;
+  $("#main").innerHTML = pagehead("Scan Management", "Manual and scheduled coverage.",
+    active ? `<span class="scan-live"><span class="dot"></span>${active} active ${active === 1 ? "scan" : "scans"}</span>` : "") +
+    (canWrite() ? panel("New scan", `<div class="formrow"><div class="field grow"><label class="fld" for="sc-path">Server path</label><input class="input" id="sc-path" placeholder="e.g. examples/vulnerable" required></div><div class="field"><label class="fld" for="sc-surface">Detection surface</label><select class="input" id="sc-surface">${SURFACES.map((s) => `<option>${s}</option>`).join("")}</select></div><button class="btn primary" id="sc-run">Run scan</button></div><div class="scan-feedback" id="sc-feedback" role="status" aria-live="polite"></div>`) : "") +
     panel("Schedules", `${canWrite() ? `<div class="formrow" style="margin-bottom:10px"><div class="field grow"><input class="input" id="sh-path" placeholder="Path"></div><div class="field"><input class="input" id="sh-int" type="number" value="3600" min="60"></div><button class="btn sm" id="sh-add">Add schedule</button></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>ID</th><th>Path</th><th>Interval</th><th>Enabled</th><th></th></tr></thead><tbody>${scheds.schedules.map((s) => `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.path)}</td><td class="num">${s.interval_seconds}s</td><td>${s.enabled ? "yes" : "no"}</td><td>${canWrite() ? `<button class="btn sm ghost" data-sht="${esc(s.id)}">${s.enabled ? "Disable" : "Enable"}</button> <button class="btn sm ghost" data-shd="${esc(s.id)}">Delete</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">No schedules.</td></tr>'}</tbody></table></div>`, "", true) +
     panel("Recent executions", `<div class="twrap"><table class="tbl"><thead><tr><th>Job</th><th>Path</th><th>Status</th><th class="num">Files</th><th class="num">New</th></tr></thead><tbody>${jobs.jobs.slice(0, 10).map((j) => `<tr><td class="mono">${esc(j.id)}</td><td class="truncate">${esc(j.path)}</td><td><span class="chip ${j.status === "done" ? "st-remediated" : j.status === "failed" ? "st-false_positive" : "st-open"}">${esc(j.status)}</span></td><td class="num">${j.files}</td><td class="num">${j.findings}</td></tr>`).join("")}</tbody></table></div>`, '<a class="btn sm ghost" href="#/jobs">All jobs</a>', true);
-  const run = $("#sc-run"); if (run) run.onclick = async () => { const r = await api("/api/jobs", { method: "POST", body: { path: $("#sc-path").value || ".", surface: $("#sc-surface").value } }); toast(`Job ${r.id} queued`, "ok"); setTimeout(renderScans, 800); };
+  const run = $("#sc-run");
+  if (run) run.onclick = async () => {
+    const path = $("#sc-path").value.trim();
+    const feedback = $("#sc-feedback");
+    if (!path) {
+      feedback.innerHTML = `<div class="errbox">Enter a server path before starting a scan.</div>`;
+      $("#sc-path").focus();
+      return;
+    }
+    run.disabled = true;
+    run.textContent = "Starting…";
+    feedback.innerHTML = `<div class="scan-progress"><span class="spinner"></span>Submitting scan…</div>`;
+    try {
+      const r = await api("/api/jobs", { method: "POST", body: { path, surface: $("#sc-surface").value } });
+      toast(`Scan ${r.id} queued`, "ok");
+      feedback.innerHTML = `<div class="scan-progress"><span class="spinner"></span>Scan queued. Waiting for worker…</div>`;
+      watchScan(r.id);
+    } catch (e) {
+      run.disabled = false;
+      run.textContent = "Run scan";
+      feedback.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+    }
+  };
   const add = $("#sh-add"); if (add) add.onclick = async () => { await api("/api/schedules", { method: "POST", body: { path: $("#sh-path").value || ".", interval_seconds: +$("#sh-int").value || 3600 } }); toast("Schedule added", "ok"); renderScans(); };
   $$("[data-sht]").forEach((b) => (b.onclick = async () => { await api(`/api/schedules/${b.dataset.sht}/toggle`, { method: "POST", body: {} }); renderScans(); }));
   $$("[data-shd]").forEach((b) => (b.onclick = () => confirmModal("Delete schedule", "Stop this recurring scan.", async () => { await api(`/api/schedules/${b.dataset.shd}/delete`, { method: "POST", body: {} }); renderScans(); }, "Delete")));
+}
+
+function watchScan(id) {
+  if (state.scanTimer) clearInterval(state.scanTimer);
+  const poll = async () => {
+    try {
+      const { job } = await api(`/api/jobs/${encodeURIComponent(id)}`);
+      const feedback = $("#sc-feedback");
+      if (!feedback) return;
+      if (job.status === "queued" || job.status === "running") {
+        feedback.innerHTML = `<div class="scan-progress"><span class="spinner"></span>Scan ${esc(job.status)}… ${job.files || 0} files checked</div>`;
+        return;
+      }
+      clearInterval(state.scanTimer);
+      state.scanTimer = null;
+      if (job.status === "done") {
+        feedback.innerHTML = `<div class="okbox">Scan complete: ${job.files} files checked, ${job.findings} new findings.</div>`;
+      } else if (job.status === "cancelled") {
+        feedback.innerHTML = `<div class="errbox">Scan cancelled before completion.</div>`;
+      } else {
+        feedback.innerHTML = `<div class="errbox">Scan failed: ${esc(job.error || "The worker returned an unknown error.")}</div>`;
+      }
+      const run = $("#sc-run");
+      if (run) { run.disabled = false; run.textContent = "Run scan"; }
+    } catch (e) {
+      clearInterval(state.scanTimer);
+      state.scanTimer = null;
+      const feedback = $("#sc-feedback");
+      if (feedback) feedback.innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
+      const run = $("#sc-run");
+      if (run) { run.disabled = false; run.textContent = "Run scan"; }
+    }
+  };
+  poll();
+  state.scanTimer = setInterval(poll, 1000);
 }
 
 const SURFACE_SETS = { repositories: ["git", "pre_push", "ci"], developer: ["ide", "filesystem"], cloud: ["cloud"], cicd: ["ci"], saas: ["slack", "jira", "confluence", "postman"] };
@@ -616,6 +677,7 @@ const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", f
 function refresh() { if (VIEWS[state.view]) VIEWS[state.view](); }
 
 function route() {
+  if (state.scanTimer) { clearInterval(state.scanTimer); state.scanTimer = null; }
   const hash = location.hash.replace("#/", "") || "overview";
   state.view = VIEWS[hash] ? hash : "overview";
   state.selection.clear();
@@ -631,6 +693,7 @@ function buildShell() {
   $("#topbar").innerHTML = `<a class="brand" href="#/overview"><img src="/logo.svg" alt=""><span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence</span></span></a>
     <div class="gsearch">${icon("search")}<input class="input" id="gq" placeholder="Search findings…  (Ctrl+K)" aria-label="Global search"></div>
     <span class="topspacer" style="flex:1"></span>
+    ${canWrite() ? `<button class="btn sm pingbtn" id="coord-ping" title="Notify other command-center sessions">${icon("pulse", 13)} Ping team</button>` : ""}
     <span class="livedot" id="livedot"><span class="dot"></span><span id="livetxt">Live</span></span>
     <button class="iconbtn" id="theme-toggle" aria-label="Toggle dark / white theme" title="Toggle theme">${icon("moon")}</button>
     <button class="userbtn" id="userbtn" aria-haspopup="menu"><span class="avatar">${esc(state.user.username[0].toUpperCase())}</span><span><span class="uname">${esc(state.user.username)}</span><span class="urole" style="display:block">${esc(state.user.role)}</span></span></button>`;
@@ -658,6 +721,15 @@ function buildShell() {
     $("#um-out", pop).onclick = async () => { await api("/api/auth/logout", { method: "POST", body: {} }); location.href = "/login"; };
     setTimeout(() => { const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== $("#userbtn")) { pop.remove(); document.removeEventListener("click", off); } }; document.addEventListener("click", off); }, 0);
   };
+  const ping = $("#coord-ping");
+  if (ping) ping.onclick = async () => {
+    const message = window.prompt("Message for other command-center sessions", "Please review the latest change.");
+    if (message === null) return;
+    try {
+      await api("/api/coordination/ping", { method: "POST", body: { message } });
+      toast("Ping sent to other sessions", "ok");
+    } catch (e) { toast(e.message, "error"); }
+  };
   $("#gq").onkeydown = (e) => { if (e.key === "Enter") { state.filters.q = e.target.value.trim(); state.page = 1; location.hash = "#/findings"; if (state.view === "findings") renderFindings(); } };
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { closeDrawer(); closeOverlays("popover"); closeOverlays("modalwrap"); closeSheet(); }
@@ -673,7 +745,9 @@ function buildShell() {
     $("#livetxt").textContent = h ? "Live" : "Offline";
     $("#livedot").classList.toggle("down", !h);
   }, 10000);
-  setInterval(() => { if (!state.paused && ["logs", "audit", "overview", "alerts"].includes(state.view)) refresh(); }, 6000);
+  setInterval(() => {
+    if (!state.paused && !state.drawerId && VIEWS[state.view]) refresh();
+  }, 10000);
 }
 
 function openSheet() {
@@ -688,5 +762,17 @@ async function boot() {
   try { state.user = (await api("/api/auth/me")).user; } catch { return; }
   buildShell();
   route();
+  const initialCoordination = await api("/api/coordination?since=0").catch(() => null);
+  if (initialCoordination) state.coordination = initialCoordination.revision;
+  setInterval(async () => {
+    const d = await api(`/api/coordination?since=${state.coordination.ping}`).catch(() => null);
+    if (!d) return;
+    const changed = d.revision.audit !== state.coordination.audit;
+    state.coordination = d.revision;
+    d.pings.filter((p) => p.username !== state.user.username).forEach((p) => {
+      toast(`${p.username} pinged the team: ${p.message}`, "info");
+    });
+    if (changed && !state.paused && !state.drawerId) refresh();
+  }, 2500);
 }
 boot();

@@ -132,6 +132,8 @@ html[data-theme="light"] .btn.primary:hover { background: #0a6a7e; border-color:
 .btn.ghost { background: transparent; border-color: transparent; color: var(--dim); }
 .btn.ghost:hover { color: var(--text); background: var(--raised); border-color: var(--border); }
 .btn.sm { padding: 3px 8px; font-size: 11.5px; gap: 4px; }
+.pingbtn { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.pingbtn:hover { background: var(--accent); color: var(--accent-ink); }
 .btn.icon { padding: 5px 7px; }
 .btn svg { flex: none; }
 .iconbtn {
@@ -310,21 +312,50 @@ label.fld { display: block; font-size: 10.5px; font-weight: 600; letter-spacing:
 .metric.t-danger .mvalue { color: var(--danger); }
 
 /* pipeline chain */
-.chain { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; padding: 12px; }
+.chain { display: flex; align-items: stretch; gap: 8px; overflow-x: auto; padding: 12px; scrollbar-gutter: stable; }
 .stage {
-  flex: 1 0 108px; min-width: 108px; text-align: left; cursor: pointer;
+  flex: 0 0 156px; min-width: 156px; min-height: 86px; text-align: left; cursor: pointer;
   background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 8px 9px; color: var(--text);
+  padding: 10px; color: var(--text); overflow: hidden;
 }
 .stage:hover { border-color: var(--border-strong); }
 .stage.active { border-color: var(--accent); background: var(--accent-soft); }
-.stage .sname { font-size: 10.5px; font-weight: 650; display: flex; align-items: center; gap: 5px; }
+.stage .sname { font-size: 10.5px; font-weight: 650; display: flex; align-items: flex-start; gap: 5px; min-height: 28px; line-height: 1.25; }
 .stage .sname .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
-.stage.failed .sname .dot { background: var(--danger); }
-.stage .scount { font-family: var(--mono); font-size: 16px; font-weight: 600; margin-top: 4px; }
-.stage .smeta { font-size: 9.5px; color: var(--faint); margin-top: 2px; }
+.stage.stage-degraded .sname .dot { background: var(--danger); }
+.stage.stage-idle .sname .dot { background: var(--faint); }
+.stage-label { min-width: 0; overflow-wrap: anywhere; }
+.stage-status { margin-left: auto; flex: none; color: var(--ok); font-size: 8px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.stage-degraded .stage-status { color: var(--danger); }
+.stage-idle .stage-status { color: var(--faint); }
+.stage .scount {
+  display: block;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.15;
+  margin-top: 5px;
+}
+.stage .smeta {
+  display: block;
+  font-size: 9.5px;
+  line-height: 1.25;
+  color: var(--faint);
+  margin-top: 5px;
+  white-space: nowrap;
+}
 .chainarrow { align-self: center; color: var(--faint); flex: none; padding: 0 1px; }
 .stageinspect { border-top: 1px solid var(--border); padding: 12px; }
+.stage-chip-operational { color: var(--ok); background: var(--ok-soft); }
+.stage-chip-degraded { color: var(--danger); background: var(--danger-soft); }
+.stage-chip-idle { color: var(--faint); background: var(--raised); }
+.scan-live { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; }
+.scan-live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.scan-feedback { margin-top: 10px; min-height: 0; }
+.scan-feedback:empty { display: none; }
+.scan-progress { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 12px; }
+.spinner { width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* charts */
 .chartwrap { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }

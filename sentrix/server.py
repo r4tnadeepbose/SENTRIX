@@ -155,6 +155,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/me":
             user = self._user()
             return self._json({"user": user}) if user else self._json({"error": "unauthenticated"}, 401)
+        if path == "/api/coordination":
+            since = int(query.get("since", 0))
+            return self._json({
+                "revision": state.storage.coordination_revision(),
+                "pings": state.storage.list_pings_since(since),
+            })
         if path == "/api/auth/demo-info":
             enabled = False
             accounts = []
@@ -615,7 +621,10 @@ class Handler(BaseHTTPRequestHandler):
                 ("verification", "Verification", sum(1 for f in findings if f.status in ("verified", "closed")), "remediation"),
             ]
             return self._json({"stages": [
-                {"id": sid, "name": name, "status": "operational", "events": count,
+                {"id": sid, "name": name,
+                 "status": "degraded" if failed and sid in ("ingestion", "detection")
+                 else "operational" if count else "idle",
+                 "events": count,
                  "failed": failed if sid in ("ingestion", "detection") else 0,
                  "avg_ms": avg_ms, "last_run": last, "logs_source": src}
                 for sid, name, count, src in stages]})
@@ -808,6 +817,11 @@ class Handler(BaseHTTPRequestHandler):
         from sentrix.core import reports
         state = self.state
         storage = state.storage
+        if path == "/api/coordination/ping":
+            message = str(body.get("message", "")).strip()[:240] or "Please refresh your command center."
+            ping_id = storage.add_ping(uname, message)
+            state.auth.audit("coordination.ping", uname, message)
+            return self._json({"ok": True, "id": ping_id})
         m = re.match(r"^/api/integrations/([a-z]+)/(sync|toggle|disconnect)$", path)
         if m:
             pid, action = m.groups()

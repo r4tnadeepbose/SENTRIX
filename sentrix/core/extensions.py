@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS tokens (
 CREATE TABLE IF NOT EXISTS audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, username TEXT, action TEXT, detail TEXT
 );
+CREATE TABLE IF NOT EXISTS coordination_pings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, message TEXT,
+    created_at TEXT
+);
 CREATE TABLE IF NOT EXISTS system_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, level TEXT, source TEXT, message TEXT
 );
@@ -201,6 +205,26 @@ class ExtStorage(Storage):
     def list_audit(self, limit=200):
         return [dict(r) for r in self._db.execute(
             "SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,))]
+
+    def add_ping(self, username, message):
+        with self._lock:
+            cur = self._db.execute(
+                "INSERT INTO coordination_pings (username, message, created_at) VALUES (?,?,?)",
+                (username, message, now_iso()))
+            self._db.commit()
+            return cur.lastrowid
+
+    def list_pings_since(self, ping_id=0, limit=20):
+        return [dict(r) for r in self._db.execute(
+            "SELECT * FROM coordination_pings WHERE id>? ORDER BY id ASC LIMIT ?",
+            (ping_id, limit))]
+
+    def coordination_revision(self):
+        row = self._db.execute(
+            "SELECT (SELECT COALESCE(MAX(id), 0) FROM audit) AS audit_revision,"
+            " (SELECT COALESCE(MAX(id), 0) FROM coordination_pings) AS ping_revision"
+        ).fetchone()
+        return {"audit": int(row["audit_revision"]), "ping": int(row["ping_revision"])}
 
     def add_log(self, level, source, message, component="", event_type="",
                 exec_id="", resource="", status="", correlation_id=""):
