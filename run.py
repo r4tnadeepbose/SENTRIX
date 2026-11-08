@@ -8,4 +8,4 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sentrix.cli import main
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main())All the pages should refresh at 10-second intervals. 
