@@ -5,11 +5,12 @@ import hashlib
 import time
 from dataclasses import asdict, dataclass, field
 
+from sentrix.core.lifecycle import FINDING_STATES
+
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 SEVERITY_ORDER = {name: idx for idx, name in enumerate(SEVERITIES)}
-STATUSES = ("open", "new", "triaged", "assigned", "in_progress", "remediated",
-            "verified", "closed", "false_positive", "accepted_risk", "suppressed",
-            "reopened")
+# Single source of truth: sentrix.core.lifecycle
+STATUSES = FINDING_STATES
 SURFACES = (
     "ide", "pre_push", "ci", "git", "cloud",
     "slack", "confluence", "jira", "postman", "filesystem",

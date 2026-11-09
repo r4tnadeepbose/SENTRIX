@@ -132,6 +132,17 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payload["product"], "SENTRIX")
         self.assertIn("version", payload)
 
+    def test_avatar_images_are_served(self):
+        code, headers, body = self._http("/static/avatars/admin.jpg")
+        self.assertEqual(code, 200)
+        self.assertEqual(headers.get("Content-Type"), "image/jpeg")
+        self.assertGreater(len(body), 1000)
+        # Only image names under the avatars directory are exposed.
+        code, _, _ = self._http("/static/avatars/../server.py")
+        self.assertEqual(code, 404)
+        code, _, _ = self._http("/static/avatars/missing.jpg")
+        self.assertEqual(code, 404)
+
     def test_unauthenticated_requests_rejected(self):
         self._request("/api/stats", cookie=None, expect=401)
         self._request("/api/scan", {"text": AWS_TEXT}, cookie=None, expect=401)
@@ -363,6 +374,25 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self._request("/api/hubs/ping", {"to_user": "analyst7"})["ok"])
         notifications = self._request("/api/hubs/notifications", cookie=analyst_cookie)["notifications"]
         self.assertEqual(notifications[0]["type"], "ping")
+
+    def test_hubs_read_only_role_can_read_but_not_send(self):
+        self._request("/api/users", {
+            "username": "viewer2", "password": "viewer2-pass-123", "role": "viewer"})
+        viewer_cookie = self._login("viewer2", "viewer2-pass-123")
+        channels = self._request("/api/hubs/channels", cookie=viewer_cookie)
+        self.assertTrue(channels["read_only"])
+        self.assertEqual(channels["role"], "viewer")
+        # Reading works; sending messages and pings is blocked with a clear note.
+        self._request("/api/hubs/channels/open-chat/messages", cookie=viewer_cookie)
+        denied = self._request(
+            "/api/hubs/channels/open-chat/messages", {"body": "should not send"},
+            cookie=viewer_cookie, expect=403)
+        self.assertIn("read-only account", denied["error"])
+        self._request("/api/hubs/ping", {"to_user": "admin"},
+                      cookie=viewer_cookie, expect=403)
+        # Personal reading state and preferences are still their own.
+        self._request("/api/hubs/notifications/read", {}, cookie=viewer_cookie)
+        self._request("/api/hubs/prefs", {"sound_enabled": False}, cookie=viewer_cookie)
 
     def test_hubs_messages_are_returned_in_chronological_order(self):
         self._request("/api/users", {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from sentrix.config import cfg_get, env_secret
+from sentrix.core.lifecycle import INTEGRATION_STATES
 
 PROVIDERS = [
     ("github", "GitHub", "git", ["repo:read", "pull_request:read"], "60 req/min"),
@@ -34,11 +35,11 @@ def inventory(cfg: dict, storage, demo: bool) -> list[dict]:
     for pid, name, surface, permissions, rate in PROVIDERS:
         configured = _configured(cfg, pid)
         if configured:
-            status, auth = "connected", "credentials present"
+            status, auth = INTEGRATION_STATES[0], "credentials present"  # connected
         elif demo:
-            status, auth = "demo", "synthetic connector - no live credentials"
+            status, auth = INTEGRATION_STATES[1], "synthetic connector - no live credentials"  # demo
         else:
-            status, auth = "disconnected", "authentication required"
+            status, auth = INTEGRATION_STATES[2], "authentication required"  # disconnected
         related = [f for f in findings if f.surface == surface]
         syncs = [e for e in events if e.get("surface") == surface]
         errors = [l for l in logs if l["source"] == "integrations" and l["level"] == "error"]

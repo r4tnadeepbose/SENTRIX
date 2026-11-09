@@ -9,7 +9,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const WRITE_ROLES = ["super_admin", "security_admin", "security_analyst", "appsec_engineer", "devsecops_engineer"];
 const ADMIN_ROLES = ["super_admin", "security_admin"];
 const SEVS = ["critical", "high", "medium", "low", "info"];
+// Finding lifecycle (mirrors /api/lifecycle -> sentrix.core.lifecycle).
 const LIFE = ["new", "triaged", "assigned", "in_progress", "remediated", "verified", "closed"];
+const FINDING_EXCEPTION_STATES = ["false_positive", "accepted_risk", "suppressed", "reopened"];
+const FINDING_ALL_STATES = ["open", ...LIFE, ...FINDING_EXCEPTION_STATES];
+const JOB_STATES = ["queued", "running", "done", "failed", "cancelled"];
+const INTEGRATION_STATES = ["connected", "demo", "disconnected"];
 const SURFACES = ["ide", "pre_push", "ci", "git", "cloud", "slack", "confluence", "jira", "postman", "filesystem"];
 const SLABEL = { ide: "IDE", pre_push: "Pre-push", ci: "CI/CD", git: "Git", cloud: "Cloud", slack: "Slack", confluence: "Confluence", jira: "Jira", postman: "Postman", filesystem: "Filesystem" };
 const SEV_COLOR = { critical: "var(--crit)", high: "var(--high)", medium: "var(--med)", low: "var(--low)", info: "var(--sev-info)" };
@@ -182,7 +187,7 @@ const rel = (iso) => {
 const riskbar = (r) => r ? `<span class="riskbar" title="Explainable risk score ${r.score}/100 (${r.band})"><span class="track"><span class="fill" style="width:${r.score}%;background:${SEV_COLOR[r.band] || "var(--accent)"}"></span></span><span class="rv">${r.score}</span></span>` : "-";
 const skeleton = () => `<div class="skrow"><div class="skel" style="width:32%;height:64px"></div><div class="skel" style="width:32%;height:64px"></div><div class="skel" style="width:32%;height:64px"></div></div><div class="skel" style="width:100%;height:180px"></div>`;
 const empty = (t, s) => `<div class="empty">${icon("box", 26)}<div class="etitle">${esc(t)}</div><div class="esub">${esc(s)}</div></div>`;
-const pagehead = (title, sub, actions = "") => `<div class="pagehead"><div><h1>${esc(title)} ${helpbtn(state.view)}</h1><div class="sub">${esc(sub)}</div></div><div class="actions">${actions}</div></div>`;
+const pagehead = (title, sub, actions = "", iconHtml = "") => `<div class="pagehead"><div><h1>${iconHtml} ${esc(title)} ${helpbtn(state.view)}</h1><div class="sub">${esc(sub)}</div></div><div class="actions">${actions}</div></div>`;
 const panel = (title, body, actions = "", flush = false) => `<section class="panel"><div class="phead"><span class="ptitle">${title}</span>${actions}</div><div class="pbody${flush ? " flush" : ""}">${body}</div></section>`;
 
 function donut(series, colorOf, label) {
@@ -215,7 +220,7 @@ async function renderOverview(opts = {}) {
   const scrollY = window.scrollY;
   const focusStage = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.stage : null;
   if (!opts.soft) $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.") + skeleton();
-  const [o, p, d, logs] = await Promise.all([api("/api/overview"), api("/api/pipeline"), api("/api/dashboard"), api("/api/logs?limit=6")]);
+  const [o, p, d, logs, inv] = await Promise.all([api("/api/overview"), api("/api/pipeline"), api("/api/dashboard"), api("/api/logs?limit=6"), api("/api/integrations")]);
   const metrics = [
     ["Total findings", o.total, ""], ["Critical", o.critical, "t-crit"], ["High", o.high, "t-high"],
     ["Medium", o.medium, "t-med"], ["Low", o.low, "t-low"], ["Confirmed", o.confirmed, "t-accent"],
@@ -243,15 +248,9 @@ async function renderOverview(opts = {}) {
     `<div class="mgrid">${metrics.map(([l, v, t]) => `<div class="metric ${t}"><div class="mlabel">${l}</div><div class="mvalue">${v}</div><div class="msub">live from storage</div></div>`).join("")}</div>` +
     `<div id="pipeline-slot">${pipelinePanel(p, stage, stageLogs, false)}</div>` +
     `<div class="grid c3 mb"><section class="panel"><div class="phead"><span class="ptitle">By severity</span></div><div class="pbody">${donut(d.severity, (l) => SEV_COLOR[l], "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">By status</span></div><div class="pbody">${donut(d.status, (l) => STATUS_COLOR[l] || "var(--accent)", "findings")}</div></section><section class="panel"><div class="phead"><span class="ptitle">Exposure trend · 14 days</span></div><div class="pbody">${area(d.timeline)}</div></section></div>` +
-    `<div class="grid c2"><section class="panel"><div class="phead"><span class="ptitle">Recent activity</span><a class="btn sm ghost" href="#/audit">View all</a></div><div class="pbody flush"><div class="feed">${logs.logs.map((l) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext">${esc(l.message)}</div><div class="fmeta"><span>${esc(l.source)}</span><span title="${utc(l.ts)}">${rel(l.ts)} ago</span></div></div></div>`).join("") || empty("No activity", "Events will appear as scans and actions run.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">Team workload</span></div><div class="pbody flush"><div class="listrows">${d.team.map((t) => `<div class="listrow"><span class="grow"><button class="linkbtn" data-userprofile="${esc(t.username)}"><strong>${esc(t.username)}</strong></button><span class="cellsub">${esc(t.title || t.role)}</span></span><span class="mono">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div></div></section></div>` +
-    `<div class="grid c2 mb"><section class="panel"><div class="phead"><span class="ptitle">Integration health</span><a class="btn sm ghost" href="#/integrations">View all</a></div><div class="pbody flush"><div class="integ-health">${(o.integrations_connected + o.integrations_demo) === 0 ? empty("No integrations", "Configure integrations to see health status.") : ""}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">7-day finding trend</span></div><div class="pbody">${area(d.timeline.slice(-7))}</div></section></div>`;
+    `<div class="grid c2 mb"><section class="panel"><div class="phead"><span class="ptitle">Recent activity</span><a class="btn sm ghost" href="#/audit">View all</a></div><div class="pbody flush"><div class="feed">${logs.logs.map((l) => `<div class="feeditem"><span class="ficon">${icon("pulse")}</span><div class="fbody"><div class="ftext">${esc(l.message)}</div><div class="fmeta"><span>${esc(l.source)}</span><span title="${utc(l.ts)}">${rel(l.ts)} ago</span></div></div></div>`).join("") || empty("No activity", "Events will appear as scans and actions run.")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">Team workload</span></div><div class="pbody flush"><div class="listrows">${d.team.map((t) => `<div class="listrow"><span class="grow listrow-person">${personAvatar(t.username)}<span class="listrow-person-text"><button class="linkbtn" data-userprofile="${esc(t.username)}"><strong>${esc(t.username)}</strong></button><span class="cellsub">${esc(t.title || t.role)}</span></span></span><span class="mono">${t.assigned} assigned · ${t.owned} owned</span></div>`).join("")}</div></div></section></div>` +
+    `<div class="grid c2 mb"><section class="panel"><div class="phead"><span class="ptitle">Integration health</span><a class="btn sm ghost" href="#/integrations">View all</a></div><div class="pbody flush"><div class="integ-health">${(inv.integrations || []).length === 0 ? empty("No integrations", "Configure integrations to see health status.") : (inv.integrations || []).slice(0, 8).map((i) => { const st = esc(i.status); const label = st === "connected" ? "Connected" : st === "disconnected" ? "Disconnected" : "Demo"; const ic = i.name === "GitHub" ? "repo" : i.name === "GitLab" ? "repo" : i.name === "Bitbucket" ? "repo" : i.name === "Jenkins" ? "clock" : i.name === "AWS" ? "cloud" : i.name === "Slack" ? "plug" : i.name === "Jira" ? "plug" : i.name === "Confluence" ? "doc" : "plug"; return `<div class="integ-row"><span class="integ-dot ${st}" aria-label="${label}"></span><span class="integ-name" style="flex:1;min-width:0">${icon(ic, 12)}${esc(i.name)}</span><span class="integ-status ${st}">${label}</span></div>`; }).join("")}</div></div></section><section class="panel"><div class="phead"><span class="ptitle">7-day finding trend</span></div><div class="pbody">${area(d.timeline.slice(-7))}</div></section></div>`;
   bindPipeline();
-  // Populate integration health panel
-  api("/api/integrations").then((inv) => {
-    const el = $(".integ-health");
-    if (!el) return;
-    el.innerHTML = (inv.integrations || []).slice(0, 8).map((i) => `<div class="integ-row"><span class="integ-dot ${esc(i.status)}"></span><span style="flex:1">${esc(i.name)}</span>${statusChip(i.status)}</div>`).join("") || '<span style="color:var(--faint);font-size:12px;padding:8px 0;display:block">No integrations configured.</span>';
-  }).catch(() => {});
   // Team member profile popovers
   $$("[data-userprofile]").forEach((btn) => {
     btn.onclick = async (e) => {
@@ -262,7 +261,7 @@ async function renderOverview(opts = {}) {
       const u = data2.user;
       const pop = document.createElement("div");
       pop.className = "popover";
-      pop.innerHTML = `<div class="pophead">${esc(u.username)}<span style="color:var(--faint);font-weight:400">${esc(u.title || u.role)}</span></div>
+      pop.innerHTML = `<div class="pophead">${personAvatar(u.username, { size: "sm", online: data2.online })}<strong>${esc(u.username)}</strong><span style="color:var(--faint);font-weight:400">${esc(u.title || u.role)}</span></div>
         <div style="padding:6px 12px 2px;color:var(--dim);font-size:12px">Role: <strong>${esc(u.role)}</strong></div>
         <div style="padding:2px 12px 8px;color:var(--dim);font-size:12px">Assigned: ${data2.stats.assigned} &middot; Owned: ${data2.stats.owned} &middot; ${data2.online ? '<span style="color:var(--ok)">Online</span>' : '<span style="color:var(--faint)">Offline</span>'}</div>
         <div class="popsep"></div>
@@ -386,13 +385,13 @@ async function renderFindings() {
     `<a class="btn sm" href="/api/export?format=csv">${icon("download")} CSV</a>`) +
     `<section class="panel"><div class="toolbar">
       <input class="input grow" id="f-q" placeholder="Search id, title, path, detector" value="${esc(f.q)}">
-      ${["severity", "surface", "status", "environment", "validation"].map((k) => `<select class="input" id="f-${k}" aria-label="${k}"><option value="">All ${k}</option>${(k === "severity" ? SEVS : k === "surface" ? SURFACES : k === "status" ? ["open", "new", "triaged", "assigned", "in_progress", "remediated", "verified", "closed", "false_positive", "accepted_risk", "suppressed", "reopened"] : k === "environment" ? ["production", "non-production", "unknown"] : ["format_validated", "pattern_match"]).map((v) => `<option value="${v}" ${f[k] === v ? "selected" : ""}>${v.replace(/_/g, " ")}</option>`).join("")}</select>`).join("")}
+      ${["severity", "surface", "status", "environment", "validation"].map((k) => `<select class="input" id="f-${k}" aria-label="${k}"><option value="">All ${k}</option>${(k === "severity" ? SEVS : k === "surface" ? SURFACES : k === "status" ? FINDING_ALL_STATES : k === "environment" ? ["production", "non-production", "unknown"] : ["format_validated", "pattern_match"]).map((v) => `<option value="${v}" ${f[k] === v ? "selected" : ""}>${v.replace(/_/g, " ")}</option>`).join("")}</select>`).join("")}
       <select class="input" id="f-sort" aria-label="Sort">${["created", "severity", "occurrences", "pinned"].map((s) => `<option ${state.sort === s ? "selected" : ""}>${s}</option>`).join("")}</select>
       <select class="input" id="f-saved" aria-label="Saved filters"><option value="">Saved views</option>${saved.filters.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</select>
       ${canWrite() ? '<button class="btn sm ghost" id="f-save">Save view</button>' : ""}
       <button class="btn sm ghost" id="f-cols">Columns</button>
     </div>
-    ${state.selection.size ? `<div class="bulkbar"><strong>${state.selection.size} selected</strong><select class="input" id="b-status"><option value="">Set status…</option>${LIFE.concat(["false_positive", "accepted_risk", "suppressed", "reopened"]).map((s) => `<option>${s}</option>`).join("")}</select><button class="btn sm" id="b-apply">Apply</button><button class="btn sm" id="b-allow">Allowlist</button><input class="input" id="b-assign" placeholder="Assignee"><button class="btn sm" id="b-assign-btn">Assign</button><input class="input" id="b-tag" placeholder="Tag"><button class="btn sm" id="b-tag-btn">Tag</button><button class="btn sm ghost" id="b-clear">Clear</button></div>` : ""}
+    ${state.selection.size ? `<div class="bulkbar"><strong>${state.selection.size} selected</strong><select class="input" id="b-status"><option value="">Set status…</option>${LIFE.concat(FINDING_EXCEPTION_STATES).map((s) => `<option>${s}</option>`).join("")}</select><button class="btn sm" id="b-apply">Apply</button><button class="btn sm" id="b-allow">Allowlist</button><input class="input" id="b-assign" placeholder="Assignee"><button class="btn sm" id="b-assign-btn">Assign</button><input class="input" id="b-tag" placeholder="Tag"><button class="btn sm" id="b-tag-btn">Tag</button><button class="btn sm ghost" id="b-clear">Clear</button></div>` : ""}
     <div class="twrap cardwrap"><table class="tbl cards"><thead><tr>${canWrite() ? '<th></th>' : ""}${cols.map((c) => `<th class="${["first", "last"].includes(c) ? "" : ""}">${c}</th>`).join("")}</tr></thead>
     <tbody>${data.findings.map((r) => `<tr class="clickable ${state.selection.has(r.id) ? "selected" : ""}" data-open="${esc(r.id)}">${canWrite() ? `<td data-th="select"><input type="checkbox" data-select="${esc(r.id)}" ${state.selection.has(r.id) ? "checked" : ""} aria-label="Select"></td>` : ""}${cols.map((c) => `<td data-th="${c}">${cell(r, c)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length + 1}">${empty("No findings match", "Adjust filters or run a scan.")}</td></tr>`}</tbody></table></div>
     <div class="pager"><button class="btn sm ghost" id="pg-prev" ${state.page <= 1 ? "disabled" : ""}>Prev</button><span class="spacer"></span><span>Page ${data.page} of ${pages} · ${data.total} findings</span><span class="spacer"></span><button class="btn sm ghost" id="pg-next" ${state.page >= pages ? "disabled" : ""}>Next</button></div></section>`;
@@ -680,7 +679,7 @@ async function renderAccess() {
   const [u, t] = await Promise.all([api("/api/users"), api("/api/tokens")]);
   const roles = ["super_admin", "security_admin", "security_analyst", "appsec_engineer", "devsecops_engineer", "developer", "auditor", "viewer"];
   $("#main").innerHTML = pagehead("Access Management", "Eight-role RBAC, accounts and API tokens.") +
-    panel("Users", `${isAdmin() ? `<div class="banner" style="margin-bottom:10px">Company roster is fixed at six people. New accounts cannot be created, and roles or titles are restored to the canonical roster on restart.</div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>User</th><th>Title</th><th>Role</th><th>Disabled</th><th></th></tr></thead><tbody>${u.users.map((x) => `<tr><td>${esc(x.username)}</td><td>${esc(x.title || "-")}</td><td>${isAdmin() ? `<select class="input" data-urole="${esc(x.username)}">${roles.map((r) => `<option ${x.role === r ? "selected" : ""}>${r}</option>`).join("")}</select>` : esc(x.role)}</td><td>${x.disabled ? "yes" : "no"}</td><td>${isAdmin() ? `<button class="btn sm ghost" data-udis="${esc(x.username)}" data-dis="${x.disabled ? 0 : 1}">${x.disabled ? "Enable" : "Disable"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`, "", true) +
+    panel("Users", `${isAdmin() ? `<div class="banner" style="margin-bottom:10px">Company roster is fixed at six people. New accounts cannot be created, and roles or titles are restored to the canonical roster on restart.</div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>User</th><th>Title</th><th>Role</th><th>Disabled</th><th></th></tr></thead><tbody>${u.users.map((x) => `<tr><td><span class="user-cell">${personAvatar(x.username, { size: "sm" })}<span>${esc(x.username)}</span></span></td><td>${esc(x.title || "-")}</td><td>${isAdmin() ? `<select class="input" data-urole="${esc(x.username)}">${roles.map((r) => `<option ${x.role === r ? "selected" : ""}>${r}</option>`).join("")}</select>` : esc(x.role)}</td><td>${x.disabled ? "yes" : "no"}</td><td>${isAdmin() ? `<button class="btn sm ghost" data-udis="${esc(x.username)}" data-dis="${x.disabled ? 0 : 1}">${x.disabled ? "Enable" : "Disable"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`, "", true) +
     panel("API tokens", `${isAdmin() ? `<div class="formrow" style="margin-bottom:10px"><div class="field"><input class="input" id="tk-name" placeholder="token name"></div><div class="field"><select class="input" id="tk-role">${roles.map((r) => `<option>${r}</option>`).join("")}</select></div><button class="btn sm primary" id="tk-create">Create token</button></div><div id="tk-reveal"></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Revoked</th><th></th></tr></thead><tbody>${t.tokens.map((x) => `<tr><td class="mono">${esc(x.id)}</td><td>${esc(x.name)}</td><td>${esc(x.role)}</td><td>${x.revoked ? "yes" : "no"}</td><td>${isAdmin() && !x.revoked ? `<button class="btn sm ghost" data-trev="${esc(x.id)}">Revoke</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">No tokens.</td></tr>'}</tbody></table></div>`, "", true);
   $$("[data-urole]").forEach((s) => (s.onchange = () => api(`/api/users/${s.dataset.urole}/role`, { method: "POST", body: { role: s.value } })));
   $$("[data-udis]").forEach((b) => (b.onclick = async () => { await api(`/api/users/${b.dataset.udis}/disable`, { method: "POST", body: { disabled: b.dataset.dis === "1" } }); renderAccess(); }));
@@ -690,12 +689,12 @@ async function renderAccess() {
 
 async function renderSettings() {
   const tabs = [["profile", "Profile"], ["rules", "Alert rules"], ["data", "Data operations"], ["about", "About"]];
-  $("#main").innerHTML = pagehead("Settings", "Profile, alerting policy and data operations.") +
+  $("#main").innerHTML = pagehead("Settings", "Profile, alerting policy and data operations.", "", icon("gear")) +
     `<div class="tabs">${tabs.map(([id, label]) => `<button class="tab ${state.settingsTab === id ? "active" : ""}" data-stab="${id}">${label}</button>`).join("")}</div><div id="st-body">${skeleton()}</div>`;
   $$("[data-stab]").forEach((b) => (b.onclick = () => { state.settingsTab = b.dataset.stab; renderSettings(); }));
   const body = $("#st-body");
   if (state.settingsTab === "profile") {
-    body.innerHTML = panel("Profile", `<dl class="kv"><dt>Username</dt><dd>${esc(state.user.username)}</dd><dt>Role</dt><dd>${esc(state.user.role)}</dd><dt>Title</dt><dd>${esc(state.user.title || "-")}</dd></dl><div class="formrow" style="margin-top:12px"><div class="field"><input class="input" id="pw-old" type="password" placeholder="Current password"></div><div class="field"><input class="input" id="pw-new" type="password" placeholder="New password (10+)"></div><button class="btn primary" id="pw-save">Change password</button></div>`);
+    body.innerHTML = panel("Profile", `<div class="profile-head">${personAvatar(state.user.username, { size: "lg" })}<div class="profile-ident"><strong>${esc(state.user.username)}</strong><span>${esc(state.user.title || state.user.role)}</span></div></div>` + `${canWrite() ? "" : `<div class="banner" style="margin-bottom:10px">This is a read-only account, so you can't send Hubs messages or pings. You can still read conversations and receive messages.</div>`}<dl class="kv"><dt>Username</dt><dd>${esc(state.user.username)}</dd><dt>Role</dt><dd>${esc(state.user.role)}</dd><dt>Title</dt><dd>${esc(state.user.title || "-")}</dd></dl><div class="formrow" style="margin-top:12px"><div class="field"><input class="input" id="pw-old" type="password" placeholder="Current password"></div><div class="field"><input class="input" id="pw-new" type="password" placeholder="New password (10+)"></div><button class="btn primary" id="pw-save">Change password</button></div>`);
     $("#pw-save").onclick = async () => { try { await api("/api/auth/password", { method: "POST", body: { old: $("#pw-old").value, new: $("#pw-new").value } }); toast("Password changed", "ok"); } catch (e) { toast(e.message, "error"); } };
   } else if (state.settingsTab === "rules") {
     const d = await api("/api/rules");
@@ -751,7 +750,7 @@ async function loadDrawer() {
   const lifeIdx = LIFE.indexOf(f.status === "open" ? "new" : f.status);
   const body = {
     overview: `<div class="dsect"><h3>Finding</h3><dl class="kv"><dt>ID</dt><dd class="mono">${esc(f.id)}</dd><dt>Detector</dt><dd class="mono">${esc(f.detector_id)}</dd><dt>Source</dt><dd>${esc(SLABEL[f.surface] || f.surface)}</dd><dt>Asset</dt><dd class="mono">${esc(f.path)}:${f.line}</dd><dt>Environment</dt><dd>${esc(f.meta.environment || "unknown")}</dd><dt>Owner</dt><dd>${esc(f.owner || "-")}</dd><dt>First detected</dt><dd>${utc(ex.first_seen || f.created_at)}</dd><dt>Last observed</dt><dd>${utc(ex.last_seen || f.updated_at)}</dd><dt>Occurrences</dt><dd>${ex.occurrences}</dd></dl></div>
-      <div class="dsect"><h3>Lifecycle</h3><div class="life">${LIFE.map((s, i) => `${i ? '<span class="larrow">→</span>' : ""}<button class="lstep ${i === lifeIdx ? "current" : i < lifeIdx ? "past" : ""}" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div><div class="liferow">${["false_positive", "accepted_risk", "suppressed", "reopened"].map((s) => `<button class="btn sm ghost" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div></div>
+      <div class="dsect"><h3>Lifecycle</h3><div class="life">${LIFE.map((s, i) => `${i ? '<span class="larrow">→</span>' : ""}<button class="lstep ${i === lifeIdx ? "current" : i < lifeIdx ? "past" : ""}" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div><div class="liferow">${FINDING_EXCEPTION_STATES.map((s) => `<button class="btn sm ghost" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div></div>
       ${canWrite() ? `<div class="dsect"><h3>Management</h3><div class="formrow"><div class="field"><input class="input" id="d-assign" value="${esc(ex.assignee)}" placeholder="Assignee"></div><button class="btn sm" id="d-assign-btn">Assign</button><div class="field"><input class="input" id="d-tags" value="${esc(ex.tags.join(", "))}" placeholder="Tags"></div><button class="btn sm" id="d-tags-btn">Tags</button></div><div class="formrow" style="margin-top:8px"><button class="btn sm" id="d-allow">Allowlist</button><button class="btn sm ghost" id="d-mute">${ex.muted ? "Unmute" : "Mute"}</button><button class="btn sm ghost" id="d-pin">${ex.pinned ? "Unpin" : "Pin"}</button></div></div>` : ""}
       <div class="dsect"><h3>Provenance · how did that get there?</h3><dl class="kv">${Object.entries(f.meta.origin || {}).map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(String(v))}</dd>`).join("") || "<dt>Origin</dt><dd>not recorded</dd>"}</dl></div>
       <div class="dsect"><h3>Related findings</h3>${(await api(`/api/findings/${id}/related`)).findings.map((r) => `<div class="listrow clickable" data-open="${esc(r.id)}"><span class="grow">${esc(r.title)}<span class="cellsub mono">${esc(r.path)}:${r.line}</span></span>${sevChip(r.severity)}</div>`).join("") || '<p style="color:var(--faint);font-size:12px">No related findings.</p>'}</div>`,
@@ -787,8 +786,12 @@ async function loadDrawer() {
 
 const HUBS_TICK_MS = 3000;
 
-function hubsAvatar(name) {
-  return `<span class="hubs-avatar">${esc((name || "?")[0].toUpperCase())}</span>`;
+function personAvatar(name, opts = {}) {
+  const username = name || "?";
+  const initial = esc(username[0].toUpperCase());
+  const src = `/static/avatars/${encodeURIComponent(username)}.jpg`;
+  const size = opts.size ? ` ${esc(opts.size)}` : "";
+  return `<span class="person-avatar${size}">${initial}<img src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()">${opts.online ? '<i class="person-avatar-dot" title="Online" aria-label="Online"></i>' : ""}</span>`;
 }
 function hubsTime(value) { return value ? utc(value) : ""; }
 function dmKey(a, b) { return [a, b].sort().join(":"); }
@@ -896,6 +899,7 @@ async function renderHubs() {
     h.id = dmKey(state.user.username, h.peer);
   }
   const isChannel = h.kind === "channel";
+  const readOnly = !canWrite();
   h.title = isChannel ? (openChat.name || "Open Chat") : h.peer;
 
   const threadUrl = isChannel
@@ -935,22 +939,22 @@ async function renderHubs() {
   const messageList = messages.map((message) => {
     const mine = message.sender === state.user.username;
     const title = hubsSenderTitle(message.sender, peopleByName);
-    return `<article class="hubs-message ${mine ? "mine" : ""}">${hubsAvatar(message.sender)}<div class="hubs-msg-body"><div class="hubs-msg-meta"><strong>${esc(message.sender)}</strong>${title ? `<span class="hubs-msg-role">${esc(title)}</span>` : ""}<time>${hubsTime(message.created_at)}${message.edited ? " · edited" : ""}</time>${mine ? `<button class="hubs-msg-delete" data-hdelete="${esc(message.id)}" title="Delete message" aria-label="Delete message">×</button>` : ""}</div><p>${esc(message.body).replace(/\n/g, "<br>")}</p></div></article>`;
+    return `<article class="hubs-message ${mine ? "mine" : ""}">${personAvatar(message.sender)}<div class="hubs-msg-body"><div class="hubs-msg-meta"><strong>${esc(message.sender)}</strong>${title ? `<span class="hubs-msg-role">${esc(title)}</span>` : ""}<time>${hubsTime(message.created_at)}${message.edited ? " · edited" : ""}</time>${mine ? `<button class="hubs-msg-delete" data-hdelete="${esc(message.id)}" title="Delete message" aria-label="Delete message">×</button>` : ""}</div><p>${esc(message.body).replace(/\n/g, "<br>")}</p></div></article>`;
   }).join("");
   const emptyState = `<div class="hubs-empty-state">${icon(isChannel ? "message" : "lock")}<strong>${isChannel ? "No messages yet" : "This conversation is private"}</strong><span>${isChannel ? "Say hello — everyone in the company can read and reply here." : `Only you and ${esc(h.peer)} can read this conversation.`}</span></div>`;
 
   const dmList = dms.map((dm) => {
     const active = !isChannel && (h.id === dm.dm_key || h.peer === dm.peer);
-    return `<button class="hubs-item hubs-dm-row ${active ? "active" : ""}" data-hdm="${esc(dm.peer)}" data-hdmkey="${esc(dm.dm_key)}" data-hsearch="${esc(`${dm.peer} ${peopleByName.get(dm.peer)?.title || ""}`.toLowerCase())}">${hubsAvatar(dm.peer)}<span>${esc(dm.peer)}<small>${esc(dm.last_message?.body || "No messages yet")}</small></span>${dm.unread ? `<b>${dm.unread}</b>` : ""}</button>`;
+    return `<button class="hubs-item hubs-dm-row ${active ? "active" : ""}" data-hdm="${esc(dm.peer)}" data-hdmkey="${esc(dm.dm_key)}" data-hsearch="${esc(`${dm.peer} ${peopleByName.get(dm.peer)?.title || ""}`.toLowerCase())}">${personAvatar(dm.peer, { online: peopleByName.get(dm.peer)?.online })}<span>${esc(dm.peer)}<small>${esc(dm.last_message?.body || "No messages yet")}</small></span>${dm.unread ? `<b>${dm.unread}</b>` : ""}</button>`;
   }).join("");
 
-  const peopleList = people.map((person) => `<div class="hubs-person" data-hsearch="${esc(`${person.username} ${person.title || ""} ${person.role || ""}`.toLowerCase())}"><button class="hubs-user" data-hdm="${esc(person.username)}" data-hdmkey="${esc(dmKey(state.user.username, person.username))}" title="Message ${esc(person.username)}">${hubsAvatar(person.username)}<span>${esc(person.username)}<small>${esc(person.title || person.role)}</small></span>${person.online ? '<i title="Online"></i>' : ""}</button><button class="hubs-mini" data-hping="${esc(person.username)}" title="Ping ${esc(person.username)}" aria-label="Ping ${esc(person.username)}">Ping</button></div>`).join("");
+  const peopleList = people.map((person) => `<div class="hubs-person" data-hsearch="${esc(`${person.username} ${person.title || ""} ${person.role || ""}`.toLowerCase())}"><button class="hubs-user" data-hdm="${esc(person.username)}" data-hdmkey="${esc(dmKey(state.user.username, person.username))}" title="Message ${esc(person.username)}">${personAvatar(person.username, { online: person.online })}<span>${esc(person.username)}<small>${esc(person.title || person.role)}</small></span></button><button class="hubs-mini" data-hping="${esc(person.username)}" title="${readOnly ? "Read-only account: pings are disabled" : `Ping ${esc(person.username)}`}" aria-label="Ping ${esc(person.username)}" ${readOnly ? "disabled" : ""}>Ping</button></div>`).join("");
 
   const context = isChannel
-    ? `<div class="hubs-section">PARTICIPANTS<span class="hubs-pill">${(thread.members || []).length}</span></div><div class="hubs-roster">${(thread.members || []).map((member) => `<div class="hubs-user hubs-static">${hubsAvatar(member.username)}<span>${esc(member.username)}<small>${esc(member.title || member.user_role || "member")}</small></span></div>`).join("")}</div>`
-    : `<div class="hubs-section">PROFILE</div><div class="hubs-profile">${hubsAvatar(h.peer)}<div><strong>${esc(h.peer)}</strong><small>${esc(thread.peer?.title || peopleByName.get(h.peer)?.title || "SENTRIX user")}</small></div></div><button class="btn sm hubs-wide" id="hubs-ping-panel" data-hping-dm="${esc(h.peer || "")}">Ping ${esc(h.peer || "user")}</button><p class="hubs-privacy">${icon("lock", 12)} Only you and ${esc(h.peer)} can read this conversation.</p>`;
+    ? `<div class="hubs-section">PARTICIPANTS<span class="hubs-pill">${(thread.members || []).length}</span></div><div class="hubs-roster">${(thread.members || []).map((member) => `<div class="hubs-user hubs-static">${personAvatar(member.username)}<span>${esc(member.username)}<small>${esc(member.title || member.user_role || "member")}</small></span></div>`).join("")}</div>`
+    : `<div class="hubs-section">PROFILE</div><div class="hubs-profile">${personAvatar(h.peer)}<div><strong>${esc(h.peer)}</strong><small>${esc(thread.peer?.title || peopleByName.get(h.peer)?.title || "SENTRIX user")}</small></div></div><button class="btn sm hubs-wide" id="hubs-ping-panel" data-hping-dm="${esc(h.peer || "")}" ${readOnly ? 'disabled title="Read-only account: pings are disabled"' : ""}>Ping ${esc(h.peer || "user")}</button><p class="hubs-privacy">${icon("lock", 12)} Only you and ${esc(h.peer)} can read this conversation.</p>`;
 
-  const notificationsHtml = notifications.slice(0, 12).map((note) => `<button class="hubs-item hubs-notif ${note.read ? "" : "unread"}" data-hnotif="${note.id}">${hubsAvatar(note.sender)}<span>${esc(note.sender)}<small>${esc(note.body || note.type.replace(/_/g, " "))}</small></span>${note.read ? "" : '<i class="hubs-dot"></i>'}</button>`).join("") || '<span class="hubs-empty">All caught up.</span>';
+  const notificationsHtml = notifications.slice(0, 12).map((note) => `<button class="hubs-item hubs-notif ${note.read ? "" : "unread"}" data-hnotif="${note.id}">${personAvatar(note.sender)}<span>${esc(note.sender)}<small>${esc(note.body || note.type.replace(/_/g, " "))}</small></span>${note.read ? "" : '<i class="hubs-dot"></i>'}</button>`).join("") || '<span class="hubs-empty">All caught up.</span>';
 
   $("#main").innerHTML = `<div class="hubs-shell" data-thread="${esc(threadKey)}">
     <aside class="hubs-left">
@@ -964,9 +968,11 @@ async function renderHubs() {
       <div class="hubs-list" id="hubs-people">${peopleList || '<span class="hubs-empty">No colleagues available.</span>'}</div>
     </aside>
     <section class="hubs-center">
-      <header class="hubs-head"><div class="hubs-head-main"><div class="hubs-head-title"><strong>${isChannel ? "# " : ""}${esc(h.title)}</strong><div class="hubs-head-tags">${isChannel ? '<span class="hubs-tag">Company-wide</span>' : '<span class="hubs-tag private">Private</span>'}</div></div><small>${isChannel ? "Everyone in the company can read and reply here." : `Private conversation between you and ${esc(h.peer)}.`}</small></div><div class="hubs-head-actions">${isChannel ? "" : `<button class="btn sm" id="hubs-ping-head" data-hping-dm="${esc(h.peer || "")}">Ping</button>`}<button class="btn sm ghost" id="hubs-right-toggle">${h.rightOpen ? "Hide context" : "Context"}</button></div></header>
+      <header class="hubs-head"><div class="hubs-head-main"><div class="hubs-head-title"><strong>${isChannel ? "# " : ""}${esc(h.title)}</strong><div class="hubs-head-tags">${isChannel ? '<span class="hubs-tag">Company-wide</span>' : '<span class="hubs-tag private">Private</span>'}${readOnly ? '<span class="hubs-tag readonly">Read-only account</span>' : ""}</div></div><small>${isChannel ? "Everyone in the company can read and reply here." : `Private conversation between you and ${esc(h.peer)}.`}</small></div><div class="hubs-head-actions">${isChannel ? "" : `<button class="btn sm" id="hubs-ping-head" data-hping-dm="${esc(h.peer || "")}" ${readOnly ? 'disabled title="Read-only account: pings are disabled"' : ""}>Ping</button>`}<button class="btn sm ghost" id="hubs-right-toggle">${h.rightOpen ? "Hide context" : "Context"}</button></div></header>
       <div class="hubs-messages" id="hubs-messages">${thread.error ? `<div class="errbox">${esc(thread.error)}</div>` : (messageList || emptyState)}</div>
-      <div class="hubs-compose-wrap"><form class="hubs-compose" id="hubs-compose"><textarea class="input" id="hubs-body" rows="2" placeholder="${isChannel ? "Message the whole company…" : `Message ${esc(h.peer)}…`}" ${canWrite() ? "" : "disabled"}></textarea><button class="btn primary" ${canWrite() ? "" : "disabled"}>Send</button></form><div class="hubs-compose-hint">Enter to send · Shift + Enter for a new line</div></div>
+      <div class="hubs-compose-wrap">${readOnly
+        ? `<div class="hubs-readonly" role="status" aria-live="polite">${icon("lock", 16)}<div><strong>Read-only account</strong><span>This is a read-only account, so you can't send messages or pings. You can still read every conversation and receive messages.</span></div></div>`
+        : `<form class="hubs-compose" id="hubs-compose"><textarea class="input" id="hubs-body" rows="2" placeholder="${isChannel ? "Message the whole company…" : `Message ${esc(h.peer)}…`}"></textarea><button class="btn primary">Send</button></form><div class="hubs-compose-hint">Enter to send · Shift + Enter for a new line</div>`}</div>
     </section>
     <aside class="hubs-right ${h.rightOpen ? "" : "collapsed"}">
       ${context}
@@ -1134,7 +1140,7 @@ function buildShell() {
     <span class="livedot" id="livedot"><span class="dot"></span><span id="livetxt">Live</span></span>
     <button class="iconbtn" id="hubs-messages-btn" aria-label="Open Hubs messages" title="Messages">${icon("message")}<b class="notif-badge" id="hubs-notif-count" hidden></b></button>
     <button class="iconbtn" id="theme-toggle" aria-label="Toggle dark / white theme" title="Toggle theme">${icon("moon")}</button>
-    <button class="userbtn" id="userbtn" aria-haspopup="menu"><span class="avatar">${esc(state.user.username[0].toUpperCase())}</span><span><span class="uname">${esc(state.user.username)}</span><span class="urole" style="display:block">${esc(state.user.role)}</span></span></button>`;
+    <button class="userbtn" id="userbtn" aria-haspopup="menu">${personAvatar(state.user.username, { size: "sm", online: true })}<span><span class="uname">${esc(state.user.username)}</span><span class="urole" style="display:block">${esc(state.user.role)}${canWrite() ? "" : " · read-only"}</span></span></button>`;
   $("#sidebar").innerHTML = NAV.map(([group, items], gi) => `<div class="navgroup" data-group="${gi}"><button class="navhead">${esc(group)} ${icon("chev", 12)}</button><div class="navitems">${items.map(([id, label]) => `<a class="navitem" href="#/${id}" data-nav="${id}">${icon(VIEW_ICON[id])} ${esc(label)}</a>`).join("")}</div></div>`).join("") + `<div class="navfoot" style="padding:10px 12px;color:var(--faint);font-size:10px">SENTRIX · One Intelligence. Every Exposure. Total Control.</div>`;
   $$(".navhead").forEach((h) => (h.onclick = () => h.parentElement.classList.toggle("closed")));
   const primary = ["overview", "findings", "intelligence", "remediation", "integrations", "logs", "reports", "settings"];
@@ -1150,7 +1156,7 @@ function buildShell() {
     closeOverlays("popover");
     const pop = document.createElement("div");
     pop.className = "popover";
-    pop.innerHTML = `<div class="pophead">${esc(state.user.username)}<span style="color:var(--faint);font-weight:400">${esc(state.user.title || state.user.role)}</span></div><button class="popitem" id="um-settings">${icon("gear")} Settings</button><button class="popitem" id="um-access">${icon("lock")} Access management</button><div class="popsep"></div><button class="popitem danger" id="um-out">${icon("x")} Sign out</button>`;
+    pop.innerHTML = `<div class="pophead">${personAvatar(state.user.username, { size: "sm", online: true })}<strong>${esc(state.user.username)}</strong><span style="color:var(--faint);font-weight:400">${esc(state.user.title || state.user.role)}</span></div><button class="popitem" id="um-settings">${icon("gear")} Settings</button><button class="popitem" id="um-access">${icon("lock")} Access management</button><div class="popsep"></div><button class="popitem danger" id="um-out">${icon("x")} Sign out</button>`;
     $("#overlays").appendChild(pop);
     const r = e.currentTarget.getBoundingClientRect();
     pop.style.top = `${r.bottom + 6}px`; pop.style.left = `${Math.max(8, r.right - 240)}px`;

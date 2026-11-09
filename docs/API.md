@@ -32,7 +32,7 @@ Eight roles are defined in `sentrix/auth.py`:
 | `auditor` | yes | no (except logout / own password) | no |
 | `viewer` | yes | no (except logout / own password) | no |
 
-- **Write roles** = the first five. Any other role receives `403 {"error": "role is read-only"}` on POST, except `POST /api/auth/logout` and `POST /api/auth/password`, which every authenticated role may call.
+- **Write roles** = the first five. Any other role receives `403 {"error": "role is read-only"}` on POST, except `POST /api/auth/logout`, `POST /api/auth/password`, and the personal Hubs routes `POST /api/hubs/mark-read`, `POST /api/hubs/notifications/read`, `POST /api/hubs/prefs` and `POST /api/hubs/heartbeat`, which every authenticated role may call. Hubs content writes by read-only roles return `403 {"error": "this is a read-only account, so you can't send messages or pings"}`.
 - **Admin routes** = any path starting with `/api/users`, `/api/tokens`, `/api/ops/restore`, `/api/ops/import`, `/api/ops/purge` (GET included). Non-admin roles receive `403 {"error": "security administrator role required"}`.
 - Legacy roles are migrated on database open: `admin` -> `super_admin`, `analyst` -> `security_analyst`.
 

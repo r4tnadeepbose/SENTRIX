@@ -19,6 +19,7 @@ from sentrix.config import ROOT, cfg_get, resolve_path
 from sentrix.core import engine
 from sentrix.core.extensions import ExtStorage
 from sentrix.core.jobs import JobRunner, start_scheduler
+from sentrix.core.lifecycle import describe as describe_lifecycle
 from sentrix.core.models import STATUSES, SEVERITIES
 from sentrix.core.pipeline import Pipeline
 from sentrix.core.util import at_least
@@ -33,8 +34,13 @@ CONTENT_TYPES = {
     ".js": "application/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
     ".json": "application/json",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
 }
 STATIC_FILES = {"index.html", "app.js", "styles.css", "login.html"}
+AVATAR_FILE = re.compile(r"^[A-Za-z0-9._-]+\.(?:jpg|jpeg|png|webp)$")
 FINDING_ID = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)$")
 FINDING_SUB = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)/(status|notes|tags|assign|severity|pin|mute|related|checklist|history)$")
 ID_SUB = re.compile(r"^/api/(jobs|schedules|rules|tokens|users|filters)/([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)$")
@@ -122,9 +128,21 @@ class Handler(BaseHTTPRequestHandler):
         if not user:
             self._json({"error": "authentication required"}, 401)
             return False
+        # Read-only roles may still manage their own reading state (read markers,
+        # notifications and preferences) inside Hubs. Sending messages, pings
+        # and deleting content remain blocked.
+        hubs_personal = (
+            "/api/hubs/mark-read", "/api/hubs/notifications/read",
+            "/api/hubs/prefs", "/api/hubs/heartbeat",
+        )
         if method in ("POST", "DELETE") and user["role"] not in WRITE_ROLES \
-                and path not in ("/api/auth/logout", "/api/auth/password"):
-            self._json({"error": "role is read-only"}, 403)
+                and path not in ("/api/auth/logout", "/api/auth/password") \
+                and path not in hubs_personal:
+            if path.startswith("/api/hubs/"):
+                self._json({"error": "this is a read-only account, so you can't "
+                                     "send messages or pings"}, 403)
+            else:
+                self._json({"error": "role is read-only"}, 403)
             return False
         if any(path.startswith(p) for p in ADMIN_PREFIXES) and user["role"] not in ADMIN_ROLES:
             self._json({"error": "security administrator role required"}, 403)
@@ -151,6 +169,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(ROOT / "sentrix" / "dashboard" / "index.html")
         if path == "/login":
             return self._file(ROOT / "sentrix" / "dashboard" / "login.html")
+        if path.startswith("/static/avatars/"):
+            name = path[len("/static/avatars/"):]
+            if not AVATAR_FILE.match(name):
+                return self._json({"error": "not found"}, 404)
+            return self._file(ROOT / "sentrix" / "dashboard" / "avatars" / name)
         if path.startswith("/static/"):
             name = path[len("/static/"):]
             if name not in STATIC_FILES:
@@ -169,6 +192,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/me":
             user = self._user()
             return self._json({"user": user}) if user else self._json({"error": "unauthenticated"}, 401)
+        if path == "/api/lifecycle":
+            return self._json(describe_lifecycle())
         if path == "/api/coordination":
             since = int(query.get("since", 0))
             return self._json({

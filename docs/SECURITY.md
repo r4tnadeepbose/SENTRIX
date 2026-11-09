@@ -51,7 +51,7 @@ Eight roles; enforcement happens server-side on every request (`Handler._authori
 | Token management (`/api/tokens*`) | yes | yes | no | no | no | no | no | no |
 | Restore / import / retention purge | yes | yes | no | no | no | no | no | no |
 
-- Write attempts by read-only roles return `403 {"error": "role is read-only"}`; admin-prefix access by non-admins returns `403 {"error": "security administrator role required"}`.
+- Write attempts by read-only roles return `403 {"error": "role is read-only"}`; Hubs content writes (messages, pings, deletes) return `403 {"error": "this is a read-only account, so you can't send messages or pings"}`. Read markers, notification acknowledgements and personal Hubs preferences remain available to every role. Admin-prefix access by non-admins returns `403 {"error": "security administrator role required"}`.
 - Accounts can be disabled (not by yourself); disabled users are rejected on every request including existing sessions.
 - Legacy roles migrate automatically: `admin` -> `super_admin`, `analyst` -> `security_analyst`.
 

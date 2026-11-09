@@ -1,7 +1,6 @@
-# ! ALERT !
-## Under Construction
+<div align="center">
 
-
+<img src="assets/logo.svg" alt="SENTRIX logo" width="96">
 
 # SENTRIX
 
@@ -9,41 +8,328 @@
 
 > One Intelligence. Every Exposure. Total Control.
 
-![SENTRIX logo](assets/logo.svg)
-
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Stdlib only](https://img.shields.io/badge/dependencies-stdlib--only-brightgreen.svg)](docs/DEPLOYMENT.md)
+[![Dependencies: stdlib only](https://img.shields.io/badge/dependencies-stdlib--only-brightgreen.svg)](docs/DEPLOYMENT.md)
+[![Tests: 54 passing](https://img.shields.io/badge/tests-54%20passing-brightgreen.svg)](tests/)
+[![Platforms: Windows · Linux · macOS](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-lightgrey.svg)](#installation)
 
-SENTRIX is an enterprise security intelligence platform for secret security: it detects credential exposure across every surface a modern engineering organization uses, scores and prioritizes the risk, routes alerts to the right people, and drives remediation to verified closure. One shared intelligence core — a registry of 26 detectors plus entropy scoring, validation heuristics, allowlisting and explainable risk scoring — powers the editor, git hooks, CI gates, cloud functions, collaboration tools and the filesystem alike. Findings are masked, fingerprinted and deduplicated; raw secrets are never stored. The entire platform runs on the Python 3.11+ standard library with zero required dependencies and works fully offline.
+</div>
 
-SENTRIX is built for DevSecOps teams that need exposure detection, investigation workflow, automated response and audit-ready evidence in one console rather than five disconnected tools.
+---
 
-## Quickstart
+## Table of contents
 
-### Windows
+- [What it is](#what-it-is)
+- [What SENTRIX is](#what-sentrix-is)
+- [The problem it solves](#the-problem-it-solves)
+- [The full-screen Command Center](#the-full-screen-command-center)
+- [Features](#features)
+- [Screenshots — every page](#screenshots--every-page)
+- [Installation](#installation)
+- [First run and the demo roster](#first-run-and-the-demo-roster)
+- [Production mode](#production-mode)
+- [Configuration](#configuration)
+- [Security guidelines](#security-guidelines)
+- [Privacy and secret handling](#privacy-and-secret-handling)
+- [Architecture and repository layout](#architecture-and-repository-layout)
+- [CLI](#cli)
+- [Tests](#tests)
+- [Documentation](#documentation)
+- [Licenses and attribution](#licenses-and-attribution)
 
-```bat
-run.bat
-```
+---
 
-### Kali / Linux / macOS
+## What it is
+
+**SENTRIX is a self-hosted security intelligence platform for secret exposure.** It finds credentials, API keys, tokens and other sensitive values wherever a modern engineering organization leaks them — source code, git history, the developer's editor, CI pipelines, cloud functions, chat and ticketing exports, and the filesystem — then scores the risk, routes the alert to the right person, and follows the finding through remediation until a rescan verifies it is gone.
+
+It is a **single Python application with zero required dependencies**. One process serves a JSON API and a complete dark/light, desktop-and-mobile web console. It runs fully offline on `127.0.0.1`, stores everything in one SQLite database, and never stores a raw secret.
+
+> **A note on the name:** if you arrived looking for **“Centrix”**, this is the same product — **SENTRIX** is the name used throughout this repository. Both refer to the Secret Exposure & Network Threat Response Intelligence eXchange described here.
+
+---
+
+## What SENTRIX is
+
+SENTRIX is five capabilities fused into one console instead of five disconnected tools:
+
+| Layer | What it does |
+| --- | --- |
+| **SENTRIX Command Center** | The enterprise console: unified overview, posture analytics, intelligence prioritisation, live detection pipeline, findings workflow, alerts, reports, compliance, access management and settings. |
+| **SENTRIX Intelligence Core** | A registry of **26 detectors**, Shannon-entropy scoring, format validation, environment classification, SHA-256 fingerprinting, cross-surface dedupe, allowlisting, custom rules and an explainable 0–100 risk engine. |
+| **SENTRIX Connect** | Nine integrations (GitHub, GitLab, Bitbucket, Jenkins, AWS, Slack, Jira, Confluence, Postman) with honest connection states, declared permissions, sync records and per-provider finding counts. |
+| **SENTRIX Exposure Center** | Attack-surface inventory, source coverage and gap analysis, investigate/remediate workflow with a full finding drawer, notes, history and checklists, plus an exception registry. |
+| **SENTRIX Response** | Alert routing with quiet hours and dedupe, eleven rotation playbooks, redact/quarantine/restore, ticketing, verification rescans, a remediation board with SLAs, background jobs, schedules and reports. |
+
+---
+
+## The problem it solves
+
+Secrets leak constantly — a key committed “just for a minute”, a token pasted into a ticket, an `.env` baked into a Lambda, a credential in a pre-push branch that never reaches `main`. Most teams respond with a patchwork of scanners that each see one surface, produce noisy unranked output, store the very secret they are warning about, and stop at “found it”. Nobody knows what is critical, who owns it, whether it was fixed, or whether the fix was verified.
+
+SENTRIX addresses that whole chain:
+
+1. **One detection core, every surface.** The same detectors and scoring run in the editor, git hooks, CI gates, cloud scans, SaaS exports and the filesystem, so a finding means the same thing everywhere.
+2. **Signal instead of noise.** Entropy, format validation, environment context, dedupe and an explainable risk score turn thousands of matches into a ranked queue with reasons.
+3. **No secret sprawl.** Only masked previews and SHA-256 fingerprints are persisted — never the raw value, in the database, logs, alerts or AI prompts.
+4. **Ownership and accountability.** Findings are assigned, investigated with notes and history, and every state transition is audited with actor and timestamp.
+5. **Closure you can prove.** Remediation actions lead to a verification rescan; compliance evidence maps controls to recorded findings and actions.
+
+The result: a small team gets enterprise-grade exposure detection, response and audit evidence from one offline binary-free install.
+
+---
+
+## The full-screen Command Center
+
+The console is designed to use the whole screen with no dead chrome: a compact top bar, a grouped sidebar, and a dense content area that scales from a 1600 px desktop down to a 390 px phone. Everything below is a real screenshot of the shipped UI — no mockups.
+
+**Dark theme (default)**
+
+![SENTRIX Command Center — dark theme](docs/screenshots/dashboard-dark.png)
+
+**Light theme**
+
+![SENTRIX Command Center — light theme](docs/screenshots/dashboard-light.png)
+
+**Sign-in**
+
+![SENTRIX sign-in with the local demo roster](docs/screenshots/login.png)
+
+The top bar carries the live status indicator, Hubs messages, theme switch and the signed-in user's face avatar. The sidebar groups all 28 views into Command Center, Detection, Attack Surface, Response, and Governance. The overview shows KPI cards, the **eleven-stage detection pipeline in a single row**, recent activity and the team workload with face avatars.
+
+**Mobile**
+
+| Overview | Findings |
+| --- | --- |
+| ![Mobile overview](docs/screenshots/mobile-overview.png) | ![Mobile findings](docs/screenshots/mobile-findings.png) |
+
+On phones the sidebar becomes a bottom tab bar, tables become cards, and all views remain usable.
+
+---
+
+## Features
+
+### Detection
+
+- **26 detectors** across cloud, crypto, SaaS, AI and generic families, plus custom detection rules.
+- **Ten surfaces:** IDE on-save, pre-commit/pre-push hooks, CI diff gates, git history, cloud Lambda code and environment, Slack, Confluence, Jira, Postman and the filesystem.
+- **Explainable risk:** entropy, format validation, environment classification and context combine into a 0–100 score with per-factor justification.
+- **Dedupe and allowlisting** keyed by SHA-256 fingerprint, with a reason recorded for every exception.
+- **Detection Playground** to test a value or rule against the engine before shipping it.
+- **Scan management** with incremental scan cache, scheduling, cancellation and two-slot job concurrency.
+
+### Investigation and response
+
+- **Full finding lifecycle:** `new`/`open` → `triaged` → `assigned` → `in_progress` → `remediated` → `verified` → `closed`, plus `false_positive`, `accepted_risk`, `suppressed` and `reopened`. Every transition records actor and timestamp.
+- **Finding detail drawer** with provenance, masked value, risk factors, notes, history, checklist, triage and remediation actions.
+- **Redact, quarantine and restore**, ticketing (live Jira or outbox draft), and **verification rescans** — closure is proven, never assumed.
+- **Eleven rotation playbooks** with step-by-step guidance per secret type.
+- **Remediation task board** with per-severity SLAs and escalation.
+- **Alert routing** to console, outbox, Slack webhook and generic webhook, with rules, quiet hours, dedupe windows, retries and acknowledgement.
+
+### Visibility and governance
+
+- **Security posture** trends, severity mix, MTTR and age buckets.
+- **Intelligence dashboard** for prioritisation across surfaces and owners.
+- **Asset inventory**, source coverage and **coverage-gap analysis**.
+- **Eleven report types** with download history.
+- **Compliance evidence mapping** for SOC 2, ISO 27001, PCI DSS and NIST CSF (mapping, not certification).
+- **Audit trail** and structured system logs with correlation fields.
+- **Access management:** users, eight roles, disable, API tokens and revocations.
+- **Health, metrics, backup, restore, retention purge and vacuum.**
+
+### Collaboration
+
+- **SENTRIX Hubs:** one company **Open Chat** channel plus private one-to-one DMs, pings with sound, notifications and presence.
+- **Per-tab sessions:** each browser tab keeps its own signed-in account, so signing out in one tab does not affect another.
+- **Private DMs only:** there is no administrator oversight of direct messages; they are visible to their two participants.
+- **Read-only roles** are clearly told in the account and chat UI: *“This is a read-only account, so you can't send messages or pings.”*
+
+### Platform
+
+- **Dark and light themes**, command palette, help popovers and keyboard navigation.
+- **Zero required dependencies** — Python 3.11+ standard library only. `boto3` is the single optional extra for live AWS scanning.
+- **Offline by default.** No telemetry, no phone-home, no cloud account required.
+- **One SQLite database** with migrations, online backup and retention controls.
+
+---
+
+## Screenshots — every page
+
+All images are captured from the running application at 1600 × 1000 (full page) and live in [`docs/screenshots/`](docs/screenshots/).
+
+### Command Center
+
+| Overview | Security Posture |
+| --- | --- |
+| ![Overview](docs/screenshots/dashboard-dark.png) | ![Security Posture](docs/screenshots/posture.png) |
+
+| Intelligence Dashboard | Detection Pipeline (overview, light theme) |
+| --- | --- |
+| ![Intelligence Dashboard](docs/screenshots/intelligence.png) | ![Light theme overview](docs/screenshots/dashboard-light.png) |
+
+### Detection
+
+| Findings | Detection Sources |
+| --- | --- |
+| ![Findings](docs/screenshots/findings.png) | ![Detection Sources](docs/screenshots/sources.png) |
+
+| Detection Rules | Detection Playground |
+| --- | --- |
+| ![Detection Rules](docs/screenshots/rules.png) | ![Detection Playground](docs/screenshots/playground.png) |
+
+| Scan Management | Finding detail drawer |
+| --- | --- |
+| ![Scan Management](docs/screenshots/scans.png) | ![Finding detail drawer](docs/screenshots/findings-drawer.png) |
+
+### Attack Surface
+
+| Repository Security | Developer Security |
+| --- | --- |
+| ![Repository Security](docs/screenshots/repositories.png) | ![Developer Security](docs/screenshots/developer.png) |
+
+| Cloud Security | CI/CD Security |
+| --- | --- |
+| ![Cloud Security](docs/screenshots/cloud.png) | ![CI/CD Security](docs/screenshots/cicd.png) |
+
+| SaaS Security | Asset Inventory |
+| --- | --- |
+| ![SaaS Security](docs/screenshots/saas.png) | ![Asset Inventory](docs/screenshots/assets.png) |
+
+### Response
+
+| Remediation | Alerts |
+| --- | --- |
+| ![Remediation](docs/screenshots/remediation.png) | ![Alerts](docs/screenshots/alerts.png) |
+
+| Investigations | Exceptions |
+| --- | --- |
+| ![Investigations](docs/screenshots/investigations.png) | ![Exceptions](docs/screenshots/exceptions.png) |
+
+| SENTRIX Hubs | Integrations |
+| --- | --- |
+| ![SENTRIX Hubs](docs/screenshots/hubs.png) | ![Integrations](docs/screenshots/integrations.png) |
+
+### Operations and governance
+
+| Scan Jobs | System Logs |
+| --- | --- |
+| ![Scan Jobs](docs/screenshots/jobs.png) | ![System Logs](docs/screenshots/logs.png) |
+
+| Audit Trail | System Health |
+| --- | --- |
+| ![Audit Trail](docs/screenshots/audit.png) | ![System Health](docs/screenshots/health.png) |
+
+| Reports | Compliance |
+| --- | --- |
+| ![Reports](docs/screenshots/reports.png) | ![Compliance](docs/screenshots/compliance.png) |
+
+| Access Management | Settings |
+| --- | --- |
+| ![Access Management](docs/screenshots/access.png) | ![Settings](docs/screenshots/settings.png) |
+
+---
+
+## Installation
+
+### Requirements
+
+| Requirement | Details |
+| --- | --- |
+| Python | **3.11 or newer** (SENTRIX uses `tomllib`) |
+| Dependencies | **None required.** `boto3` is optional, only for live AWS scanning |
+| Disk | ~50 MB for the application; the SQLite database grows with findings and logs |
+| OS | Windows 10/11, Kali/Debian/Ubuntu, macOS, or any Python 3.11+ platform |
+
+Verify Python:
 
 ```sh
+python --version      # Windows
+python3 --version     # Linux / macOS
+```
+
+### Windows 10 / 11
+
+1. Install Python 3.11+ from [python.org](https://www.python.org/downloads/) with **“Add python.exe to PATH”** enabled.
+2. From the SENTRIX folder, double-click `run.bat`, or run:
+
+   ```bat
+   run.bat
+   ```
+
+   Arguments are forwarded, e.g. `run.bat scan .` or `run.bat serve --port 8720`.
+
+3. Optional git hooks for a repository (requires Git for Windows):
+
+   ```bat
+   cd C:\path\to\your\repo
+   python C:\path\to\SENTRIX\run.py hooks install
+   ```
+
+   Or use `scripts\install-hooks.ps1 -Repo C:\path\to\your\repo`.
+
+### Kali / Debian / Ubuntu
+
+```sh
+sudo apt update && sudo apt install -y python3 git
+python3 --version       # must be 3.11+
+chmod +x run.sh         # once, if needed
+./run.sh
+```
+
+`scripts/setup-kali.sh` performs the same setup non-interactively.
+
+### macOS
+
+```sh
+brew install python@3.12 git     # or use the python.org installer
+python3 --version
 ./run.sh
 ```
 
 ### Any platform, explicitly
 
 ```sh
-python run.py          # Python 3.11+; starts the Command Center
+python run.py                    # Windows
+python3 run.py                   # Linux / macOS
 ```
 
-With no arguments SENTRIX serves the console at **http://127.0.0.1:8710**. On first run it creates the `admin` account (role `super_admin`) and, unless `SENTRIX_ADMIN_PASSWORD` is set, writes the initial password to `data/INITIAL_ADMIN_PASSWORD.txt`. If the findings store is empty, synthetic demo findings are seeded automatically so every view is explorable immediately.
+With no arguments SENTRIX starts the Command Center at **http://127.0.0.1:8710**. Choose another port with `--port`:
 
-### Login and the demo roster
+```sh
+python run.py serve --port 8720
+```
 
-The shipped `config.toml` enables `auth.demo_mode`. While demo mode is on **and** the server listens on loopback, the login page shows a demo company roster with one-click sign-in:
+### Optional: editable install
+
+Adds the `sentrix` console command (still no third-party dependencies):
+
+```sh
+python -m pip install -e .
+sentrix serve
+```
+
+### Optional: live AWS scanning
+
+```sh
+python -m pip install boto3
+```
+
+Everything else works with the standard library alone.
+
+---
+
+## First run and the demo roster
+
+On the very first start:
+
+1. **Admin account.** If no users exist, `admin` (role `super_admin`) is created. The password comes from `SENTRIX_ADMIN_PASSWORD` when set; otherwise from the demo password in demo mode, or a random value written to `data/INITIAL_ADMIN_PASSWORD.txt`.
+2. **Demo roster.** With `auth.demo_mode = true` and the server on loopback, five team accounts are seeded and listed on the sign-in page with one-click sign-in.
+3. **Demo findings.** If the findings store is empty, synthetic findings are seeded across all ten surfaces so every view is explorable immediately.
+4. **Sign in** at `http://127.0.0.1:8710`, then change the admin password.
+
+### Demo accounts (local only)
 
 | Account | Role | Title | Demo password |
 | --- | --- | --- | --- |
@@ -54,36 +340,232 @@ The shipped `config.toml` enables `auth.demo_mode`. While demo mode is on **and*
 | `n.singh` | `auditor` | Compliance Officer | `n.singh-demo` |
 | `v.iyer` | `developer` | Software Developer | `v.iyer-demo` |
 
-These credentials are **local-only**: the roster card disappears as soon as an account's password is changed, when the server binds to a non-loopback host, or when `auth.demo_mode = false` (production mode). In production mode no demo accounts are seeded and no credentials are ever displayed. Change the admin password after first login and delete the plaintext password file. See [docs/SECURITY.md](docs/SECURITY.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+`n.singh` (auditor), `v.iyer` and `a.kumar` are **read-only** accounts: they can read every non-admin view and use Hubs, but cannot send messages or pings or perform mutations.
 
-## The platform at a glance
+These credentials are **local-only**. The roster card disappears as soon as an account's password is changed, when the server binds to a non-loopback host, or when `auth.demo_mode = false`. In production mode no demo accounts are seeded and no credentials are ever displayed.
 
-SENTRIX is organized into five module sub-brands, all served by one modular monolith:
+### Scripted installs
 
-### SENTRIX Command Center
-The enterprise console: unified Overview with live pipeline counters and KPIs, security Posture analytics (trend, severity, MTTR, age buckets), Intelligence prioritization, and a Pipeline stage monitor. Dark and light themes, command palette, help popovers, keyboard navigation, mobile layouts.
+```sh
+export SENTRIX_ADMIN_PASSWORD="a-strong-passphrase"    # Linux / macOS
+python3 run.py serve
+```
 
-### SENTRIX Intelligence Core
-One detector registry (26 detectors across cloud, crypto, SaaS, AI and generic families), Shannon entropy scoring, format validation heuristics, environment classification, SHA-256 fingerprinting, cross-surface dedupe, allowlisting, custom detection rules, and an explainable 0-100 risk engine with per-factor justification. Optional assisted triage (deterministic heuristic by default; any GPT-compatible endpoint when configured, masked values only).
+```bat
+set SENTRIX_ADMIN_PASSWORD=a-strong-passphrase
+run.bat
+```
 
-### SENTRIX Connect
-The integrations hub: nine providers (GitHub, GitLab, Bitbucket, Jenkins, AWS, Slack, Jira, Confluence, Postman) with honest connection states (`connected` / `demo` / `disconnected`), declared permissions and rate limits, sync records, and per-provider finding counts. Slack, Jira and Confluence support live REST polling with tokens; AWS supports live Lambda scanning with optional `boto3`; Postman is export-based; code hosts and Jenkins integrate through CI gates, hooks and exports. See [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+Delete or protect `data/INITIAL_ADMIN_PASSWORD.txt` — it is plaintext.
 
-### SENTRIX Exposure Center
-Attack-surface management: asset inventory derived from finding locations, source coverage across ten surfaces, coverage-gap analysis, findings investigation with a full detail drawer (provenance, notes, history, checklist, triage, remediation), bulk actions, saved filters, and exception management (accepted risk / suppressed / false positive).
+---
 
-### SENTRIX Response
-Alert routing (console, outbox, Slack webhook, generic webhook) with channel rules, quiet hours, dedupe windows, retries, acknowledgement and SLA escalation; eleven rotation playbooks; redact with preview, quarantine and restore, ticketing (live Jira or outbox draft), verification rescans; remediation task board with per-severity SLAs; background scan jobs, schedules and reports.
+## Production mode
 
-## Feature summary
+Put overrides in `config.local.toml` (gitignored):
 
-- **Unified pipeline.** Event -> scan -> alert -> remediation, identical on every surface: IDE on-save, pre-commit/pre-push hooks, CI diff gates, git history diffs, cloud Lambda code and environment, Slack/Confluence/Jira/Postman exports or live polls, filesystem watch and scheduled jobs.
-- **Privacy by default.** Only masked previews (`AKIA********3456` style) and SHA-256 fingerprints are persisted. Raw secrets never touch the database, logs, alerts or AI prompts.
-- **Enterprise auth.** Eight roles, PBKDF2-SHA256 (200,000 iterations), HttpOnly SameSite=Strict sessions, remember-me (30-day server-side session), per-IP failure rate limiting, origin-checked CSRF protection, revocable `sxt_` Bearer tokens stored as hashes.
-- **Full finding lifecycle.** Twelve statuses from `new`/`open` through `assigned`, `in_progress`, `remediated`, `verified`, `closed`, plus `false_positive`, `accepted_risk`, `suppressed`, `reopened`; every transition recorded with actor and timestamp.
-- **Operations.** Incremental scan cache, two-slot job concurrency, cancellation, 10-second scheduler loop, structured system logs with correlation fields, audit trail, online backup/restore, retention purge, vacuum, CSV/JSON export, Prometheus metrics, health endpoints.
-- **Governance.** Eleven report types with download history, compliance evidence mapping (SOC 2, ISO 27001, PCI DSS, NIST CSF), exception registry with reasons, allowlist keyed by fingerprint.
-- **Zero required dependencies.** Python 3.11+ standard library only; `boto3` is the single optional extra (live AWS).
+```toml
+[auth]
+demo_mode = false
+fixed_roster = false      # optional: allow your own account list
+
+[server]
+host = "127.0.0.1"        # keep loopback unless behind a TLS reverse proxy
+```
+
+Effects of `demo_mode = false`:
+
+- No demo team accounts are seeded; the login-page roster and `GET /api/auth/demo-info` credential listing disappear.
+- Integrations without configured credentials report `disconnected` instead of `demo`.
+- The first-run admin password is random unless `SENTRIX_ADMIN_PASSWORD` is set.
+
+Existing demo accounts created earlier remain in the database — disable or re-password them when converting an existing installation.
+
+### Running as a service
+
+Use the OS supervisor of your choice (systemd, NSSM, launchd) to run `python run.py serve` with the working directory set to the SENTRIX folder, a dedicated low-privilege user, and `data/` writable only by that user. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+### Backup and restore
+
+```sh
+python run.py backup --dest backups/
+```
+
+Backups are online SQLite copies. Restore by stopping the server and replacing `data/sentrix.db`. Back up `config.local.toml` and environment secrets separately — they are not in the database.
+
+### Upgrading
+
+Stop the server, replace the application files (keep `data/` and `config.local.toml`), start it again. Schema migrations apply automatically and are recorded in the `migrations` table. Then run:
+
+```sh
+python run.py selftest
+python -m unittest discover -s tests -v
+```
+
+---
+
+## Configuration
+
+Configuration layers as **built-in defaults < `config.toml` < `config.local.toml`**. Secrets and the initial admin password come from environment variables, never from committed config. `--config ROOT` points the CLI at another project root containing `config.toml`.
+
+| Section / key | Default | Meaning |
+| --- | --- | --- |
+| `server.host` | `"127.0.0.1"` | Bind address |
+| `server.port` | `8710` | HTTP port (`serve --port` overrides) |
+| `auth.session_hours` | `12` | Session lifetime; remember-me uses 30 days |
+| `auth.login_rate_limit` | `5` | Failed logins per IP before throttling |
+| `auth.fixed_roster` | `true` | Lock the workspace to the six-person demo roster |
+| `auth.demo_mode` | `true` | Show demo credentials on the login page (loopback only) |
+| `scan.max_file_bytes` | `1_000_000` | Largest file scanned |
+| `scan.entropy_threshold` | `4.5` | Shannon entropy floor |
+| `scan.fail_on` | `"high"` | Severity at which `--strict` / gates fail |
+| `storage.path` | `"data/sentrix.db"` | SQLite database location |
+| `alerting.channels` | `["console", "outbox"]` | Default alert fan-out |
+
+Common environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `SENTRIX_ADMIN_PASSWORD` | Initial admin password for scripted installs |
+| `SENTRIX_HOME` | Location used by hooks to find SENTRIX |
+| `SLACK_WEBHOOK_URL` | Slack alert channel / polling token |
+| `JIRA_URL`, `JIRA_EMAIL`, `JIRA_TOKEN` | Live Jira integration and ticketing |
+| `GITHUB_TOKEN`, `GITLAB_TOKEN` | Code-host API access |
+| `AWS_*` | Optional live AWS scanning via `boto3` |
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full reference and [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) for provider setup.
+
+---
+
+## Security guidelines
+
+SENTRIX is built to be operated self-hosted and conservatively. The essentials:
+
+### Authentication
+
+- **Passwords:** PBKDF2-HMAC-SHA256, **200,000 iterations**, random 16-byte hex salt per user; constant-time verification; minimum 10 characters; changing a password requires the current one. Hashes and salts are never returned by any API.
+- **Sessions:** server-side, `HttpOnly`, `SameSite=Strict`; 12 hours by default, 30 days with remember-me; per-tab tokens keep separate accounts in separate browser tabs.
+- **Rate limiting:** per-IP failed-login throttling (default 5). It is in-process memory, so put a rate-limiting proxy in front of internet-facing deployments.
+- **CSRF:** origin-checked on state-changing requests.
+- **API tokens:** `sxt_` bearer tokens stored only as hashes; plaintext is shown **once** at creation; revocable; named per pipeline.
+
+### Role-based access control (RBAC)
+
+Eight roles: `super_admin`, `security_admin`, `security_analyst`, `appsec_engineer`, `devsecops_engineer`, `developer`, `auditor`, `viewer`.
+
+| Capability | super_admin | security_admin | security_analyst | appsec_engineer | devsecops_engineer | developer | auditor | viewer |
+| --- | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| Read all non-admin API routes | yes | yes | yes | yes | yes | yes | yes | yes |
+| Mutations (findings, scans, jobs, rules, remediation, reports, tuning, backup, vacuum) | yes | yes | yes | yes | yes | no | no | no |
+| Logout / own password change | yes | yes | yes | yes | yes | yes | yes | yes |
+| User management (`/api/users*`) | yes | yes | no | no | no | no | no | no |
+| Token management (`/api/tokens*`) | yes | yes | no | no | no | no | no | no |
+| Restore / import / retention purge | yes | yes | no | no | no | no | no | no |
+
+Read-only roles see an explicit notice in Settings, Hubs, the top bar and the user menu, and content writes return `403`.
+
+### Transport and response headers
+
+- Default bind is `127.0.0.1:8710` over plain HTTP for loopback use. **Do not expose SENTRIX directly to the internet.** Terminate TLS at an authenticating reverse proxy, keep `SameSite=Strict` in mind, and disable demo mode first.
+- Every response carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`.
+- Static serving is whitelisted (`index.html`, `app.js`, `styles.css`, `login.html`, favicon, logo, avatar images); no directory traversal or arbitrary file reads.
+- **SSRF protection:** outbound requests (webhooks, integrations) are constrained; treat webhook URLs as secrets because they grant posting access to your channels.
+- **Egress:** telemetry is off by default; no outbound traffic occurs unless you configure a connector.
+
+### Audit and logging
+
+- Append-only `audit` table: login success/failure, logout, password changes, user creation, role changes, disable/enable, token creation/revocation, backup/restore/purge, and other sensitive operations.
+- Structured `system_log` with severity and correlation fields.
+- Alert delivery results are persisted per alert: `sent`, `http-<code>`, `failed: <reason>`, `deferred-quiet-hours`, `dry-run`.
+- Review `audit` and `system_log` (`warn`/`error`) regularly and wire `/api/system/health` and `/api/metrics` into monitoring.
+
+### Hardening checklist
+
+1. Set `auth.demo_mode = false` before any non-loopback exposure; verify the login roster is gone.
+2. Set `SENTRIX_ADMIN_PASSWORD` for scripted installs; otherwise change the generated admin password immediately and delete `data/INITIAL_ADMIN_PASSWORD.txt`.
+3. Change all demo team passwords or remove the accounts; disable unused accounts.
+4. Keep the bind address on loopback or behind an authenticating TLS reverse proxy.
+5. Issue least-privilege, named API tokens per pipeline; revoke retired ones; never commit tokens.
+6. Store connector tokens only in environment variables; grant read-only scopes (Jira write only if ticketing is used).
+7. Protect `data/` like a credential store: it holds password hashes, sessions, token hashes and quarantined originals. Restrict filesystem permissions and backup access.
+8. Configure retention purge + vacuum on a schedule; export audit/log evidence before purging if required.
+9. Review `audit` and `system_log` regularly; monitor health and metrics.
+10. Run `python run.py selftest` and the unit suite after upgrades; verify migrations applied.
+
+### Responsible disclosure
+
+**Report privately.** Do not open public issues, pull requests or discussions for suspected vulnerabilities.
+
+1. Use the repository's private vulnerability reporting channel (Security → Report a vulnerability).
+2. Include affected version, component, reproduction steps using **synthetic values only**, impact assessment and any suggested fix.
+3. Allow maintainers reasonable time to remediate before public disclosure. Never test with live credentials, and never paste real secrets into reports — use masked or synthetic values.
+
+Full details: [docs/SECURITY.md](docs/SECURITY.md).
+
+---
+
+## Privacy and secret handling
+
+- **Raw secrets are never persisted.** Only a masked preview (for example `AKIA********3456`) and a SHA-256 fingerprint are stored. The raw value never reaches the database, logs, alerts or AI prompts.
+- **AI triage is opt-in and masked.** The default triage is a deterministic local heuristic; any GPT-compatible endpoint receives masked values only.
+- **DMs are private.** Hubs direct messages are visible only to their two participants. There is no administrator oversight or admin DM reading.
+- **Demo data is synthetic.** Seeded findings use fake values and are safe to explore.
+- **No telemetry.** SENTRIX does not phone home.
+- **Quarantine holds originals** for restore. Treat `data/quarantine/` as sensitive and protect it accordingly.
+- **Avatar photos** are demo assets (see [attribution](#licenses-and-attribution)); replace them in production.
+
+See [docs/PRIVACY.md](docs/PRIVACY.md) for the full data-handling description.
+
+---
+
+## Architecture and repository layout
+
+SENTRIX is a **modular monolith**: one Python process, one SQLite database, clear internal boundaries that can be extracted into services later.
+
+```text
+SENTRIX/
+├── run.py / run.bat / run.sh     One-click entry points
+├── config.toml                   Safe defaults (override in config.local.toml)
+├── Makefile / pyproject.toml     Dev targets and packaging (MIT, stdlib-only)
+├── sentrix/
+│   ├── server.py                 Stdlib HTTP server: JSON API + console
+│   ├── auth.py                   Sessions, RBAC (8 roles), tokens, audit
+│   ├── cli.py / config.py        CLI commands; layered configuration
+│   ├── demo.py / watch.py        Synthetic seeding; filesystem watcher
+│   ├── core/                     engine, pipeline, storage, extensions,
+│   │                             jobs, risk, reports, integrations, models
+│   ├── detectors/                base registry + cloud/crypto/saas/generic
+│   ├── surfaces/                 ide, git, filesystem, cloud, slack,
+│   │                             confluence, jira, postman
+│   ├── alerting/router.py        Channels, rules, quiet hours, retries
+│   ├── remediation/playbooks.py  Rotation guides and response actions
+│   ├── ai/                       Heuristic + optional GPT triage
+│   ├── hubs/                     Open Chat, private DMs, pings, presence
+│   └── dashboard/                Command Center SPA (HTML/CSS/JS, avatars)
+├── hooks/                        pre-commit / pre-push gates
+├── ci/                           GitLab CI and Jenkins pipelines
+├── editors/vscode/               On-save scanning extension
+├── examples/                     Synthetic fixtures (vulnerable + clean + exports)
+├── scripts/                      Kali setup, demo, scan-all, hook installer
+├── sql/schema.sql                Reference DDL for the core tables
+├── tests/                        Unit + server integration suite (stdlib unittest)
+├── assets/                       Logo and favicon (SVG)
+├── data/                         Runtime state (gitignored): sentrix.db,
+│                                 outbox, quarantine, backups, remediation
+└── docs/                         Documentation system + screenshots
+```
+
+Key design points:
+
+- **One intelligence core.** Detectors, entropy, validation, dedupe and risk scoring are shared by every surface, so results are consistent and explainable.
+- **Surface adapters are thin.** IDE, hooks, CI, cloud and SaaS adapters only collect and feed the pipeline.
+- **Findings are immutable-ish records with a transition log.** Notes, history and checklist entries are separate rows, audited.
+- **SQLite with migrations.** WAL-friendly, online backup, one file to protect.
+- **Standard-library HTTP server.** No framework, no build step, no Node runtime for the console.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) and [docs/DATABASE.md](docs/DATABASE.md).
+
+---
 
 ## CLI
 
@@ -104,87 +586,110 @@ Alert routing (console, outbox, Slack webhook, generic webhook) with channel rul
 | `triage ID` | Heuristic/GPT triage for one finding |
 | `remediate ID --action redact\|quarantine\|ticket\|rotate-guide` | Run a remediation action |
 | `ingest --surface S [--file F] [--json]` | Ingest a SaaS/cloud export or live source |
-| `users add USERNAME --password P [--role R] \| list` | Manage local accounts (see note) |
-| `tokens create [--name N] [--role R] \| list \| revoke --id ID` | Manage API tokens (see note) |
+| `users add USERNAME --password P [--role R] \| list` | Manage local accounts |
+| `tokens create [--name N] [--role R] \| list \| revoke --id ID` | Manage API tokens |
 | `backup [--dest PATH]` | Write an online SQLite backup |
 | `schedules add [--path P] [--surface S] [--interval N] \| list` | Manage scheduled scans |
 | `jobs` | List background scan jobs |
 
-Note: the `users`/`tokens` CLI role choices still list the legacy names (`admin`, `analyst`, `viewer`); the auth layer validates against the eight current roles, so use `viewer` from the CLI and manage the full role set through the console or API. Global flags: `--version`, `--config ROOT`.
+Global flags: `--version`, `--config ROOT`.
 
-## Screenshots
+> The `users`/`tokens` CLI role list still includes legacy names (`admin`, `analyst`, `viewer`); the auth layer validates against the eight current roles, so use `viewer` from the CLI and manage the full role set through the console or API.
 
-Screenshots are recaptured from the current console; files live in `docs/screenshots/`.
+### Git hooks and CI
 
-| | |
-| --- | --- |
-| ![Command Center, dark theme](docs/screenshots/dashboard-dark.png) | ![Command Center, light theme](docs/screenshots/dashboard-light.png) |
-| Dark theme (default) | Light theme |
-| ![Login](docs/screenshots/login.png) | ![Finding drawer](docs/screenshots/findings-drawer.png) |
-| Sign-in with local demo roster | Finding detail drawer |
+```sh
+python run.py hooks install --repo /path/to/repo
+python run.py gate --staged
+```
+
+Hooks **fail open** when the SENTRIX installation cannot be found, by design — a missing install never blocks commits or pushes. CI templates for GitLab and Jenkins live in `ci/`. The VS Code extension in `editors/vscode/` scans on save.
+
+---
+
+## Tests
+
+```sh
+python -m unittest discover -s tests -v      # or: make test
+python -m pytest tests/test_server.py -q     # if pytest is available
+python run.py selftest
+```
+
+The suite covers detection, risk scoring, storage, auth/RBAC, the HTTP API, Hubs privacy and read-only behaviour, avatar serving and the console integration paths. Latest run: **54 passed**.
+
+---
 
 ## Documentation
 
 | Document | Contents |
 | --- | --- |
-| [docs/OVERVIEW.md](docs/OVERVIEW.md) | Product overview, seven layers, module map, capability honesty |
+| [docs/OVERVIEW.md](docs/OVERVIEW.md) | Product overview, layers, module map, capability honesty |
+| [docs/INSTALL.md](docs/INSTALL.md) | Installation notes per platform |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Platform install, production mode, configuration, service, backup |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modular monolith, concurrency, migrations, extraction boundaries |
-| [docs/API.md](docs/API.md) | Complete endpoint inventory, auth, roles, request/response shapes |
-| [docs/DATABASE.md](docs/DATABASE.md) | All 23 tables, ER diagram, indexes, retention, backup |
+| [docs/API.md](docs/API.md) | Endpoint inventory, auth, roles, request/response shapes |
+| [docs/DATABASE.md](docs/DATABASE.md) | Tables, relationships, indexes, retention, backup |
 | [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | Detector registry, entropy, validation, risk tuning |
+| [docs/DETECTORS.md](docs/DETECTORS.md) | Detector catalogue and families |
+| [docs/SURFACES.md](docs/SURFACES.md) | Surface adapters and integration points |
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | SENTRIX Connect providers, states, permissions, sync semantics |
+| [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md) | Heuristic and optional GPT-assisted triage |
+| [docs/REMEDIATION.md](docs/REMEDIATION.md) | Playbooks, redaction, quarantine, ticketing, verification |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | Data handling, masking, retention and privacy posture |
 | [docs/SECURITY.md](docs/SECURITY.md) | Auth model, RBAC matrix, hardening, disclosure |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Platform install, production mode, config reference |
-| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Jobs, schedules, logs, alerting, SLAs, retention, metrics |
-| [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | Walkthrough of all 27 console views |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Port conflicts, login, migrations, diagnostics |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Planned work, clearly labeled not implemented |
-| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Release history through the 2.0.0 SENTRIX transformation |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Dev setup, tests, style, security-sensitive rules |
-| [docs/AUDIT.md](docs/AUDIT.md) | Pre-transformation repository audit and executed migration plan |
-| [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | Control-to-evidence mapping (not a certification) |
+| [docs/FLOWCHART.md](docs/FLOWCHART.md) | End-to-end pipeline and workflow diagrams |
+| [docs/RESEARCH_SYNTHESIS.md](docs/RESEARCH_SYNTHESIS.md) | Background research and design rationale |
 
-## Repository layout
+---
+
+## Licenses and attribution
+
+### License
+
+SENTRIX is released under the **MIT License**. See [LICENSE](LICENSE).
 
 ```text
-SENTRIX/
-├── run.py / run.bat / run.sh     One-click entry points
-├── config.toml                   Safe defaults (override in config.local.toml)
-├── Makefile / pyproject.toml     Dev targets and packaging (MIT, stdlib-only)
-├── sentrix/
-│   ├── server.py                 Stdlib HTTP server: JSON API + console
-│   ├── auth.py                   Sessions, RBAC (8 roles), tokens, audit
-│   ├── cli.py / config.py        CLI commands; layered configuration
-│   ├── demo.py / watch.py        Synthetic seeding; filesystem watcher
-│   ├── core/                     engine, pipeline, storage, extensions,
-│   │                             jobs, risk, reports, integrations, models
-│   ├── detectors/                base registry + cloud/crypto/saas/generic
-│   ├── surfaces/                 ide, git, filesystem, cloud, slack,
-│   │                             confluence, jira, postman
-│   ├── alerting/router.py        Channels, rules, quiet hours, retries
-│   ├── remediation/playbooks.py  Rotation guides and response actions
-│   ├── ai/                       Heuristic + optional GPT triage
-│   └── dashboard/                Command Center SPA (HTML/CSS/JS)
-├── hooks/                        pre-commit / pre-push gates
-├── ci/                           GitLab CI and Jenkins pipelines
-├── editors/vscode/               On-save scanning extension
-├── examples/                     Synthetic fixtures (vulnerable + clean + exports)
-├── scripts/                      Kali setup, demo, scan-all, hook installer
-├── sql/schema.sql                Reference DDL for the core tables
-├── tests/                        Unit + server integration suite (stdlib unittest)
-├── assets/                       Logo and favicon (SVG)
-├── data/                         Runtime state (gitignored): sentrix.db,
-│                                 outbox, quarantine, backups, remediation
-└── docs/                         This documentation system + screenshots
+MIT License
+
+Copyright (c) 2026 SENTRIX contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
-## Tests
+### Third-party assets
 
-```sh
-python -m unittest discover -s tests -v   # or: make test
-python run.py selftest
-```
+- **Demo avatar photos** in `sentrix/dashboard/avatars/` are sample images sourced from [randomuser.me](https://randomuser.me/) and are included only to demonstrate the interface. They are **not** real team members. Replace them with your own images (or remove them, in which case the UI falls back to initials) before any production use. Check the source's terms for your deployment.
+- **Logo and favicon** are original SENTRIX SVG assets in `assets/` and `sentrix/dashboard/`.
+- No third-party JavaScript libraries, CSS frameworks, fonts or Python packages are bundled. The console is plain HTML/CSS/JS and the backend is Python standard library only.
 
-## License
+### Contributing
 
-MIT. See [LICENSE](LICENSE).
+Contributions are welcome under the MIT terms. Keep changes consistent with the existing structure, add tests for behaviour changes, and never commit real credentials, tokens or customer data. Security-sensitive reports should follow the private disclosure process above.
+
+---
+
+<div align="center">
+
+**SENTRIX** · Secret Exposure & Network Threat Response Intelligence eXchange
+
+One Intelligence. Every Exposure. Total Control.
+
+`http://127.0.0.1:8710`
+
+</div>

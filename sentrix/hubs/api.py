@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 import secrets
 
+from sentrix.auth import WRITE_ROLES
 from sentrix.hubs.storage import OPEN_CHAT, dm_key
 
 _CHANNEL_MESSAGES = re.compile(r"^/api/hubs/channels/([A-Za-z0-9_\-]+)/messages$")
@@ -55,6 +56,8 @@ class HubsAPI:
                 "dms": storage.hubs_dm_list(uname),
                 "online_users": storage.hubs_online_users(),
                 "unread_notifications": storage.hubs_unread_notification_count(uname),
+                "role": user.get("role", ""),
+                "read_only": user.get("role") not in WRITE_ROLES,
             }, 200
 
         if path == "/api/hubs/users":
