@@ -24,8 +24,9 @@
 - [What SENTRIX is](#what-sentrix-is)
 - [The problem it solves](#the-problem-it-solves)
 - [The full-screen Command Center](#the-full-screen-command-center)
+- [Screenshots](#screenshots)
 - [Features](#features)
-- [Accessing SENTRIX from a Kali Linux VMware VM](#accessing-sentrix-from-a-kali-linux-vmware-vm-windows-host)
+- [End-to-end finding workflow](#end-to-end-finding-workflow)
 - [Installation](#installation)
 - [First run and the demo roster](#first-run-and-the-demo-roster)
 - [Production mode](#production-mode)
@@ -37,6 +38,8 @@
 - [CLI](#cli)
 - [Tests](#tests)
 - [Intelligent Finding Assignment & Team Workload](#intelligent-finding-assignment--team-workload)
+- [Employee Operations & Closed Findings](#employee-operations--closed-findings)
+- [Accessing SENTRIX from a Kali Linux VMware VM](#accessing-sentrix-from-a-kali-linux-vmware-vm-windows-host)
 - [Documentation](#documentation)
 - [Licenses and attribution](#licenses-and-attribution)
 
@@ -86,8 +89,53 @@ The result: a small team gets enterprise-grade exposure detection, response and 
 
 The console is designed to use the whole screen with no dead chrome: a compact top bar, a grouped sidebar, and a dense content area that scales from desktop to mobile. The default Home view (`#/home`) is a pro-style command center with live security posture, orbit intelligence visualization, top sources, outcomes, and operational metrics — all sourced from real backend data (unavailable metrics shown as N/A).
 
-
 The top bar carries live status, Hubs messages, theme switch and the signed-in user's avatar. The sidebar groups views into Command Center, Detection, Attack Surface, Response, and Governance.
+
+---
+
+## Screenshots
+
+> Captured locally from the current demo build. All values shown are synthetic demo data.
+
+**Home — Command Center**
+
+![Home](docs/screenshots/home.png)
+
+**Overview — organization-wide exposure and detection pipeline**
+
+![Overview](docs/screenshots/overview.png)
+
+**Findings — central queue with workflow stages**
+
+![Findings](docs/screenshots/findings.png)
+
+**Finding detail — workflow drawer (primary assessment)**
+
+![Finding detail](docs/screenshots/finding-detail.png)
+
+**Employee Operations — Admin command centre for team workload and controls**
+
+![Employee Operations](docs/screenshots/employee-operations.png)
+
+**My Workspace — Admin view (Awaiting action / in-progress remediation)**
+
+![My Workspace](docs/screenshots/my-workspace.png)
+
+**Closed Findings — closed findings (retained)**
+
+![Closed Findings](docs/screenshots/closed-findings.png)
+
+**Detection Sources — coverage and telemetry**
+
+![Sources](docs/screenshots/sources.png)
+
+**SENTRIX Connect Integrations**
+
+![Integrations](docs/screenshots/integrations.png)
+
+**Hubs — company chat and private DMs**
+
+![Hubs](docs/screenshots/hubs.png)
 
 ---
 
@@ -106,6 +154,7 @@ The top bar carries live status, Hubs messages, theme switch and the signed-in u
 
 - **Full finding lifecycle:** `new`/`open` → `triaged` → `assigned` → `in_progress` → `remediated` → `verified` → `closed`, plus `false_positive`, `accepted_risk`, `suppressed` and `reopened`. Every transition records actor and timestamp.
 - **Finding detail drawer** with provenance, masked value, risk factors, notes, history, checklist, triage and remediation actions.
+- **Three-stage review workflow:** Primary assignee (True/False Positive) → Secondary reviewer (independent re-check) → Admin (final decision). Admin cannot reassign here; Admin sends true positives to **Remediation Center** and closes false positives directly.
 - **Redact, quarantine and restore**, ticketing (live Jira or outbox draft), and **verification rescans** — closure is proven, never assumed.
 - **Eleven rotation playbooks** with step-by-step guidance per secret type.
 - **Remediation task board** with per-severity SLAs and escalation.
@@ -135,6 +184,56 @@ The top bar carries live status, Hubs messages, theme switch and the signed-in u
 - **Zero required dependencies** — Python 3.11+ standard library only. `boto3` is the single optional extra for live AWS scanning.
 - **Offline by default.** No telemetry, no phone-home, no cloud account required.
 - **One SQLite database** with migrations, online backup and retention controls.
+
+## End-to-end finding workflow
+
+SENTRIX models a secret exposure from detection through verified closure — not just a “found it” tool.
+
+```mermaid
+flowchart TD
+    A[Secret exposure detected] --> B[Finding created]
+    B --> C[Admin Findings Queue]
+    C --> D[Admin reviews + assigns Primary & Secondary]
+    D --> E[Primary receives it; triages True/False Positive]
+    E --> F[Primary submits assessment]
+    F --> G[Finding auto-routes to Secondary]
+    G --> H[Secondary independently re-reviews]
+    H --> I{Agree?}
+    I -- agree / recorded --> J[Finding moves to Admin Review]
+    I -- disagree --> J
+    J --> K[Admin: True Positive or False Positive]
+    K -- True Positive --> L[Remediation Center: developer fixes it]
+    L --> M[Remediation submitted]
+    M --> N[Admin verification — approve / reject]
+    N -- approved --> O[Closed Findings]
+    K -- False Positive --> P[Finding closed immediately]
+    P --> O
+```
+
+**Roles and responsibilities:**
+
+| Stage | Who acts | Action |
+| --- | --- | --- |
+| Intake | SENTRIX engine | Detection, deduplication, risk scoring, `new` status |
+| Admin review | `super_admin` / security admin | Review evidence, assign Primary + Secondary, send to review |
+| Primary review | Primary assignee (`appsec_engineer` etc.) | Choose **True Positive** or **False Positive**, add optional notes, **Send to Secondary** |
+| Secondary review | Secondary reviewer | Independently choose **True Positive** or **False Positive**, optional evidence/notes, **Send to Admin** |
+| Admin decision | Admin | Compare both assessments; **True Positive → Remediation Center**; **False Positive → closed immediately** |
+| Remediation | Developer / assignee | Fix exposure, submit evidence for verification |
+| Verification | Admin | Approve or reject remediation; rejection sends the finding back to the remediation owner |
+| Closure | System / Admin | Verified finding is marked **closed** and appears in **Closed Findings** |
+
+**Key properties of the implemented workflow:**
+
+- Admin assigns **both** Primary and Secondary up front.
+- Primary cannot send directly to Admin — Primary → Secondary → Admin is enforced.
+- Evidence and reasoning are **optional**; only the True/False classification is required.
+- Admin does **not** do primary or secondary review — Admin only makes the final decision.
+- True Positives land in the **Remediation Center**; False Positives are closed immediately with admin justification, both landing in **Closed Findings**.
+- Every step is audited with actor, timestamp, and reason.
+- Employees see only their own work (employee/self view); Admin sees all team work.
+
+---
 
 ## Installation
 
@@ -543,6 +642,31 @@ flowchart TD
 
 > State handling is centralized in `sentrix/core/lifecycle.py` (advisory/permissive for compatibility) and exposed via `GET /api/lifecycle`.
 
+### Primary → Secondary → Admin review workflow
+
+```mermaid
+flowchart TD
+    A[Admin Assigns<br/>Primary + Secondary] --> B[Primary Triage<br/>True / False Positive]
+    B --> C[Send to Secondary]
+    C --> D[Secondary Review<br/>Independent True / False Positive]
+    D --> E[Send to Admin]
+    E --> F{Admin final decision}
+    F -- True Positive --> G[Send to Remediation Center]
+    G --> H[Remediation submitted]
+    H --> I[Admin verification · Approve / Reject]
+    I -- Approved --> J[Closed Findings]
+    F -- False Positive --> K[Close finding immediately]
+    K --> J
+```
+
+**Important properties of the implemented workflow**
+
+- Admin chooses **both** Primary and Secondary at assignment time and cannot reassign later from the review screen.
+- Primary and Secondary classifications are recorded separately; both are visible to Admin for comparison.
+- Admin does **not** act as a reviewer — Admin only approves the final disposition.
+- Evidence and reasoning are **optional**; only the classification matters to advance the workflow.
+- True positives go to **Remediation Center** and are closed after successful verification; false positives are closed immediately.
+
 ### Scan / job execution flow
 
 ```mermaid
@@ -706,6 +830,32 @@ python -m pytest tests/test_assignment.py -v
 python -m pytest tests -q
 ```
 Restart a running server after local code changes. See [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md), [docs/HELP_REGISTRY.md](docs/HELP_REGISTRY.md), [docs/API.md](docs/API.md), [docs/DATABASE.md](docs/DATABASE.md), [docs/SECURITY.md](docs/SECURITY.md).
+
+## Employee Operations & Closed Findings
+
+Beyond assignment itself, SENTRIX ships two additional admin-facing sections:
+
+**Employee Operations** — Admin-only command centre (`#/assignments`, manager roles). Shows:
+- **Team workload overview** — every employee, active findings, critical/high assigned, weighted workload, capacity, availability, overdue, and admin controls.
+- **Assignment policy & SLA** — ack/remediate hours per severity, assignment mode (`admin_approval` recommended / `automatic` / `manual`), engine enable/disable.
+- **Employee profile management** — capacity, availability, eligibility per person; saved live to `employee_profiles`.
+- **"Who is working on what?"** — live, workflow-aware mapping of active assignments to employees.
+
+**Closed Findings** — Admin-only section (`#/closed-reports`) listing all finally closed findings (both true positives that completed remediation/verification and false positives closed directly by admin), with full investigation history, assessments, evidence and closure reason. Retained, never deleted.
+
+**My Workspace** (`#/my-assignments`) gives each employee only their own view:
+- Awaiting my action
+- Primary Assignments
+- Secondary Review
+- Remediation / Verification items
+- Completed items
+- (Admin sees role-appropriate “Awaiting final review” cards only — never employee queues.)
+
+**Admin final review (only):** Admin cannot reassign or perform primary/secondary reviews. Admin opens the finding under **Awaiting Final Review**, compares both assessments, and selects exactly one option:
+- **True Positive** → enter justification → **Send to Remediation Center** (not closed yet)
+- **False Positive** → enter justification → **Mark as False Positive & Close** (immediately closed, appears in Closed Findings)
+
+---
 
 ## Documentation
 
