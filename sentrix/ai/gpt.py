@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from sentrix.core.net import assert_safe_outbound_url
 
 
 class GPTClient:
@@ -12,6 +13,8 @@ class GPTClient:
         self.api_key = api_key
 
     def chat(self, messages: list[dict], temperature: float = 0.1) -> str:
+        url = f"{self.base_url}/chat/completions"
+        assert_safe_outbound_url(url)
         req = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps({

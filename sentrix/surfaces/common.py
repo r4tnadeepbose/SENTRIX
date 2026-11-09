@@ -5,9 +5,11 @@ import json
 import time
 import urllib.request
 from pathlib import Path
+from sentrix.core.net import assert_safe_outbound_url
 
 
 def rest_json(url: str, headers: dict | None = None, timeout: int = 15):
+    assert_safe_outbound_url(url)
     req = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())

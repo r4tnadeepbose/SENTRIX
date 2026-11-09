@@ -1324,9 +1324,26 @@ async function renderHubs() {
 
 async function renderArchitecture() {
   const d = await api("/api/architecture");
-  $("#main").innerHTML = pagehead("Architecture", "SENTRIX-native platform tiers, components and live status.", "", icon("layers")) +
-    `<div class="banner"><span class="chip st-triaged">HONEST MAP</span> ${esc(d.note || "")}</div>` +
-    (d.tiers || []).map(t => panel(`Tier ${t.tier} — ${esc(t.name)}`, `<div class="cardgrid">${(t.components||[]).map(c => `<div class="icard"><div class="ihead"><span class="iname">${esc(c.name)}</span><span class="chip ${c.status==='active'||c.status==='running'?'st-remediated':'st-triaged'}">${esc(c.status)}</span></div><div class="isub">${esc(c.type)}</div><p style="margin:8px 0 0;color:var(--dim);font-size:12px">${esc(c.details||"")}</p></div>`).join("")}</div>`, "", true)).join("");
+  const tiers = d.tiers || [];
+  const total = tiers.reduce((sum, t) => sum + ((t.components || []).length), 0);
+  const active = tiers.reduce((sum, t) => sum + (t.components || []).filter(c => c.status === 'active' || c.status === 'running').length, 0);
+  const surfaces = (tiers.find(t => t.tier === 5) || { tiers: [], components: [] }).components?.find(c => c.id === 'surfaces');
+  const lifecycle = (d.lifecycle || {}).finding || {};
+  const path = (lifecycle.lifecycle_path || []).slice(0, 7);
+  const tierColor = ['var(--accent)','var(--info)','var(--warn)','var(--ok)','var(--crit)'];
+
+  const flowRow = `<div class="flowchain"><div class="flowchain-item"><span class="chip st-triaged">Client</span><div class="fc-head">SENTRIX Command Center</div><div class="cellsub">Hash-routed SPA · per-tab sessions · RBAC-aware UI</div></div><span class="flowchain-arrow">→</span><div class="flowchain-item"><span class="chip st-in_progress">Core API</span><div class="fc-head">Stdlib HTTP Server</div><div class="cellsub">JSON API · auth · CSRF · lifecycle · audit</div></div><span class="flowchain-arrow">→</span><div class="flowchain-item"><span class="chip st-triaged">Detection</span><div class="fc-head">Pipeline & Intelligence</div><div class="cellsub">26 detectors · risk engine · dedupe</div></div><span class="flowchain-arrow">→</span><div class="flowchain-item"><span class="chip st-remediated">Storage</span><div class="fc-head">SQLite</div><div class="cellsub">Findings · assignments · audit</div></div></div>`;
+
+  $("#main").innerHTML = pagehead("Architecture", "SENTRIX-native platform tiers, components, lifecycle and data flow.", '', icon("layers")) +
+    `<div class="banner"><span class="chip st-triaged">HONEST MAP</span> ${esc(d.note || "Single-process, stdlib-only. No external database, queue, or worker fleet required.")}</div>` +
+    `<div class="kpi-strip" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))"><div class="kpi-card"><div class="kv">${tiers.length}</div><div class="kl">Tiers</div></div><div class="kpi-card t-accent"><div class="kv">${total}</div><div class="kl">Components</div></div><div class="kpi-card t-ok"><div class="kv">${active}</div><div class="kl">Active</div></div><div class="kpi-card"><div class="kv">v${esc(d.version || "2.0.0")}</div><div class="kl">Version</div></div><div class="kpi-card"><div class="kv" style="font-size:12px;white-space:nowrap">Local monolith</div><div class="kl">${esc(d.mode || "single process")}</div></div></div>` +
+    panel("Data flow — request lifecycle", flowRow, 'Client request enters the Core API, passes through authentication and CSRF checks, is enriched by the detection/risk layer, stored in SQLite, and returned to the console.', true) +
+    panel("Finding lifecycle", `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0">${path.map((s,i)=>`<span class="chip ${i===0?'st-triaged':i===path.length-1?'st-remediated':'st-in_progress'}" style="font-size:12px;padding:4px 10px">${esc(s.replace(/_/g,' ').toUpperCase())}</span>${i<path.length-1?'<span style="color:var(--faint)">→</span>':''}`).join('') || '<span class="cellsub">No lifecycle path recorded.</span>'}</div><p class="cellsub" style="margin-top:6px">Transitions are advisory/permissive for compatibility and exposed via <code>GET /api/lifecycle</code>.</p>`, '', true) +
+    tiers.map(t => {
+      const color = tierColor[(t.tier - 1) % tierColor.length];
+      return panel(`<div style="display:flex;align-items:center;gap:12px;margin:0"><div class="chip neutral" style="padding:6px 10px;font-size:12px">T${t.tier}</div><h3 style="margin:0">${esc(t.name)}</h3></div>`,
+        `<div class="twrap"><table class="tbl"><thead><tr><th>Component</th><th>Type</th><th>Status</th><th>What it does</th></tr></thead><tbody>${(t.components||[]).map(c => `<tr><td>${esc(c.name)}<div class="cellsub mono">${esc(c.id || '')}</div></td><td>${esc(c.type || '-')}</td><td><span class="chip ${c.status==='active'||c.status==='running'?'st-remediated':'st-triaged'}">${esc(c.status || 'unknown')}</span></td><td class="cellsub" style="max-width:420px;white-space:normal">${esc(c.details || '-')}</td></tr>`).join('') || '<tr><td colspan="4"><span class="cellsub">None.</span></td></tr>'}</tbody></table></div>`, '', true);
+    }).join('');
 }
 
 async function renderWorkers() {

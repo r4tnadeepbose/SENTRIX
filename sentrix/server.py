@@ -83,6 +83,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; "
+                         "base-uri 'self'; form-action 'self'; img-src 'self' data:; "
+                         "style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; media-src 'self'")
+        self.send_header("Permissions-Policy", "geolocation=(), camera=(), microphone=(), usb=(), payment=(), autoplay=(), interest-cohort=()")
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.end_headers()
         self.wfile.write(body)
         # Return a non-None marker so helpers such as _extra_get/_extra_post
@@ -494,6 +501,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie",
                              f"sx_session={token}; HttpOnly; Path=/; SameSite=Strict; "
                              f"Max-Age={int(state.auth.session_hours * 3600)}")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Security-Policy",
+                             "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'; "
+                             "base-uri 'self'; form-action 'self'; img-src 'self' data:; "
+                             "style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; media-src 'self'")
+            self.send_header("Permissions-Policy", "geolocation=(), camera=(), microphone=(), usb=(), payment=(), autoplay=(), interest-cohort=()")
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             payload = json.dumps({"ok": True, "user": user, "token": token}).encode()
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()

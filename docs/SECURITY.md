@@ -71,6 +71,7 @@ Eight roles; enforcement happens server-side on every request (`Handler._authori
   - **Webhook / Slack alerts** — operator-set URLs in config (`alerting.webhook_url`, `alerting.slack_webhook`), POST JSON, 10-second timeout, at most three attempts (0/1/2 s backoff). Unconfigured URLs produce `dry-run` alerts, not requests.
   - **Live SaaS/AWS connectors** — operator-set base URLs and tokens; bounded pagination and pacing; 15-second REST timeouts.
   - **Jira ticket creation** — operator-set base URL/token; 15-second timeout; failure falls back to an outbox draft.
+- **SSRF guard for configured outbound targets:** every operator-configured outbound POST/GET (AI triage, webhook/Slack alerts, SaaS connectors, Jira) is checked by `sentrix/core/net.py` before the request is made. Hosts resolving to loopback, private, link-local, multicast or reserved addresses are rejected and logged; outbound traffic is never initiated directly from untrusted API input.
   - **Optional GPT triage** — operator-set `ai.base_url` with an API key from the environment; 30-second timeout; any failure falls back to the heuristic.
 - Restrict egress at the host/network level if your policy requires it; SENTRIX works fully offline with channels `console` + `outbox`.
 
@@ -84,7 +85,7 @@ Eight roles; enforcement happens server-side on every request (`Handler._authori
 ## Transport and response headers
 
 - Default bind is `127.0.0.1:8710`, plain HTTP for loopback use. Exposing beyond loopback is an operator decision: terminate TLS at a reverse proxy, keep `SameSite=Strict` in mind, and disable demo mode first.
-- Every response carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
+- Every response carries `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Content-Security-Policy` (`default-src 'self'`, no plugins/objects, no framing, scoped forms/connects/media), `Permissions-Policy` (camera/mic/geo/usb/payment/interest-cohort disabled), and `Cross-Origin-Opener-Policy`/`Cross-Origin-Resource-Policy` (`same-origin`).
 - Static serving is whitelisted (`index.html`, `app.js`, `styles.css`, `login.html`); no directory traversal or arbitrary file reads.
 
 ## Audit and logging

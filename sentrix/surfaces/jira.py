@@ -72,6 +72,8 @@ def create_security_ticket(finding: Finding, cfg: dict) -> str:
         }
     }
     try:
+        from sentrix.core.net import assert_safe_outbound_url
+        assert_safe_outbound_url(base_url)
         req = urllib.request.Request(
             f"{base_url.rstrip('/')}/rest/api/2/issue",
             data=json.dumps(payload).encode(),

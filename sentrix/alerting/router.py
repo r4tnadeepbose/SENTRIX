@@ -92,6 +92,11 @@ class AlertRouter:
     def _post_json(url: str, payload: dict) -> str:
         if not url:
             return "dry-run"
+        try:
+            from sentrix.core.net import assert_safe_outbound_url
+            assert_safe_outbound_url(url)
+        except Exception:
+            return "failed: outbound targets are restricted to public addresses"
         last = "failed: no attempt"
         for delay in (0, 1, 2):
             if delay:
