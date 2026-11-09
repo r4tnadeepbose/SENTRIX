@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -574,7 +575,9 @@ class ExtStorage(Storage, HubsStorage):
                                  "events", "alerts", "remediations"):
                     continue
                 for row in rows:
-                    keys = list(row.keys())
+                    keys = [k for k in row.keys() if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", str(k))]
+                    if not keys:
+                        continue
                     self._db.execute(
                         f"INSERT OR REPLACE INTO {table} ({','.join(keys)}) "
                         f"VALUES ({','.join('?' for _ in keys)})",

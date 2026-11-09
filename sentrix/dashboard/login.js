@@ -1,3 +1,4 @@
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const form = document.getElementById("form");
 const error = document.getElementById("error");
 const submit = document.getElementById("submit");
@@ -42,9 +43,9 @@ fetch("/api/auth/demo-info").then((r) => r.json()).then((info) => {
   document.getElementById("roster-rows").innerHTML = info.accounts.map((a, i) => `
     <div class="demo-row">
       <div class="dwho">
-        <div style="font-size:12.5px;font-weight:600">${a.username} <span class="chip neutral" style="margin-left:4px">${a.role.replace(/_/g, " ")}</span></div>
-        <div style="font-size:11px;color:var(--dim)">${a.title || ""}</div>
-        <div class="mono" style="font-size:10.5px;color:var(--faint);margin-top:2px">${a.username} / ${a.password}</div>
+        <div style="font-size:12.5px;font-weight:600">${esc(a.username)} <span class="chip neutral" style="margin-left:4px">${esc(String(a.role).replace(/_/g, " "))}</span></div>
+        <div style="font-size:11px;color:var(--dim)">${esc(a.title || "")}</div>
+        <div class="mono" style="font-size:10.5px;color:var(--faint);margin-top:2px">${esc(a.username)} / ${esc(a.password)}</div>
       </div>
       <button class="btn sm" type="button" data-acct="${i}">Sign in</button>
     </div>`).join("");
