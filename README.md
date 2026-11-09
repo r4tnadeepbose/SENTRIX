@@ -33,6 +33,7 @@
 - [Configuration](#configuration)
 - [Security guidelines](#security-guidelines)
 - [Privacy and secret handling](#privacy-and-secret-handling)
+- [Flowcharts](#flowcharts)
 - [Architecture and repository layout](#architecture-and-repository-layout)
 - [CLI](#cli)
 - [Tests](#tests)
@@ -522,6 +523,62 @@ Full details: [docs/SECURITY.md](docs/SECURITY.md).
 See [docs/PRIVACY.md](docs/PRIVACY.md) for the full data-handling description.
 
 ---
+
+## Flowcharts
+
+### Detection pipeline (11 stages)
+
+```mermaid
+flowchart LR
+    A[Source event] --> B[Ingestion]
+    B --> C[Normalization]
+    C --> D[Detection]
+    D --> E[Validation]
+    E --> F[Deduplication]
+    F --> G[Risk assessment]
+    G --> H[Finding creation]
+    H --> I[Alerting]
+    I --> J[Remediation]
+    J --> K[Verification]
+```
+
+### Finding lifecycle
+
+```mermaid
+flowchart TD
+    O[Open / New] --> T[Triaged]
+    T --> A[Assigned]
+    A --> P[In Progress]
+    P --> R[Remediated]
+    R --> V[Verified]
+    V --> C[Closed]
+    O --> FP[False positive]
+    O --> AR[Accepted risk]
+    O --> S[Suppressed]
+    T --> FP
+    T --> AR
+    P --> RO[Reopened]
+    R --> RO
+    V --> RO
+    RO --> T
+```
+
+> State handling is centralized in `sentrix/core/lifecycle.py` (advisory/permissive for compatibility) and exposed via `GET /api/lifecycle`.
+
+### Scan / job execution flow
+
+```mermaid
+flowchart TD
+    U[User / schedule / API] --> Q[Job queued]
+    Q --> JR[JobRunner\nin-process, bounded slots]
+    JR --> AD[Surface adapter / scan path]
+    AD --> DET[Detectors + normalization + risk]
+    DET --> DB[(SQLite: findings, events, jobs)]
+    DB --> AL[Alerts / routing]
+    DB --> UI[Command Center / API]
+    JR --> D[Done / Failed / Cancelled]
+```
+
 
 ## Architecture and repository layout
 
