@@ -244,6 +244,7 @@ function isAssignmentAdmin(){ return state.user && ['super_admin','security_admi
 
 const pagehead = (title, sub, actions = "", iconHtml = "") => `<div class="pagehead"><div><h1>${iconHtml} ${esc(title)} ${helpbtn(state.view)}</h1><div class="sub">${esc(sub)}</div></div><div class="actions">${actions}</div></div>`;
 const panel = (title, body, actions = "", flush = false) => `<section class="panel"><div class="phead"><span class="ptitle">${title}</span>${actions}</div><div class="pbody${flush ? " flush" : ""}">${body}</div></section>`;
+const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
 
 function donut(series, colorOf, label) {
   const total = series.reduce((a, s) => a + s.value, 0);
@@ -1433,7 +1434,7 @@ async function renderAssignments() {
         <p class="cellsub" style="margin-top:8px">Profile changes affect eligibility and workload capacity. RBAC permissions remain unchanged.</p>
       </div>
     </div>`) : '';
-  $("#main").innerHTML = pagehead("Employee Operations","Admin command centre: who is working on what, acknowledgements, workload, availability and SLA accountability. "+helpBtnSmall('workload'), `<button class="btn sm" id="as-refresh">Refresh</button>`) +
+  $("#main").innerHTML = pagehead("Employee Operations","Admin command centre: who is working on what, acknowledgements, workload, availability and SLA accountability.", `<button class="btn sm" id="as-refresh">Refresh</button>`) +
     (state.user && typeof canWrite==='function' && !canWrite() ? banner('Read-only role: you can view assignment data but cannot perform mutations. '+helpBtnSmall('read_only'), 'warn') : '') +
     kpis +
     panel("Employee workload overview "+helpBtnSmall('workload'), teamTbl, '', true) +
@@ -1508,9 +1509,9 @@ async function renderAdminReview() {
 }
 
 async function renderClosedReports() {
-  if (!canManageAssignments()) { $("#main").innerHTML = pagehead("Closed Findings","Admin only.") + empty("Access restricted","Only administrators can access the Closed Reports command center section."); return; }
+  if (!canManageAssignments()) { $("#main").innerHTML = pagehead("Closed Findings","Admin only.") + empty("Access restricted","Only administrators can access the Closed Findings section."); return; }
   $("#main").innerHTML = pagehead("Closed Findings","All findings finally closed. Historical records retained.") + skeleton();
-  let data; try { data = await api('/api/findings?tab=closed&page_size=200'); } catch(e){ $("#main").innerHTML = pagehead("Closed Reports","") + banner(esc(e.message),'error'); return; }
+  let data; try { data = await api('/api/findings?tab=closed&page_size=200'); } catch(e){ $("#main").innerHTML = pagehead("Closed Findings","") + banner(esc(e.message),'error'); return; }
   const ids = (data.findings||[]).map(f=>f.id).slice(0,200);
   const details = await Promise.all(ids.map(id=>api(`/api/findings/${id}`).catch(()=>null)));
   const rows = details.filter(Boolean).map(d=>{
@@ -1518,9 +1519,9 @@ async function renderClosedReports() {
     const final = a.admin_decision==='confirm_false_positive'?'False Positive':(a.admin_decision==='confirm_true_positive'?'True Positive (closed)':(wf.stage||'Closed'));
     const closedAt = a.verified_at || a.completed_at || a.admin_decision_at || f.updated_at || f.created_at;
     return `<tr class="clickable" data-open="${esc(f.id)}"><td class="mono">${esc(f.id)}</td><td>${esc(f.title)}</td><td>${sevChip?sevChip(f.severity):esc(f.severity)}</td><td>${esc(a.primary_owner||'-')}</td><td>${esc(a.secondary_reviewer||'-')}</td><td>${esc((a.primary_classification||'-').replace(/_/g,' '))}</td><td>${esc((a.secondary_outcome||a.secondary_classification||'-').replace(/_/g,' '))}</td><td>${esc(final)}</td><td>${utc(closedAt)}</td><td>${esc((a.admin_decision_reason||a.verification_rejection_reason||'').slice(0,120))}</td></tr>`;
-  }).join('') || `<tr><td colspan="10">${empty('No closed reports yet','Closed reports will appear here automatically.')}</td></tr>`;
-  $("#main").innerHTML = pagehead("Closed Reports","Admin Command Centre — historical closed reports (retained).") +
-    panel("Closed Reports", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding ID</th><th>Title</th><th>Severity</th><th>Primary</th><th>Secondary</th><th>Primary assessment</th><th>Secondary assessment</th><th>Final Admin decision</th><th>Closure date</th><th>Closure reason</th></tr></thead><tbody>${rows}</tbody></table></div>`, 'Open any report to inspect full investigation history, assessments, evidence and final decision.', true);
+  }).join('') || `<tr><td colspan="10">${empty('No closed findings yet','Closed findings will appear here automatically.')}</td></tr>`;
+  $("#main").innerHTML = pagehead("Closed Findings","Admin Command Centre — all closed findings (retained).") +
+    panel("Closed Findings", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding ID</th><th>Title</th><th>Severity</th><th>Primary</th><th>Secondary</th><th>Primary assessment</th><th>Secondary assessment</th><th>Final Admin decision</th><th>Closure date</th><th>Closure reason</th></tr></thead><tbody>${rows}</tbody></table></div>`, 'Open any finding to inspect full investigation history, assessments, evidence and final decision.', true);
   bindOpeners();
 }
 
