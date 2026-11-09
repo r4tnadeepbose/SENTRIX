@@ -298,17 +298,17 @@ function phOrbitSVG(d) {
   const c = d.center || {}, out = d.outcomes || {}, dims = d.dimensions || [];
   const active = (out.active||{}).severity||{}, mitig = (out.mitigated||{}).severity||{};
   const total = Math.max(1, c.unique_findings||1);
-  const seg = (v,col,r,w,off,cls) => { const C=2*Math.PI*r; const len=Math.max(0,(v/total)*C); return `<circle cx="200" cy="200" r="${r}" fill="none" stroke="${col}" stroke-width="${w}" stroke-dasharray="${len.toFixed(1)} ${(C-len).toFixed(1)}" stroke-dashoffset="${(-off).toFixed(1)}" class="${cls||''}" opacity=".9"/>`; };
+  const seg = (v,col,r,w,off,cls) => { const C=2*Math.PI*r; const len=Math.max(0,(v/total)*C); return `<circle cx="200" cy="200" r="${r}" fill="none" stroke="${col}" stroke-width="${w}" stroke-dasharray="${len.toFixed(1)} ${(C-len).toFixed(1)}" stroke-dashoffset="${(-off).toFixed(1)}" class="${cls||''}" opacity=".9"><animateTransform attributeName="transform" attributeType="SMIL" type="rotate" from="0 200 200" to="360 200 200" dur="24s" repeatCount="indefinite"/></circle>`; };
   let o1=0,o2=0; const s1 = [['critical','#ff454f'],['high','#ff791f'],['medium','#f5c542'],['low','#548fea']].map(([k,col])=>{ const el=seg(active[k]||0,col,150,10,o1,'orbit-rot'); o1+=( (active[k]||0)/total)*2*Math.PI*150; return el; }).join('');
   const mTot = Math.max(1,(out.mitigated||{}).total||1);
   const s2 = seg((out.mitigated||{}).resolved||0,'#66b84a',128,8,o2,'orbit-rot-rev') + (()=>{ o2+=((out.mitigated||{}).resolved||0)/mTot*2*Math.PI*128; return seg((out.mitigated||{}).mitigated_with_controls||0,'#548fea',128,8,o2,'orbit-rot-rev'); })();
   const dimLabels = dims.map((dm,i)=>{ const a=(-90+i*72)*Math.PI/180; const r=178; const x=200+r*Math.cos(a), y=200+r*Math.sin(a); const anchor=Math.abs(Math.cos(a))<0.2?'middle':(Math.cos(a)>0?'start':'end'); const val=dm.available?`${dm.value}${dm.unit||''}`:'N/A'; return `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="var(--dim, #9aa4af)" font-size="7.5" font-family="ui-monospace,monospace">${esc((dm.label||'').toUpperCase())}</text><text x="${x}" y="${y+10}" text-anchor="${anchor}" fill="var(--text, #e8ebee)" font-size="8.5" font-weight="600">${esc(val)}</text>`; }).join('');
   return `<svg class="ph-orbit" viewBox="0 0 400 400" role="img" aria-label="Security intelligence orbit">
     <defs><filter id="phglow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-    <circle cx="200" cy="200" r="165" fill="none" stroke="var(--border, #262b30)" stroke-width="1"/>
-    <circle cx="200" cy="200" r="150" fill="none" stroke="var(--border, #262b30)" stroke-width="10" opacity=".35"/>
-    <circle cx="200" cy="200" r="128" fill="none" stroke="var(--border, #262b30)" stroke-width="8" opacity=".35"/>
-    <circle cx="200" cy="200" r="106" fill="none" stroke="var(--border, #262b30)" stroke-width="1" stroke-dasharray="2 4" opacity=".6"/>
+    <circle cx="200" cy="200" r="165" fill="none" stroke="var(--border, #262b30)" stroke-width="1" class="orbit-rot"><animateTransform attributeName="transform" attributeType="SMIL" type="rotate" from="0 200 200" to="360 200 200" dur="24s" repeatCount="indefinite"/></circle>
+    <circle cx="200" cy="200" r="150" fill="none" stroke="var(--border, #262b30)" stroke-width="10" opacity=".35" class="orbit-rot"><animateTransform attributeName="transform" attributeType="SMIL" type="rotate" from="0 200 200" to="360 200 200" dur="24s" repeatCount="indefinite"/></circle>
+    <circle cx="200" cy="200" r="128" fill="none" stroke="var(--border, #262b30)" stroke-width="8" opacity=".35" class="orbit-rot-rev"><animateTransform attributeName="transform" attributeType="SMIL" type="rotate" from="0 200 200" to="360 200 200" dur="24s" repeatCount="indefinite"/></circle>
+    <circle cx="200" cy="200" r="106" fill="none" stroke="var(--border, #262b30)" stroke-width="1" stroke-dasharray="2 4" opacity=".6" class="orbit-rot"><animateTransform attributeName="transform" attributeType="SMIL" type="rotate" from="0 200 200" to="360 200 200" dur="24s" repeatCount="indefinite"/></circle>
     ${s1}${s2}
     <circle cx="200" cy="200" r="82" fill="var(--panel, #14171a)" stroke="var(--border, #262b30)" stroke-width="1"/>
     <text x="200" y="170" text-anchor="middle" fill="var(--dim, #9aa4af)" font-size="7" font-family="ui-monospace,monospace" letter-spacing="1">TOTAL INGESTED</text>

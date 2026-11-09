@@ -39,7 +39,7 @@ CONTENT_TYPES = {
     ".png": "image/png",
     ".webp": "image/webp",
 }
-STATIC_FILES = {"index.html", "app.js", "styles.css", "login.html"}
+STATIC_FILES = {"index.html", "app.js", "styles.css", "login.html", "login.js", "apply-theme.js"}
 AVATAR_FILE = re.compile(r"^[A-Za-z0-9._-]+\.(?:jpg|jpeg|png|webp)$")
 FINDING_ID = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)$")
 FINDING_SUB = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)/(status|notes|tags|assign|severity|pin|mute|related|checklist|history)$")

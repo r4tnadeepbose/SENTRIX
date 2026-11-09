@@ -1110,9 +1110,7 @@ a.ring-kpi:hover { border-color:var(--accent); transform:translateY(-1px); }
 .home-pro .ph-panel-title { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--ph-dim); margin:0 0 10px; }
 .home-pro .ph-center { display:flex; align-items:center; justify-content:center; min-height:0; position:relative; overflow:hidden; }
 .home-pro .ph-orbit { width:100%; max-width:min(100%, 56vh); max-height:100%; aspect-ratio:1/1; }
-.home-pro .ph-orbit .orbit-rot { transform-origin:200px 200px; animation: ph-rot 80s linear infinite; }
-.home-pro .ph-orbit .orbit-rot-rev { transform-origin:200px 200px; animation: ph-rot 120s linear infinite reverse; }
-@keyframes ph-rot { to { transform: rotate(360deg); } }
+.home-pro .ph-orbit .orbit-rot,.home-pro .ph-orbit .orbit-rot-rev { }
 .home-pro .ph-conn { stroke: var(--ph-orange); stroke-width:1.2; stroke-dasharray:2 6; fill:none; opacity:.7; animation: ph-dash 18s linear infinite; }
 @keyframes ph-dash { to { stroke-dashoffset:-120; } }
 .home-pro .src-row { padding:8px 0; border-bottom:1px solid var(--border); }
