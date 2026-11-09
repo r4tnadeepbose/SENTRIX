@@ -85,7 +85,7 @@ The result: a small team gets enterprise-grade exposure detection, response and 
 
 The console is designed to use the whole screen with no dead chrome: a compact top bar, a grouped sidebar, and a dense content area that scales from desktop to mobile. The default Home view is a pro-style command center with live security posture, orbit intelligence visualization, top sources, outcomes, and operational metrics.
 
-![SENTRIX Command Center](docs/screenshots/dashboard-dark.png)
+![SENTRIX Home](docs/screenshots/home.png)
 
 The top bar carries live status, Hubs messages, theme switch and the signed-in user's avatar. The sidebar groups views into Command Center, Detection, Attack Surface, Response, and Governance.
 
@@ -140,11 +140,11 @@ The top bar carries live status, Hubs messages, theme switch and the signed-in u
 
 ## Screenshots - key views
 
-Only the 5 most important product screenshots are included.
+Only the 5 most important product screenshots are included (**Home is required**).
 
-| Command Center | Findings / Exposures |
+| Home (Command Center) | Findings / Exposures |
 | --- | --- |
-| ![Command Center](docs/screenshots/dashboard-dark.png) | ![Findings](docs/screenshots/findings.png) |
+| ![Home](docs/screenshots/home.png) | ![Findings](docs/screenshots/findings.png) |
 
 | Detection Sources | Integrations |
 | --- | --- |
@@ -153,6 +153,8 @@ Only the 5 most important product screenshots are included.
 | SENTRIX Hubs |
 | --- |
 | ![SENTRIX Hubs](docs/screenshots/hubs.png) |
+
+> To refresh these screenshots (server running, demo mode): `npm i -D playwright && npx playwright install chromium && node scripts/capture-home-screenshots.js`
 
 
 ## Installation
