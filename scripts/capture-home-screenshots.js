@@ -6,7 +6,7 @@
  *   node scripts/capture-home-screenshots.js
  * Server must be running (default http://127.0.0.1:8710, demo mode).
  */
-const { chromium } = require('playwright');
+const { chromium } = require('playwright-core');
 const path = require('path');
 const BASE = process.env.SENTRIX_URL || 'http://127.0.0.1:8710';
 const USER = process.env.SENTRIX_USER || 'admin';
@@ -14,7 +14,9 @@ const PASS = process.env.SENTRIX_PASS || 'sentrix-demo';
 const out = (n) => path.join(__dirname, '..', 'docs', 'screenshots', n);
 
 (async () => {
-  const browser = await chromium.launch();
+  const paths = ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe','C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'];
+  let browser; for (const executablePath of paths) { try { browser = await chromium.launch({ executablePath }); break; } catch(e){} }
+  if (!browser) browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
   await page.goto(BASE + '/login', { waitUntil: 'networkidle' });
   await page.fill('#username', USER).catch(()=>{});
