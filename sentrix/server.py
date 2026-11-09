@@ -20,7 +20,7 @@ from sentrix.core import engine
 from sentrix.core.extensions import ExtStorage
 from sentrix.core.jobs import JobRunner, start_scheduler
 from sentrix.core.lifecycle import describe as describe_lifecycle
-from sentrix.core.models import STATUSES, SEVERITIES, SURFACES
+from sentrix.core.models import STATUSES, SEVERITIES, SURFACES, now_iso
 from sentrix.core.pipeline import Pipeline
 from sentrix.core.util import at_least
 from sentrix.alerting.router import AlertRouter
@@ -221,10 +221,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/dashboard":
             return self._json(self._dashboard_data())
         if path == "/api/findings":
+            base_status = query.get("status")
+            tab = (query.get("tab") or "").strip()
+            # tab-driven status pre-filter where simple
+            status_q = base_status
+            if tab in ("new","unassigned"): status_q = status_q or None
+            elif tab in ("in_progress",): status_q = status_q or "in_progress"
+            elif tab in ("verified",): status_q = status_q or "verified"
+            elif tab in ("closed",): status_q = base_status or "closed" if base_status else None
+            elif tab in ("reopened",): status_q = status_q or "reopened"
+            elif tab in ("false_positive", "accepted_risk", "suppressed"): status_q = status_q or tab
             findings = state.storage.list_findings(
-                status=query.get("status"), severity=query.get("severity"),
+                status=status_q, severity=query.get("severity"),
                 surface=query.get("surface"), q=query.get("q"),
-                limit=int(query.get("limit", 500)))
+                limit=int(query.get("limit", 5000)))
+            # global summary (respect severity/surface/q; ignore tab/status for operational overview)
+            summary_findings = state.storage.list_findings(
+                severity=query.get("severity"), surface=query.get("surface"), q=query.get("q"), limit=5000)
             sort = query.get("sort", "created")
             if sort == "severity":
                 findings.sort(key=lambda f: SEVERITIES.index(f.severity))
@@ -232,26 +245,94 @@ class Handler(BaseHTTPRequestHandler):
                 findings.sort(key=lambda f: state.storage.get_extra(f.id)["occurrences"], reverse=True)
             elif sort == "pinned":
                 findings.sort(key=lambda f: state.storage.get_extra(f.id)["pinned"], reverse=True)
-            page = int(query.get("page", 1))
-            page_size = int(query.get("page_size", 50))
+            from sentrix.core import assignment_api as _aapi
+            from sentrix.core.assignment import compute_workflow
+            summary = {"total": len(summary_findings), "new": 0, "awaiting_assignment": 0, "primary_assessment": 0,
+                       "secondary_review": 0, "awaiting_admin_review": 0, "remediation_pending": 0, "verification_pending": 0,
+                       "closed": 0, "critical": 0, "high": 0,
+                       # compat keys
+                       "assigned": 0, "ack_pending": 0, "in_progress": 0, "verified": 0}
+            wf_cache = {}
+            def _wf(f):
+                if f.id not in wf_cache:
+                    a = state.storage.get_assignment(f.id)
+                    wf_cache[f.id] = (a, compute_workflow(f, a))
+                return wf_cache[f.id]
+            for f in summary_findings:
+                if f.severity == "critical": summary["critical"] += 1
+                if f.severity == "high": summary["high"] += 1
+                a, wf = _wf(f); stage = wf.get("stage")
+                if stage == "New": summary["new"] += 1; summary["awaiting_assignment"] += 1
+                elif stage == "Assigned": summary["assigned"] += 1; summary["ack_pending"] += 1
+                elif stage == "Primary Review": summary["primary_assessment"] += 1; summary["assigned"] += 1
+                elif stage == "Secondary Review": summary["secondary_review"] += 1; summary["assigned"] += 1
+                elif stage == "Admin Review": summary["awaiting_admin_review"] += 1; summary["assigned"] += 1
+                elif stage == "Remediation": summary["remediation_pending"] += 1; summary["assigned"] += 1
+                elif stage == "Verification": summary["verification_pending"] += 1; summary["assigned"] += 1
+                elif stage == "Closed": summary["closed"] += 1
+                if stage in ("Primary Review","Secondary Review","Admin Review","Remediation","Verification","Assigned"): summary["in_progress"] += (1 if stage != "Assigned" else 0)
+                if a.get("verified_at") or wf.get("admin_decision") == "confirm_true_positive" and stage == "Closed": summary["verified"] += 1
+            # apply composite tab filters (workflow-stage aware)
+            if tab:
+                filtered = []
+                for f in findings:
+                    a, wf = _wf(f); stage = wf.get("stage"); st = f.status
+                    ok = True
+                    if tab in ("new","unassigned","awaiting_assignment"): ok = stage == "New"
+                    elif tab == "assigned": ok = stage == "Assigned"
+                    elif tab in ("ack_pending","awaiting_ack"): ok = stage == "Assigned" and "Awaiting Acknowledgement" in (wf.get("status_labels") or [])
+                    elif tab in ("primary_assessment","primary_review"): ok = stage == "Primary Review"
+                    elif tab in ("secondary_review",): ok = stage == "Secondary Review"
+                    elif tab in ("admin_review","awaiting_admin_review"): ok = stage == "Admin Review"
+                    elif tab in ("remediation","remediation_pending"): ok = stage == "Remediation"
+                    elif tab in ("verification_pending","verification"): ok = stage == "Verification"
+                    elif tab in ("closed",): ok = stage == "Closed"
+                    elif tab in ("reopened",): ok = st == "reopened"
+                    elif tab in ("false_positive",): ok = st == "false_positive" or wf.get("admin_decision") == "confirm_false_positive"
+                    elif tab in ("accepted_risk", "suppressed"): ok = st == tab
+                    if ok: filtered.append(f)
+                findings = filtered
+            page = max(1, int(query.get("page", 1)))
+            page_size = max(1, min(200, int(query.get("page_size", 50))))
             total = len(findings)
             chunk = findings[(page - 1) * page_size:page * page_size]
             out = []
             for f in chunk:
                 data = f.to_dict()
                 extra = state.storage.get_extra(f.id)
+                a, wf = _wf(f)
                 data.update({k: extra[k] for k in
                              ("assignee", "tags", "pinned", "muted", "occurrences", "severity_override")})
                 data.update({k: f.meta.get(k) for k in
                              ("confidence", "validation", "environment", "risk")})
                 data["last_seen"] = extra.get("last_seen") or f.updated_at
+                data["category"] = f.meta.get("family") or f.detector_id
+                data["detection_source"] = f.surface
+                data["primary_assignee"] = a.get("primary_owner") or extra.get("assignee") or f.owner or ""
+                data["secondary_assignee"] = a.get("secondary_reviewer") or ""
+                data["assignment_status"] = a.get("status") or "unassigned"
+                data["acknowledged"] = bool(a.get("acknowledged_at"))
+                data["secondary_acknowledged"] = bool(a.get("secondary_acknowledged_at"))
+                data["sla_status"] = "breached" if _aapi._sla_breached(a) else ("ok" if a.get("due_at") or a.get("ack_due_at") else "")
+                data["priority"] = a.get("priority") or ""
+                data["due_at"] = a.get("due_at") or ""
+                data["verification_pending"] = bool(a.get("verification_requested_at") and not a.get("verification_decision"))
+                data["workflow"] = wf
+                data["workflow_stage"] = wf.get("stage")
+                data["status_labels"] = wf.get("status_labels") or []
                 out.append(data)
-            return self._json({"findings": out, "total": total, "page": page, "page_size": page_size})
+            return self._json({"findings": out, "total": total, "page": page, "page_size": page_size, "summary": summary})
         match = FINDING_ID.match(path)
         if match:
             finding = state.storage.get_finding(match.group(1))
             if not finding:
                 return self._json({"error": "not found"}, 404)
+            from sentrix.core import assignment_api as _aapi
+            from sentrix.core.assignment import compute_workflow
+            a = state.storage.get_assignment(finding.id)
+            a["sla_breached"] = _aapi._sla_breached(a)
+            wf = compute_workflow(finding, a)
+            a["workflow"] = wf
             return self._json({
                 "finding": finding.to_dict(),
                 "extra": state.storage.get_extra(finding.id),
@@ -260,6 +341,9 @@ class Handler(BaseHTTPRequestHandler):
                 "checklist": state.storage.get_checklist(finding.id),
                 "remediations": state.storage.list_remediations(finding.id),
                 "triage": finding.meta.get("triage"),
+                "assignment": a,
+                "workflow": wf,
+                "assignment_history": state.storage.list_assignment_history(finding.id, 50),
             })
         match = FINDING_SUB.match(path)
         if match:
@@ -567,7 +651,18 @@ class Handler(BaseHTTPRequestHandler):
                 state.storage.update_extra(fid, tags=body.get("tags", []))
                 return self._json({"ok": True})
             if sub == "assign":
-                state.storage.update_extra(fid, assignee=body.get("assignee", ""))
+                from sentrix.core import assignment_api as _aapi
+                user = self._user() or {}
+                assignee = (body.get("assignee") or "").strip()
+                if assignee:
+                    r = _aapi.manual_assign(state.storage, finding, user.get("username","anonymous"), assignee, "",
+                                            body.get("reason","Legacy assignment update"), body.get("due_at",""), "", "manual",
+                                            getattr(state,'alert_router',None), admin_override=False)
+                    if not r.get("ok"): return self._json({"error": r.get("error","assignment failed")}, 400)
+                else:
+                    state.storage.upsert_assignment(fid, user.get("username","anonymous"), reason="Unassigned", action="unassigned",
+                                                    primary_owner="", secondary_reviewer="", status="unassigned", method="")
+                    state.storage.update_extra(fid, assignee="")
                 return self._json({"ok": True})
             if sub == "severity":
                 value = body.get("severity", "")
@@ -636,6 +731,41 @@ class Handler(BaseHTTPRequestHandler):
         storage = state.storage
         findings = storage.list_findings(limit=5000)
         demo = bool(cfg_get(state.cfg, "auth.demo_mode", False))
+
+        # -- Assignment / workload / help --------------------------------------
+        if path.startswith("/api/assignment") or path.startswith("/api/help"):
+            from sentrix.core import assignment_api
+            user = self._user() or {}
+            uname = (user.get("username") or "anonymous")
+            role = user.get("role") or "viewer"
+            if path == "/api/help":
+                return self._json(_help_registry())
+            if path.startswith("/api/help/"):
+                key = path.rsplit("/", 1)[-1]
+                return self._json({"key": key, "item": _help_registry().get(key)})
+            if path == "/api/assignment/sla-config":
+                return self._json(storage.get_assignment_sla_config())
+            if path == "/api/assignment/profiles":
+                if role not in ("super_admin","security_admin","security_analyst","appsec_engineer","devsecops_engineer"):
+                    return self._json({"error": "insufficient role"}, 403)
+                return self._json({"profiles": storage.list_employee_profiles(storage.list_users()), "workloads": assignment_api.build_workloads(storage, findings)})
+            if path == "/api/assignment/dashboard":
+                if role not in ("super_admin","security_admin","security_analyst","appsec_engineer","devsecops_engineer"):
+                    return self._json({"error": "insufficient role"}, 403)
+                return self._json(assignment_api.dashboard(storage, user))
+            if path == "/api/assignment/my":
+                return self._json(assignment_api.my_assignments(storage, uname, user))
+            if path.startswith("/api/assignment/finding/"):
+                fid = path.rsplit("/", 1)[-1]
+                f = storage.get_finding(fid)
+                if not f: return self._json({"error": "finding not found"}, 404)
+                a = storage.get_assignment(fid)
+                a["sla_breached"] = assignment_api._sla_breached(a)
+                return self._json({"assignment": a, "history": storage.list_assignment_history(fid, 50)})
+            if path.startswith("/api/assignment/history/"):
+                fid = path.rsplit("/", 1)[-1]
+                return self._json({"history": storage.list_assignment_history(fid, 100)})
+
         if path == "/api/overview":
             stats = storage.stats()
             jobs = storage.list_jobs(limit=500)
@@ -1172,6 +1302,307 @@ class Handler(BaseHTTPRequestHandler):
         from sentrix.core import reports
         state = self.state
         storage = state.storage
+
+        # -- Assignment / workload POST ----------------------------------------
+        if path.startswith("/api/assignment"):
+            from sentrix.core import assignment_api
+            user = self._user() or {}
+            uname = (user.get("username") or "anonymous")
+            role = user.get("role") or "viewer"
+            is_admin = role in ("super_admin","security_admin")
+            can_manage = role in ("super_admin","security_admin","security_analyst","appsec_engineer","devsecops_engineer")
+            if path == "/api/assignment/sla-config":
+                if not is_admin: return self._json({"error":"security administrator role required"}, 403)
+                storage.set_assignment_sla_config(body or {}, uname)
+                state.auth.audit("assignment.sla_config", uname, json.dumps(body)[:500])
+                return self._json({"ok":True, "config": storage.get_assignment_sla_config()})
+            if path == "/api/assignment/escalate-check":
+                if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                r = assignment_api.check_sla_escalations(storage, getattr(state,'alert_router',None))
+                state.auth.audit("assignment.escalate_check", uname, json.dumps(r))
+                return self._json(r)
+            if path.startswith("/api/assignment/profiles/"):
+                if not is_admin: return self._json({"error":"security administrator role required"}, 403)
+                target = path.rsplit("/",1)[-1]
+                if target not in {u["username"] for u in storage.list_users()}: return self._json({"error":"user not found"}, 404)
+                storage.upsert_employee_profile(target, uname, **(body or {}))
+                state.auth.audit("assignment.profile", uname, f"{target}:{json.dumps(body)[:300]}")
+                return self._json({"ok":True, "profile": storage.get_employee_profile(target)})
+            if path == "/api/assignment/bulk":
+                if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                fids = body.get("finding_ids") or []
+                action = body.get("action") or "assign"
+                if not fids: return self._json({"error":"finding_ids required"}, 400)
+                results = []
+                for fid in fids[:200]:
+                    finding = storage.get_finding(fid)
+                    if not finding: results.append({"id":fid,"ok":False,"error":"not found"}); continue
+                    if action == "auto":
+                        r = assignment_api.do_auto_assign(storage, finding, uname, getattr(state,'alert_router',None))
+                    elif action == "assign":
+                        r = assignment_api.manual_assign(storage, finding, uname, body.get("primary_owner",""), body.get("secondary_reviewer",""),
+                                                         body.get("reason",""), body.get("due_at",""), body.get("instructions",""), "manual",
+                                                         getattr(state,'alert_router',None), admin_override=bool(body.get("admin_override")) and is_admin)
+                    else:
+                        r = {"ok":False,"error":"unsupported bulk action"}
+                    results.append({"id":fid, **r})
+                state.auth.audit("assignment.bulk", uname, f"{action}:{len(fids)}")
+                return self._json({"ok": True, "results": results})
+            if path.startswith("/api/assignment/finding/"):
+                parts = path.strip("/").split("/")
+                # /api/assignment/finding/<id>/<action>
+                if len(parts) >= 5:
+                    fid = parts[3]; action = parts[4]
+                    finding = storage.get_finding(fid)
+                    if not finding: return self._json({"error":"finding not found"}, 404)
+                    a = storage.get_assignment(fid)
+                    if action == "recommend":
+                        if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                        r = assignment_api.do_auto_assign(storage, finding, uname, getattr(state,'alert_router',None), finalize=False)
+                        return self._json(r, 200 if r.get("ok") or r.get("recommended") else 400)
+                    if action == "auto":
+                        if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                        r = assignment_api.do_auto_assign(storage, finding, uname, getattr(state,'alert_router',None), finalize=True)
+                        state.auth.audit("assignment.auto", uname, f"{fid}:{'ok' if r.get('ok') else 'recommended'}")
+                        return self._json(r, 200 if r.get("ok") or r.get("recommended") else 400)
+                    if action == "approve":
+                        if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                        r = assignment_api.approve_recommendation(storage, finding, uname, body.get("primary_owner"), body.get("secondary_reviewer"), body.get("reason",""), getattr(state,'alert_router',None))
+                        if r.get("ok"): state.auth.audit("assignment.approve", uname, f"{fid}->{body.get('primary_owner') or 'recommended'}")
+                        return self._json(r, 200 if r.get("ok") else 400)
+                    if action == "reject":
+                        if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                        storage.upsert_assignment(fid, uname, reason=body.get("reason","Recommendation rejected"), action="recommendation_rejected", status="unassigned", primary_owner="", secondary_reviewer="", method="")
+                        state.auth.audit("assignment.reject", uname, f"{fid}:{body.get('reason','')[:200]}")
+                        return self._json({"ok": True})
+                    if action == "assign":
+                        if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                        override = bool(body.get("admin_override")) and is_admin
+                        r = assignment_api.manual_assign(storage, finding, uname, body.get("primary_owner",""), body.get("secondary_reviewer",""),
+                                                         body.get("reason",""), body.get("due_at",""), body.get("instructions",""),
+                                                         body.get("method","manual"), getattr(state,'alert_router',None), admin_override=override)
+                        if not r.get("ok") and r.get("error"): return self._json(r, 400)
+                        state.auth.audit("assignment.override" if override else "assignment.assign", uname, f"{fid}->{body.get('primary_owner','')} reason={str(body.get('reason',''))[:200]}")
+                        return self._json(r)
+                    # actions by owner/admin
+                    owner = a.get("primary_owner"); reviewer = a.get("secondary_reviewer")
+                    if action in ("ack","acknowledge"):
+                        if uname == owner:
+                            na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Acknowledged by primary owner"), action="primary_acknowledged",
+                                                           status="acknowledged", acknowledged_at=now_iso())
+                            state.auth.audit("assignment.ack", uname, f"{fid}:primary")
+                            return self._json({"ok":True,"assignment":na})
+                        if uname == reviewer and reviewer:
+                            na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Acknowledged by secondary assignee"), action="secondary_acknowledged",
+                                                           status="acknowledged" if a.get("acknowledged_at") else "assigned",
+                                                           secondary_acknowledged_at=now_iso())
+                            state.auth.audit("assignment.ack", uname, f"{fid}:secondary")
+                            return self._json({"ok":True,"assignment":na})
+                        return self._json({"error":"only the assigned primary or secondary employee can acknowledge this assignment"}, 403)
+                    if action == "request-assistance":
+                        if not (is_admin or uname == owner or uname == reviewer): return self._json({"error":"forbidden"}, 403)
+                        na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Assistance requested"), action="assistance_requested",
+                                                       assistance_requested_at=now_iso(), assistance_reason=body.get("reason",""))
+                        try: storage.add_log("warn","assignment", f"Admin assistance requested for {fid} by {uname}: {str(body.get('reason',''))[:300]}", component="assignment", event_type="assistance_requested", resource=fid)
+                        except Exception: pass
+                        state.auth.audit("assignment.assistance", uname, fid)
+                        return self._json({"ok":True,"assignment":na})
+                    # --- Three-stage review workflow ---
+                    if action == "primary-start-investigation":
+                        if not (is_admin or uname == owner): return self._json({"error":"only primary assignee can start investigation"}, 403)
+                        if a.get("primary_submitted_at"): return self._json({"error":"primary assessment already submitted (read-only)"}, 409)
+                        na = storage.upsert_assignment(fid, uname, reason="Investigation started", action="primary_investigation_started",
+                                                       status="in_progress", primary_investigation_started_at=now_iso(), reassessment_target="",
+                                                       acknowledged_at=a.get("acknowledged_at") or now_iso())
+                        state.auth.audit("assignment.primary_start", uname, fid)
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "primary-submit-assessment":
+                        if not (is_admin or uname == owner): return self._json({"error":"only primary assignee can submit primary assessment"}, 403)
+                        if a.get("primary_submitted_at") and a.get("reassessment_target") != "primary": return self._json({"error":"primary assessment already submitted (read-only)"}, 409)
+                        classification = str(body.get("classification") or body.get("verdict") or "").strip().lower().replace(" ", "_")
+                        if classification in ("truepositive","tp","genuine","confirmed"): classification = "true_positive"
+                        if classification in ("falsepositive","fp"): classification = "false_positive"
+                        if classification not in ("true_positive","false_positive"):
+                            return self._json({"error":"classification must be True Positive or False Positive"}, 400)
+                        reasoning = str(body.get("reasoning") or body.get("reason") or body.get("notes") or "").strip()
+                        evidence = body.get("evidence") if isinstance(body.get("evidence"), str) else json.dumps(body.get("evidence") or [])[:4000]
+                        na = storage.upsert_assignment(fid, uname, reason=reasoning[:500], action="primary_assessment_submitted",
+                                                       status="in_progress", primary_classification=classification, primary_reasoning=reasoning[:4000],
+                                                       primary_evidence=evidence[:4000], primary_submitted_at=now_iso(), reassessment_target="", primary_investigation_started_at=a.get("primary_investigation_started_at") or now_iso(), acknowledged_at=a.get("acknowledged_at") or now_iso())
+                        try:
+                            from sentrix.core import assignment_api as _aapi
+                            fobj = storage.get_finding(fid)
+                            if fobj and reviewer: _aapi._notify(storage, getattr(state,'alert_router',None), fobj, "assignment.secondary_review_requested", f"Primary assessment submitted for {fid} ({classification}); secondary review requested.", uname)
+                        except Exception: pass
+                        state.auth.audit("assignment.primary_submitted", uname, f"{fid}:{classification}")
+                        return self._json({"ok":True,"assignment":na,"stage":"Awaiting Secondary Review" if reviewer else "Awaiting Admin Review"})
+                    if action == "secondary-start-review":
+                        if not (is_admin or uname == reviewer): return self._json({"error":"only secondary assignee can start review"}, 403)
+                        if not a.get("primary_submitted_at"): return self._json({"error":"primary assessment has not been submitted yet"}, 409)
+                        if a.get("secondary_submitted_at") and a.get("reassessment_target") != "secondary": return self._json({"error":"secondary assessment already submitted"}, 409)
+                        na = storage.upsert_assignment(fid, uname, reason="Secondary review started", action="secondary_review_started",
+                                                       secondary_review_started_at=now_iso(), reassessment_target="",
+                                                       secondary_acknowledged_at=a.get("secondary_acknowledged_at") or now_iso())
+                        state.auth.audit("assignment.secondary_start", uname, fid)
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "secondary-submit-assessment":
+                        if not (is_admin or uname == reviewer): return self._json({"error":"only secondary assignee can submit final assessment"}, 403)
+                        if not a.get("primary_submitted_at"): return self._json({"error":"primary assessment has not been submitted yet"}, 409)
+                        if a.get("secondary_submitted_at") and a.get("reassessment_target") != "secondary": return self._json({"error":"secondary assessment already submitted"}, 409)
+                        classification = str(body.get("classification") or body.get("secondary_classification") or "").strip().lower().replace(" ", "_")
+                        if classification in ("truepositive","tp","confirm_true_positive","true"): classification = "true_positive"
+                        if classification in ("falsepositive","fp","confirm_false_positive","false"): classification = "false_positive"
+                        outcome = str(body.get("outcome") or body.get("verdict") or "").strip().lower().replace(" ", "_").replace("-","_")
+                        if classification in ("true_positive","false_positive"):
+                            disagrees = bool(body.get("disagrees") or body.get("disagree")) or (outcome == "disagree") or (classification != (a.get("primary_classification") or ""))
+                            outcome = ("disagree_" + classification) if disagrees else classification
+                        else:
+                            aliases = {"confirm":"confirm","confirm_primary":"confirm","agree":"confirm","confirmed":"confirm",
+                                       "disagree":"disagree","challenge":"disagree","reject_primary":"disagree",
+                                       "request_further_investigation":"request_further_investigation","further_investigation":"request_further_investigation","reassess":"request_further_investigation","needs_more_info":"request_further_investigation"}
+                            outcome = aliases.get(outcome, outcome)
+                            if outcome == "confirm": outcome = a.get("primary_classification") or "confirm"
+                        if outcome not in ("true_positive","false_positive","disagree_true_positive","disagree_false_positive","confirm","disagree","request_further_investigation") and not outcome.startswith("disagree_"):
+                            return self._json({"error":"secondary assessment required: choose True Positive or False Positive (and reason)"}, 400)
+                        reasoning = str(body.get("reasoning") or body.get("reason") or body.get("notes") or "").strip()
+                        evidence = body.get("evidence") if isinstance(body.get("evidence"), str) else json.dumps(body.get("evidence") or [])[:4000]
+                        na = storage.upsert_assignment(fid, uname, reason=reasoning[:500], action="secondary_assessment_submitted",
+                                                       secondary_outcome=outcome, secondary_reasoning=reasoning[:4000],
+                                                       secondary_evidence=evidence[:4000], secondary_submitted_at=now_iso(), secondary_review_started_at=a.get("secondary_review_started_at") or now_iso(), secondary_acknowledged_at=a.get("secondary_acknowledged_at") or now_iso(),
+                                                       reassessment_target="", admin_decision="")
+                        try:
+                            from sentrix.core import assignment_api as _aapi
+                            fobj = storage.get_finding(fid)
+                            if fobj: _aapi._notify(storage, getattr(state,'alert_router',None), fobj, "assignment.admin_review_requested", f"Secondary assessment submitted for {fid} ({outcome.replace('_',' ')}); admin final review requested.", uname)
+                        except Exception: pass
+                        state.auth.audit("assignment.secondary_submitted", uname, f"{fid}:{outcome}")
+                        return self._json({"ok":True,"assignment":na,"stage":"Awaiting Admin Review"})
+                    if action == "admin-final-decision":
+                        if not is_admin: return self._json({"error":"admin only"}, 403)
+                        if not a.get("secondary_submitted_at") and a.get("secondary_reviewer"): return self._json({"error":"secondary assessment must be submitted before admin final decision"}, 409)
+                        decision = str(body.get("decision") or "").strip().lower().replace(" ", "_").replace("-","_")
+                        aliases = {"confirm_true_positive":"confirm_true_positive","true_positive":"confirm_true_positive","genuine":"confirm_true_positive","accept":"confirm_true_positive",
+                                   "confirm_false_positive":"confirm_false_positive","false_positive":"confirm_false_positive","fp":"confirm_false_positive",
+                                   "request_reassessment":"request_reassessment","reassess":"request_reassessment","return":"request_reassessment"}
+                        decision = aliases.get(decision, decision)
+                        if decision not in ("confirm_true_positive","confirm_false_positive","request_reassessment"):
+                            return self._json({"error":"decision must be confirm_true_positive, confirm_false_positive, or request_reassessment"}, 400)
+                        reason = str(body.get("reason") or body.get("justification") or "").strip()
+                        if not reason: return self._json({"error":"reason/justification is required"}, 400)
+                        target = str(body.get("target") or body.get("reassessment_target") or "primary").strip().lower()
+                        if decision == "request_reassessment" and target not in ("primary","secondary"): target = "primary"
+                        updates = dict(admin_decision=decision, admin_decision_reason=reason[:2000], admin_decision_by=uname, admin_decision_at=now_iso(), reassessment_target=(target if decision=="request_reassessment" else ""))
+                        if decision == "request_reassessment":
+                            if target == "primary": updates.update(primary_submitted_at="", primary_classification="", primary_reasoning="", primary_evidence="")
+                            else: updates.update(secondary_submitted_at="", secondary_outcome="", secondary_reasoning="", secondary_evidence="")
+                            updates["status"] = "in_progress"
+                        elif decision == "confirm_true_positive":
+                            rem_owner = str(body.get("remediation_owner") or a.get("primary_owner") or "").strip()
+                            updates.update(remediation_owner=rem_owner, remediation_status="pending", status="in_progress")
+                            try: storage.set_status(fid, "in_progress", uname)
+                            except Exception: pass
+                        elif decision == "confirm_false_positive":
+                            updates.update(status="completed", remediation_status="not_applicable")
+                            try: storage.set_status(fid, "false_positive", uname)
+                            except Exception: pass
+                        na = storage.upsert_assignment(fid, uname, reason=reason[:500], action=f"admin_decision:{decision}", **updates)
+                        state.auth.audit("assignment.admin_decision", uname, f"{fid}:{decision}")
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "assign-remediation":
+                        if not is_admin: return self._json({"error":"admin only"}, 403)
+                        if a.get("admin_decision") != "confirm_true_positive": return self._json({"error":"finding must be confirmed as true positive by admin before assigning remediation"}, 409)
+                        rem_owner = str(body.get("remediation_owner") or body.get("owner") or "").strip()
+                        if not rem_owner: return self._json({"error":"remediation owner required"}, 400)
+                        na = storage.upsert_assignment(fid, uname, reason=str(body.get("reason") or "Remediation assigned")[:500], action="remediation_assigned",
+                                                       remediation_owner=rem_owner, remediation_status="in_progress", status="in_progress")
+                        state.auth.audit("assignment.remediation_assigned", uname, f"{fid}->{rem_owner}")
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "submit-remediation":
+                        if not (is_admin or uname == owner or uname == a.get("remediation_owner")): return self._json({"error":"only remediation owner/primary/admin can submit remediation"}, 403)
+                        if a.get("admin_decision") != "confirm_true_positive": return self._json({"error":"finding is not in confirmed true-positive remediation flow"}, 409)
+                        note = str(body.get("note") or body.get("reason") or "").strip()
+                        if not note: return self._json({"error":"remediation notes/evidence are required"}, 400)
+                        na = storage.upsert_assignment(fid, uname, reason=note[:500], action="remediation_submitted",
+                                                       remediation_status="submitted", remediation_submitted_at=now_iso(), remediation_note=note[:4000])
+                        try: storage.set_status(fid, "remediated", uname)
+                        except Exception: pass
+                        state.auth.audit("assignment.remediation_submitted", uname, fid)
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "request-verification":
+                        if not (is_admin or uname == owner): return self._json({"error":"only primary owner or admin can request verification"}, 403)
+                        note = str(body.get("note") or body.get("reason") or "")[:2000]
+                        evidence = body.get("evidence") if isinstance(body.get("evidence"), str) else json.dumps(body.get("evidence") or "")[:2000]
+                        na = storage.upsert_assignment(fid, uname, reason=note or "Verification requested", action="verification_requested",
+                                                       status="completed", verification_requested_at=now_iso(), verification_note=note, verification_evidence=evidence,
+                                                       verification_decision="", verification_decided_at="", verification_rejection_reason="")
+                        try:
+                            from sentrix.core import assignment_api as _aapi
+                            fobj = storage.get_finding(fid)
+                            if fobj: _aapi._notify(storage, getattr(state,'alert_router',None), fobj, "assignment.verification_requested", f"Verification requested for {fid} by {uname}", uname)
+                        except Exception: pass
+                        state.auth.audit("assignment.verification_requested", uname, fid)
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "approve-verification":
+                        if not is_admin: return self._json({"error":"security administrator role required"}, 403)
+                        na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Verification approved"), action="verification_approved",
+                                                       status="verified", verified_at=now_iso(), verification_decision="approved", verification_decided_by=uname, verification_decided_at=now_iso())
+                        try: storage.set_status(fid, "verified", uname)
+                        except Exception: pass
+                        state.auth.audit("assignment.verification_approved", uname, fid)
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "reject-verification":
+                        if not is_admin: return self._json({"error":"security administrator role required"}, 403)
+                        reason = str(body.get("reason") or "Verification rejected")[:1000]
+                        na = storage.upsert_assignment(fid, uname, reason=reason, action="verification_rejected",
+                                                       status="in_progress", verification_decision="rejected", verification_decided_by=uname, verification_decided_at=now_iso(), verification_rejection_reason=reason)
+                        try: storage.set_status(fid, "in_progress", uname)
+                        except Exception: pass
+                        state.auth.audit("assignment.verification_rejected", uname, f"{fid}:{reason[:200]}")
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "start":
+                        if is_admin or uname == owner:
+                            if a.get("primary_submitted_at") and a.get("reassessment_target") != "primary" and not is_admin:
+                                return self._json({"error":"primary assessment already submitted (read-only)"}, 409)
+                            na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Investigation started"), action="started",
+                                                           status="in_progress", primary_investigation_started_at=a.get("primary_investigation_started_at") or now_iso())
+                            return self._json({"ok":True,"assignment":na})
+                        if uname == reviewer and reviewer:
+                            if not a.get("primary_submitted_at"): return self._json({"error":"primary assessment not submitted yet"}, 409)
+                            na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Secondary review started"), action="secondary_review_started",
+                                                           secondary_review_started_at=a.get("secondary_review_started_at") or now_iso())
+                            return self._json({"ok":True,"assignment":na})
+                        return self._json({"error":"forbidden"}, 403)
+                    if action == "block":
+                        if not (is_admin or uname == owner): return self._json({"error":"forbidden"}, 403)
+                        na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Blocked"), action="blocked", status="blocked", blocked_reason=body.get("reason",""))
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "request-reassign":
+                        if not (is_admin or uname == owner): return self._json({"error":"forbidden"}, 403)
+                        na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Reassignment requested"), action="reassignment_requested",
+                                                       status="reassignment_requested", reassignment_requested_by=uname, reassignment_reason=body.get("reason",""))
+                        state.auth.audit("assignment.request_reassign", uname, fid)
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "complete":
+                        if not (is_admin or uname == owner): return self._json({"error":"forbidden"}, 403)
+                        na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Completed"), action="completed", status="completed", completed_at=now_iso())
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "verify":
+                        if not (is_admin or uname == reviewer or can_manage): return self._json({"error":"forbidden"}, 403)
+                        na = storage.upsert_assignment(fid, uname, reason=body.get("reason","Verified"), action="verified", status="verified", verified_at=now_iso())
+                        return self._json({"ok":True,"assignment":na})
+                    if action == "reassign":
+                        if not can_manage: return self._json({"error":"insufficient role"}, 403)
+                        override = bool(body.get("admin_override")) and is_admin
+                        r = assignment_api.manual_assign(storage, finding, uname, body.get("primary_owner", owner), body.get("secondary_reviewer", reviewer),
+                                                         body.get("reason",""), body.get("due_at",""), body.get("instructions",""), "manual",
+                                                         getattr(state,'alert_router',None), admin_override=override)
+                        if r.get("ok"):
+                            storage.upsert_assignment(fid, uname, reason=body.get("reason","Reassigned"), action="reassigned", status="assigned")
+                            state.auth.audit("assignment.reassign", uname, f"{fid}:{owner}->{body.get('primary_owner',owner)} reason={str(body.get('reason',''))[:200]}")
+                        return self._json(r, 200 if r.get("ok") else 400)
+                    return self._json({"error":"unsupported action"}, 400)
+
+
         if path == "/api/coordination/ping":
             message = str(body.get("message", "")).strip()[:240] or "Please refresh your command center."
             ping_id = storage.add_ping(uname, message)
@@ -1286,16 +1717,48 @@ class Handler(BaseHTTPRequestHandler):
         if m:
             storage.delete_custom_rule(m.group(1))
             return self._json({"ok": True})
-        if path == "/api/demo/reset":
+        if path == "/api/demo/reset" or (path == "/api/demo" and body.get("reset")):
+            # Full reset: findings demo state + ALL assignment/workload/employee operations state back to current demo defaults
             removed = 0
             for f in storage.list_findings(limit=5000):
                 if f.meta.get("demo"):
-                    storage.set_status(f.id, "closed", "demo-reset")
+                    try: storage.set_status(f.id, "closed", "demo-reset")
+                    except Exception: pass
                     removed += 1
+            try:
+                storage.reset_assignment_demo_state(uname)
+            except Exception as e:
+                storage.add_log("warn", "demo", f"Assignment state reset warning: {e}")
+            # remove demo findings so reseed produces the current demo state
+            try:
+                with storage._lock:
+                    storage._db.execute("DELETE FROM findings WHERE json_extract(meta,'$.demo')=1")
+                    storage._db.execute("DELETE FROM finding_extra WHERE finding_id NOT IN (SELECT id FROM findings)")
+                    storage._db.execute("DELETE FROM finding_assignments WHERE finding_id NOT IN (SELECT id FROM findings)")
+                    storage._db.execute("DELETE FROM assignment_history WHERE finding_id NOT IN (SELECT id FROM findings)")
+                    storage._db.commit()
+            except Exception:
+                try:
+                    demo_ids = [f.id for f in storage.list_findings(limit=5000) if (f.meta or {}).get("demo")]
+                    with storage._lock:
+                        for fid in demo_ids:
+                            storage._db.execute("DELETE FROM status_history WHERE finding_id=?", (fid,))
+                            storage._db.execute("DELETE FROM notes WHERE finding_id=?", (fid,))
+                            storage._db.execute("DELETE FROM finding_extra WHERE finding_id=?", (fid,))
+                            storage._db.execute("DELETE FROM finding_assignments WHERE finding_id=?", (fid,))
+                            storage._db.execute("DELETE FROM assignment_history WHERE finding_id=?", (fid,))
+                            storage._db.execute("DELETE FROM findings WHERE id=?", (fid,))
+                        storage._db.execute("DELETE FROM finding_extra WHERE finding_id NOT IN (SELECT id FROM findings)")
+                        storage._db.execute("DELETE FROM finding_assignments WHERE finding_id NOT IN (SELECT id FROM findings)")
+                        storage._db.execute("DELETE FROM assignment_history WHERE finding_id NOT IN (SELECT id FROM findings)")
+                        storage._db.commit()
+                except Exception:
+                    pass
             from sentrix.demo import seed_demo
             seeded = seed_demo(state.pipeline)
-            storage.add_log("info", "demo", f"Demo reset by {uname}: {removed} closed, {seeded} seeded")
-            return self._json({"ok": True, "closed": removed, "seeded": seeded})
+            state.auth.audit("demo.reset_all", uname, f"closed={removed} seeded={seeded}")
+            storage.add_log("info", "demo", f"Demo FULL reset by {uname}: assignments/employees/workloads reset, demo findings reseeded ({seeded})")
+            return self._json({"ok": True, "closed": removed, "seeded": seeded, "reset": "full"})
         return None
 
     def _dashboard_data(self) -> dict:
@@ -1354,6 +1817,29 @@ class Handler(BaseHTTPRequestHandler):
         if not path.is_file():
             return self._json({"error": "not found"}, 404)
         self._send(200, path.read_bytes(), CONTENT_TYPES.get(path.suffix, "application/octet-stream"))
+
+
+def _help_registry():
+    """Centralized, reusable contextual help registry (no generic placeholders)."""
+    R = {
+      "auto_assignment": {"title":"Automatic Assignment","what":"SENTRIX evaluates severity, technical domain, role/eligibility, skills, workload, availability and ownership context to select an appropriate owner.","solves":"Reduces manual triage delay and routes findings to accountable, capable owners.","how":"The assignment engine scores eligible employees, generates an explanation, and assigns primary (and reviewer for critical/high when appropriate).","who":"Runs by authorized workflow/admin action; results visible per RBAC.","action":"Review the explanation; admins can override with a reason if needed.","example":"An exposed AWS credential is routed to an eligible cloud/incident-response owner, not to a developer by default."},
+      "primary_owner": {"title":"Primary Owner","what":"The person accountable for investigation and remediation coordination.","solves":"Ensures every finding has clear ownership.","how":"Receives notifications, must acknowledge, and progresses the assignment.","who":"Assigned by admin/authorized manager or auto-assignment.","action":"Acknowledge, investigate, update status, and submit for verification."},
+      "secondary_reviewer": {"title":"Secondary Reviewer","what":"Provides oversight or independent verification for sensitive findings.","solves":"Adds quality control for critical/high remediation.","how":"Reviews evidence and can request additional investigation; does not inherit primary owner permissions automatically.","who":"Assigned for critical/high or by admin.","action":"Review remediation evidence and verify/feedback."},
+      "workload": {"title":"Workload","what":"Severity-weighted active assignment load vs. employee capacity.","solves":"Prevents overloading individuals and highlights risk.","how":"Calculated from active assigned findings (critical findings weigh more than informational).","who":"Visible in Team Workload & Assignment per RBAC.","action":"Rebalance or adjust capacity if someone is over threshold."},
+      "sla": {"title":"SLA","what":"Configurable acknowledgement and remediation deadlines by severity.","solves":"Makes response expectations explicit and measurable.","how":"Due dates are set at assignment; breaches trigger overdue/escalation indicators and notifications.","who":"Configured by administrators; visible to assignees/managers.","action":"Acknowledge and remediate before due dates; escalate blockers."},
+      "acknowledgement": {"title":"Acknowledgement","what":"Confirmation that the primary owner has seen and accepted responsibility for the assignment.","solves":"Prevents silent drops.","how":"Owner acknowledges; timestamp is recorded; SLA timers tracked.","who":"Primary owner (or authorized admin action).","action":"Acknowledge promptly, especially for critical/high findings."},
+      "reassignment": {"title":"Reassignment","what":"Moving ownership/review responsibility with a recorded reason.","solves":"Handles availability, expertise mismatch, or workload issues.","how":"Authorized reassignment notifies parties and preserves history.","who":"Admins and authorized managers; employees may request reassignment.","action":"Provide a clear reason; ensure new owner is eligible."},
+      "severity": {"title":"Finding Severity","what":"Impact/urgency classification (critical/high/medium/low/info).","solves":"Prioritizes response.","how":"Set by detectors/risk context; can be managed per workflow/RBAC.","who":"Visible to users with finding access.","action":"Handle critical/high first; follow SLA and ownership rules."},
+      "risk_score": {"title":"Risk Score","what":"Explainable 0–100 prioritization based on context and evidence.","solves":"Ranks findings beyond raw severity alone.","how":"Combines factors such as severity, exposure, validation and context (see finding details).","who":"Visible in finding views.","action":"Use with severity/ownership to prioritize remediation."},
+      "integration_state": {"title":"Integration State","what":"Honest connection/sync status for a provider (connected/demo/disconnected/error).","solves":"Prevents assuming live data where not configured.","how":"Derived from configuration and sync/health checks.","who":"Admins/managers; visible in Integrations.","action":"Configure credentials and verify sync for production use."},
+      "escalation": {"title":"Escalation","what":"Notifying administrators/owners when acknowledgement or remediation SLAs are missed or risk is high.","solves":"Ensures stalled critical work gets attention.","how":"SLA checks and assignment events generate escalations/notifications and audit records.","who":"Admins receive escalations; assignees get due reminders.","action":"Acknowledge, remediate, or request reassignment with a blocker reason."},
+      "override": {"title":"Admin Override","what":"Administrator manually changes an automatic/recommended assignment decision.","solves":"Allows expert judgment when context requires it.","how":"Override requires a mandatory reason and is audited.","who":"Administrators (per RBAC).","action":"Document why the override is necessary."},
+      "read_only": {"title":"Read-Only Access","what":"Your role can view data but cannot perform write/remediation/assignment mutations.","solves":"Protects integrity and enforces least privilege.","how":"RBAC is enforced on the backend; restricted actions return 403.","who":"Viewer/auditor/read-limited contexts as configured.","action":"Contact an administrator if you need write access."},
+      "finding_lifecycle": {"title":"Finding Lifecycle","what":"The status progression of a detected finding (separate from assignment workflow).","solves":"Tracks detection-to-closure state consistently.","how":"Findings move through states like open/triaged/in progress/remediated/closed per existing SENTRIX workflows.","who":"Authorized users per RBAC.","action":"Update finding status as work progresses; use assignment status for ownership accountability."},
+      "assignment_lifecycle": {"title":"Assignment Lifecycle","what":"Ownership workflow states tracked separately from finding lifecycle.","solves":"Makes accountability explicit without breaking finding states.","how":"States include unassigned, recommended, assigned, acknowledged, in progress, blocked, reassignment requested, reassigned, completed, verified.","who":"Assignees, reviewers, admins per RBAC.","action":"Acknowledge, progress, request reassignment with reason, and complete/verify."},
+      "bulk_operations": {"title":"Bulk Operations","what":"Assign, reassign, or set due dates for multiple findings at once.","solves":"Speeds up triage for queues.","how":"Authorized users select findings and apply an action with confirmation; each finding gets an individual audit/history record.","who":"Admins and authorized managers.","action":"Review selection carefully and provide reasons where required."},
+    }
+    return R
 
 
 def make_server(cfg: dict) -> ThreadingHTTPServer:

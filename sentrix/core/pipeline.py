@@ -55,7 +55,30 @@ class Pipeline:
                 component="pipeline", event_type=kind, status="ok")
         for finding in new:
             self._confirm_and_notify(finding)
+            self._auto_assign_if_enabled(finding)
         return {"new": new, "known": known}
+
+    def _auto_assign_if_enabled(self, finding: Finding):
+        """Intelligent assignment hook (failure-safe; never drops findings)."""
+        try:
+            if not hasattr(self.storage, "get_assignment_sla_config"):
+                return
+            cfg = self.storage.get_assignment_sla_config() or {}
+            if not cfg.get("assignment_enabled", True):
+                return
+            mode = (cfg.get("assignment_mode") or "admin_approval").lower()
+            if mode == "manual":
+                return
+            from sentrix.core import assignment_api
+            assignment_api.do_auto_assign(self.storage, finding, "system", self.router, finalize=(mode == "automatic"))
+        except Exception as e:
+            try:
+                if hasattr(self.storage, "add_log"):
+                    self.storage.add_log("error", "assignment", f"Assignment processing failed for {finding.id}: {e}", component="pipeline", event_type="assignment.failed", resource=finding.id, status="failed")
+                if hasattr(self.storage, "upsert_assignment"):
+                    self.storage.upsert_assignment(finding.id, "system", reason=f"Assignment processing failed: {type(e).__name__}", action="assignment_failed", status="unassigned", method="")
+            except Exception:
+                pass
 
     def _confirm_and_notify(self, finding: Finding):
         """SaaS branch: confirmed findings alert; unconfirmed are logged for audit."""

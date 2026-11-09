@@ -185,7 +185,7 @@ label.fld { display: block; font-size: 10.5px; font-weight: 600; letter-spacing:
 .sev-medium { color: var(--med); background: var(--med-soft); border-color: transparent; }
 .sev-low { color: var(--low); background: var(--low-soft); border-color: transparent; }
 .sev-info { color: var(--sev-info); background: var(--sev-info-soft); border-color: transparent; }
-.st-open, .st-new, .st-reopened { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.st-open, .st-new, .st-reopened { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
 .st-triaged, .st-assigned, .st-in_progress { color: var(--info); background: var(--info-soft); border-color: transparent; }
 .st-remediated, .st-verified, .st-closed { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
 .st-false_positive, .st-accepted_risk, .st-suppressed { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
@@ -1139,3 +1139,13 @@ a.ring-kpi:hover { border-color:var(--accent); transform:translateY(-1px); }
 .home-pro .ph-card .cbar > span { display:block; height:100%; background:linear-gradient(90deg,#2dd4bf,#66b84a); border-radius:99px; }
 @media (max-width: 1180px) { .main.home-fit { height:auto; max-height:none; overflow:auto; } .home-pro { height:auto; overflow:visible; } .home-pro .ph-grid { grid-template-columns: 1fr; flex:none; } .home-pro .ph-center { min-height:360px; order:-1; } .home-pro .ph-cards { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 640px) { .home-pro .ph-cards { grid-template-columns: 1fr; } }
+
+
+/* Contextual help popover (assignment/help system) */
+.help-pop { background: var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,.25); }
+.help-pop .pophead { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; border-bottom:1px solid var(--border); }
+.help-pop .popbody { padding:10px 12px; max-height:260px; overflow:auto; font-size:12.5px; color:var(--text); }
+.help-pop .popbody p { margin:0 0 8px; } .help-pop .popbody p:last-child{margin-bottom:0;}
+.help-pop .popbody strong { color:var(--text); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.helpbtn { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:999px; border:1px solid var(--border); background:var(--raised); color:var(--dim); font-size:10px; font-weight:700; cursor:pointer; vertical-align:middle; padding:0; line-height:1; }
+.helpbtn:hover { color:var(--accent); border-color:var(--accent); }

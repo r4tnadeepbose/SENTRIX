@@ -11,7 +11,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![Dependencies: stdlib only](https://img.shields.io/badge/dependencies-stdlib--only-brightgreen.svg)](docs/DEPLOYMENT.md)
-[![Tests: 54 passing](https://img.shields.io/badge/tests-54%20passing-brightgreen.svg)](tests/)
+[![Tests: passing](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
 [![Platforms: Windows · Linux · macOS](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-lightgrey.svg)](#installation)
 
 </div>
@@ -25,7 +25,6 @@
 - [The problem it solves](#the-problem-it-solves)
 - [The full-screen Command Center](#the-full-screen-command-center)
 - [Features](#features)
-- [Screenshots - key views](#screenshots--key-views)
 - [Accessing SENTRIX from a Kali Linux VMware VM](#accessing-sentrix-from-a-kali-linux-vmware-vm-windows-host)
 - [Installation](#installation)
 - [First run and the demo roster](#first-run-and-the-demo-roster)
@@ -37,6 +36,7 @@
 - [Architecture and repository layout](#architecture-and-repository-layout)
 - [CLI](#cli)
 - [Tests](#tests)
+- [Intelligent Finding Assignment & Team Workload](#intelligent-finding-assignment--team-workload)
 - [Documentation](#documentation)
 - [Licenses and attribution](#licenses-and-attribution)
 
@@ -84,9 +84,8 @@ The result: a small team gets enterprise-grade exposure detection, response and 
 
 ## The full-screen Command Center
 
-The console is designed to use the whole screen with no dead chrome: a compact top bar, a grouped sidebar, and a dense content area that scales from desktop to mobile. The default Home view is a pro-style command center with live security posture, orbit intelligence visualization, top sources, outcomes, and operational metrics.
+The console is designed to use the whole screen with no dead chrome: a compact top bar, a grouped sidebar, and a dense content area that scales from desktop to mobile. The default Home view (`#/home`) is a pro-style command center with live security posture, orbit intelligence visualization, top sources, outcomes, and operational metrics — all sourced from real backend data (unavailable metrics shown as N/A).
 
-![SENTRIX Home](docs/screenshots/home.png)
 
 The top bar carries live status, Hubs messages, theme switch and the signed-in user's avatar. The sidebar groups views into Command Center, Detection, Attack Surface, Response, and Governance.
 
@@ -136,27 +135,6 @@ The top bar carries live status, Hubs messages, theme switch and the signed-in u
 - **Zero required dependencies** — Python 3.11+ standard library only. `boto3` is the single optional extra for live AWS scanning.
 - **Offline by default.** No telemetry, no phone-home, no cloud account required.
 - **One SQLite database** with migrations, online backup and retention controls.
-
----
-
-## Screenshots - key views
-
-Only the 5 most important product screenshots are included (**Home is required**).
-
-| Home (Command Center) | Findings / Exposures |
-| --- | --- |
-| ![Home](docs/screenshots/home.png) | ![Findings](docs/screenshots/findings.png) |
-
-| Detection Sources | Integrations |
-| --- | --- |
-| ![Detection Sources](docs/screenshots/sources.png) | ![Integrations](docs/screenshots/integrations.png) |
-
-| SENTRIX Hubs |
-| --- |
-| ![SENTRIX Hubs](docs/screenshots/hubs.png) |
-
-> To refresh these screenshots (server running, demo mode): `npm i -D playwright && npx playwright install chromium && node scripts/capture-home-screenshots.js`
-
 
 ## Installation
 
@@ -680,6 +658,54 @@ python run.py selftest
 The suite covers detection, risk scoring, storage, auth/RBAC, the HTTP API, Hubs privacy and read-only behaviour, avatar serving and the console integration paths. Latest run: **54 passed**.
 
 ---
+
+
+
+## Intelligent Finding Assignment & Team Workload
+
+SENTRIX includes an explainable, RBAC-aware **Intelligent Finding Assignment, Employee Workload Management, and Contextual Help** system, implemented as an additive extension of the existing modular monolith (stdlib server, SPA dashboard, SQLite/`ExtStorage`, existing auth/RBAC/finding lifecycle/alerting). All changes are local unless explicitly committed/pushed.
+
+### Capabilities
+- **Central assignment engine** (`sentrix/core/assignment.py`, `sentrix/core/assignment_api.py`): evaluates finding severity, technical domain (Application/Web/API Security, Cloud/AWS, Credential/Secret Exposure, DevSecOps/CI-CD, Incident Response, Security Monitoring, Compliance/Infrastructure context), RBAC/role eligibility, skills/expertise, **severity-weighted workload** (not raw counts), availability/capacity, ownership/conflict context. Decisions are explainable (reason + scoring) and **never random**. **Critical findings are never assigned solely by low workload**; developers are not default incident owners for critical/high without authorized admin override and oversight context.
+- **Assignment methods:** **Automatic** (engine selects eligible owner/reviewer with explanation), **Manual** (authorized managers/admins; validated), **Recommended / Admin Approval** (low confidence or approval mode produces recommendations for admin decision). No silent assignment to unauthorized/unsuitable employees; no eligible owner → remains unassigned and escalated to admin attention.
+- **Admin-controlled operating modes** (configurable, persisted): `automatic` (fully automatic), `admin_approval` (recommendation → admin approve/reject, default), `manual`. Policy/SLA config via `GET|POST /api/assignment/sla-config` and Admin UI.
+- **Primary owner + secondary reviewer:** distinct accountability and oversight roles (reviewer does not inherit primary permissions; primary ≠ secondary). Critical/high can receive a secondary reviewer.
+- **Lifecycle & workflow:** assignment status is **separate** from the finding lifecycle (`unassigned/recommended/assigned/acknowledged/in_progress/blocked/reassignment_requested/reassigned/completed/verified`). Supports acknowledgement, reassignment requests/reassignments, block/complete/verify actions, and auditable history (actor, timestamp, reason). Existing finding lifecycle and legacy `POST /api/findings/<id>/assign` remain compatible (`finding_extra.assignee` / `findings.owner` synchronized).
+- **SLA & escalation:** configurable per-severity acknowledgement/remediation hours, due dates, overdue/breach indicators, and deduplicated SLA escalation notifications (`check_sla_escalations`, dashboard trigger + `POST /api/assignment/escalate-check`). Integrated with existing alert/outbox/system-log patterns; no raw secrets in metadata/history/notifications.
+- **Dashboards/UI (real backend data):** **Team Workload & Assignment** (`#/assignments`, manager roles) — metrics, employee workload/capacity/availability/skills/overdue, queues (unassigned, recommended/awaiting approval, awaiting ack, in progress, blocked, overdue, reassignment requests), approve/reject/auto/manual actions, bulk assign with confirmation (individual audit per finding), admin policy/SLA/profile controls, **clickable name pickers** (including **Admin**) for direct assignment. **My Assignments** (`#/my-assignments`) — personal owned findings, critical/high, pending acks, overdue, review requests, completed. **Finding detail Assignment tab** — owner/reviewer, status/method/explanation, ack/due/SLA, history, RBAC-aware actions, clickable assignee picker.
+- **Contextual help (`?`):** centralized registry `GET /api/help[/<key>]` + SPA popover (`data-help`, accessible, outside-click/Escape close, no generic placeholders). Covers auto assignment, primary/secondary owner, workload, SLA, acknowledgement, reassignment, escalation, override, read-only, assignment/finding lifecycle, bulk ops, severity/risk/integration concepts.
+
+### Fixed roster, roles & expertise (unchanged credentials/accounts)
+| Employee | Role | Primary responsibility | Default eligibility note |
+|---|---|---|---|
+| Admin | `super_admin` | Platform administration and assignment oversight | Oversight; can be explicitly selected as owner by authorized managers |
+| R. Sharma | `appsec_engineer` | Application security and vulnerability analysis | Eligible |
+| P. Patel | `security_analyst` | SOC operations, monitoring and alert triage | Eligible |
+| A. Kumar | `devsecops_engineer` | Incident response, infrastructure and DevSecOps | Eligible |
+| N. Singh | `auditor` | Compliance, audit and verification | Review/compliance-oriented; not default technical remediation owner |
+| V. Iyer | `developer` | Application code and development remediation | Code-level remediation (esp. medium/low); not default critical/high incident owner |
+
+*Skills influence suitability; RBAC determines authorization.* Profiles (skills, expertise, max capacity, availability, eligibility) are managed via `employee_profiles` / admin controls / `POST /api/assignment/profiles/<username>`.
+
+### RBAC, security & privacy
+- **Backend-enforced authorization** (not UI-only). Team dashboard/profiles/queues/auto/manual/reassign/bulk/approve: manager roles (`super_admin, security_admin, security_analyst, appsec_engineer, devsecops_engineer`). SLA/profile config/admin override: `super_admin, security_admin` (override requires **mandatory reason**, audited). Owner actions (ack/start/block/complete/request-reassign) restricted to primary owner or admin; verify restricted to secondary reviewer or authorized manager/admin.
+- **Workload privacy / IDOR protection:** employees cannot view other employees’ or admin team-wide workload metrics via API/UI; `/api/assignment/my` is scoped to the authenticated user. Cross-user mutations are rejected (403).
+- **Safety:** target validation (exists/enabled/eligible/available/capacity/role-severity suitability unless valid admin override), CSRF/origin protections preserved, assignment-failure-safe pipeline hook (preserves findings, logs error), no raw secrets in assignment explanations/scoring/history/audit/notifications.
+
+### Key APIs
+`GET /api/help[/<key>]`, `GET /api/assignment/dashboard|my|profiles|sla-config|finding/<id>|history/<id>`, `POST /api/assignment/sla-config|escalate-check|profiles/<username>|bulk`, `POST /api/assignment/finding/<id>/auto|recommend|assign|reassign|approve|reject|ack|start|block|request-reassign|complete|verify`. Finding detail `GET /api/findings/<id>` includes `assignment` + `assignment_history`.
+
+### Database (migration v4, additive)
+`employee_profiles`, `finding_assignments`, `assignment_history`, `assignment_sla_config` (+ indexes); migration recorded in `migrations`. Backward compatible with existing finding/user data and legacy assignee/owner fields.
+
+### Run & test locally
+```powershell
+cd C:\Users\boser\Downloads\SENTRIX
+python run.py serve   # http://127.0.0.1:8710
+python -m pytest tests/test_assignment.py -v
+python -m pytest tests -q
+```
+Restart a running server after local code changes. See [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md), [docs/HELP_REGISTRY.md](docs/HELP_REGISTRY.md), [docs/API.md](docs/API.md), [docs/DATABASE.md](docs/DATABASE.md), [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Documentation
 

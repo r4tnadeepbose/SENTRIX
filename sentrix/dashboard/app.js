@@ -18,13 +18,13 @@ const INTEGRATION_STATES = ["connected", "demo", "disconnected"];
 const SURFACES = ["ide", "pre_push", "ci", "git", "cloud", "slack", "confluence", "jira", "postman", "filesystem"];
 const SLABEL = { ide: "IDE", pre_push: "Pre-push", ci: "CI/CD", git: "Git", cloud: "Cloud", slack: "Slack", confluence: "Confluence", jira: "Jira", postman: "Postman", filesystem: "Filesystem" };
 const SEV_COLOR = { critical: "var(--crit)", high: "var(--high)", medium: "var(--med)", low: "var(--low)", info: "var(--sev-info)" };
-const STATUS_COLOR = { open: "var(--accent)", new: "var(--accent)", triaged: "var(--info)", assigned: "var(--info)", in_progress: "var(--info)", remediated: "var(--ok)", verified: "var(--ok)", closed: "var(--ok)", false_positive: "var(--warn)", accepted_risk: "var(--warn)", suppressed: "var(--warn)", reopened: "var(--accent)" };
+const STATUS_COLOR = { open: "var(--danger)", new: "var(--danger)", triaged: "var(--info)", assigned: "var(--info)", in_progress: "var(--info)", remediated: "var(--ok)", verified: "var(--ok)", closed: "var(--ok)", false_positive: "var(--warn)", accepted_risk: "var(--warn)", suppressed: "var(--warn)", reopened: "var(--danger)" };
 
 const NAV = [
-  ["Command Center", [["home", "Home"], ["overview", "Overview"], ["posture", "Security Posture"], ["intelligence", "Intelligence Dashboard"]]],
-  ["Detection", [["findings", "Findings"], ["vulnerabilities", "Vulnerabilities / Exposures"], ["sources", "Detection Sources"], ["rules", "Detection Rules"], ["playground", "Detection Playground"], ["scans", "Scan Management"]]],
+  ["Command Center", [["home", "Home"], ["overview", "Overview"], ["my-assignments", "My Workspace"], ["posture", "Security Posture"], ["intelligence", "Intelligence Dashboard"]]],
+  ["Detection", [["findings", "Findings Queue"], ["closed-reports", "Closed Findings"], ["vulnerabilities", "Vulnerabilities / Exposures"], ["sources", "Detection Sources"], ["rules", "Detection Rules"], ["playground", "Detection Playground"], ["scans", "Scan Management"]]],
   ["Attack Surface", [["repositories", "Repository Security"], ["developer", "Developer Security"], ["cloud", "Cloud Security"], ["cicd", "CI/CD Security"], ["saas", "SaaS Security"], ["assets", "Asset Inventory"], ["technologies", "Technologies"], ["groups", "Groups"]]],
-  ["Response", [["remediation", "Remediation Center"], ["alerts", "Security Alerts"], ["investigations", "Investigation Center"], ["exceptions", "Exception Management"]]],
+  ["Response", [["assignments", "Employee Operations"], ["remediation", "Remediation Center"], ["alerts", "Security Alerts"], ["investigations", "Investigation Center"], ["exceptions", "Exception Management"]]],
   ["Collaboration", [["hubs", "Hubs"]]],
   ["Operations", [["architecture", "Architecture"], ["workers", "Workers & Agents"], ["agents", "AI Agents"], ["mcp", "MCP"], ["tools", "Tools & Connectors"], ["integrations", "Integrations"], ["jobs", "Job Registry"], ["logs", "System Logs"], ["audit", "Activity & Audit"], ["health", "System Health"]]],
   ["Governance", [["reports", "Reports"], ["compliance", "Compliance"], ["access", "Access Management"], ["settings", "Settings"]]],
@@ -65,6 +65,8 @@ const HELP = {
   tools: ["Registered detectors, surface adapters, integrations and playbooks.", "Teams need one inventory of what can scan, connect and remediate.", "Aggregates detectors, surfaces, SENTRIX Connect providers and remediation playbooks.", "detector registry + surfaces + integrations + playbooks.", "sentrix.server /api/tools.", "config, detectors, integrations.", "Review coverage and enable the right connectors/playbooks.", "Availability reflects configured state; some connectors require credentials."],
   technologies: ["Technologies and detection families derived from findings.", "Attack-surface prioritization improves when exposures are grouped by technology/family.", "Groups findings by detector family/category and affected assets/surfaces.", "findings.meta + detector_id.", "sentrix.server /api/technologies.", "findings.", "Pivot by family/category and focus on high-impact technologies.", "Derived inventory; enriches as scans and integrations produce findings."],
   groups: ["Asset and exposure groups by key dimensions.", "Grouping reduces noise and highlights concentration.", "Groups findings by surface, environment, owner and severity with asset counts.", "findings + metadata.", "sentrix.server /api/groups.", "findings, finding_extra.", "Use groups to assign owners and prioritize remediation.", "Derived from recorded findings and metadata."],
+  assignments: ["Intelligent assignment, workload balancing and SLA accountability for every finding.", "Every finding must have a clear, explainable ownership path.", "Uses the assignment engine (severity, domain, skills, RBAC/eligibility, workload, availability) with primary owner + secondary reviewer, assignment lifecycle, SLAs and audit history.", "finding_assignments, assignment_history, employee_profiles, findings.", "sentrix.core.assignment + /api/assignment/*.", "employee_profiles, finding_assignments, assignment_history, findings, audit.", "Review queues, auto/manual/recommended assignment, acknowledge, reassign, monitor SLA/workload.", "Assignment status is separate from finding lifecycle; admins can override with a mandatory reason."],
+  "my-assignments": ["Your personal assignment workspace.", "Assignees need one place for owned work, acknowledgements and reviews.", "Shows findings assigned to you (primary owner) and review requests (secondary reviewer) with SLA/ack status.", "/api/assignment/my + finding_assignments.", "sentrix.server /api/assignment/my.", "finding_assignments, findings.", "Acknowledge, start, report blockers, complete, and handle review requests.", "Read-only roles remain read-only; you cannot modify others' assignments unless authorized."],
   settings: ["Profile, alerting policy and data operations.", "Administrators need one governed place for platform policy.", "Password change, channel rules, retention purge, vacuum, backup, exports and demo reset.", "config + users + alert_rules + storage.", "sentrix.auth + sentrix.alerting.router + sentrix.core.extensions.", "users, alert_rules, migrations, report_history.", "Change password, tune rules, purge, backup, reset demo.", "Destructive operations require confirmation and are audited."],
 };
 
@@ -196,6 +198,50 @@ const rel = (iso) => {
 const riskbar = (r) => r ? `<span class="riskbar" title="Explainable risk score ${r.score}/100 (${r.band})"><span class="track"><span class="fill" style="width:${r.score}%;background:${SEV_COLOR[r.band] || "var(--accent)"}"></span></span><span class="rv">${r.score}</span></span>` : "-";
 const skeleton = () => `<div class="skrow"><div class="skel" style="width:32%;height:64px"></div><div class="skel" style="width:32%;height:64px"></div><div class="skel" style="width:32%;height:64px"></div></div><div class="skel" style="width:100%;height:180px"></div>`;
 const empty = (t, s) => `<div class="empty">${icon("box", 26)}<div class="etitle">${esc(t)}</div><div class="esub">${esc(s)}</div></div>`;
+
+const HELP_SPEC = {
+  auto_assignment: {title:"Automatic Assignment", what:"SENTRIX evaluates severity, technical domain, role/eligibility, skills, workload, availability and ownership context to select an appropriate owner.", solves:"Routes findings quickly to accountable, capable owners.", how:"The engine scores eligible employees and generates an explanation; primary owner (and reviewer for critical/high when appropriate) is assigned.", who:"Authorized workflow/admin actions; results follow RBAC.", action:"Review the explanation; admins may override with a mandatory reason.", example:"An exposed AWS credential is routed to an eligible cloud/incident-response owner, not to a developer by default."},
+  primary_owner: {title:"Primary Owner", what:"Accountable for investigation and remediation coordination.", solves:"Clear ownership for every finding.", how:"Receives notifications, must acknowledge, and progresses assignment status.", who:"Set by auto/manual assignment (authorized).", action:"Acknowledge, investigate, remediate, and submit for verification."},
+  secondary_reviewer: {title:"Secondary Reviewer", what:"Provides oversight or independent verification.", solves:"Quality control for sensitive remediation.", how:"Reviews evidence and can request more investigation; does not automatically inherit primary permissions.", who:"Assigned for critical/high or by admin.", action:"Review evidence and verify or request changes."},
+  workload: {title:"Workload", what:"Severity-weighted active assignment load versus employee capacity.", solves:"Prevents overload and highlights risk concentration.", how:"Calculated from active assigned findings (critical weighs more than informational).", who:"Visible in Team Workload & Assignment per RBAC.", action:"Rebalance assignments or adjust capacity/availability."},
+  sla: {title:"SLA", what:"Configurable acknowledgement and remediation deadlines by severity.", solves:"Makes response expectations measurable.", how:"Due dates set at assignment; breaches shown as overdue/escalations and audited/notified.", who:"Configured by admins; visible to assignees/managers.", action:"Act before due dates; escalate blockers with reason."},
+  acknowledgement: {title:"Acknowledgement", what:"Owner confirms responsibility for an assignment.", solves:"Prevents silent drops.", how:"Timestamp recorded; ack SLA tracked.", who:"Primary owner or authorized admin.", action:"Acknowledge promptly, especially critical/high."},
+  reassignment: {title:"Reassignment", what:"Ownership/reviewer change with recorded reason.", solves:"Handles availability, mismatch, or overload.", how:"Authorized reassignment notifies parties and preserves history.", who:"Admins/authorized managers; employees may request reassignment.", action:"Provide a clear reason and choose an eligible owner."},
+  escalation: {title:"Escalation", what:"Attention path when SLAs breach or risk is high.", solves:"Stalled critical work is surfaced.", how:"Overdue/breach indicators and notifications/logs are generated.", who:"Admins and assignees per policy.", action:"Acknowledge, remediate, or reassign with blocker context."},
+  override: {title:"Admin Override", what:"Administrator changes an assignment decision.", solves:"Allows expert judgment.", how:"Requires a mandatory reason and is audited.", who:"Administrators.", action:"Document why override is necessary."},
+};
+let _HELP_REG = null;
+async function getHelpRegistry(){ if(_HELP_REG) return _HELP_REG; try{ _HELP_REG = await api('/api/help'); }catch(e){ _HELP_REG = HELP_SPEC; } return _HELP_REG; }
+function showHelp(key){
+  const close = () => { const p=$("#help-pop"); if(p) p.remove(); };
+  close();
+  (async()=>{
+    const reg = await getHelpRegistry();
+    const item = (reg && reg[key]) || (reg && reg[key.replace(/-/g,'_')]) || HELP_SPEC[key] || HELP_SPEC[key.replace(/-/g,'_')];
+    const legacy = HELP[key];
+    let body = '';
+    if (item && item.what){
+      body = `<div class="help-spec"><p><strong>What it means</strong><br>${esc(item.what)}</p><p><strong>Problem it solves</strong><br>${esc(item.solves||'')}</p><p><strong>How it works</strong><br>${esc(item.how||'')}</p><p><strong>Who can use it</strong><br>${esc(item.who||'')}</p><p><strong>What to do</strong><br>${esc(item.action||'')}</p>${item.example?`<p><strong>Example</strong><br>${esc(item.example)}</p>`:''}</div>`;
+    } else if (legacy) {
+      body = `<ul>${legacy.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+    } else { body = `<p>${esc(key.replace(/_/g,' '))}</p>`; }
+    const pop = document.createElement('div'); pop.id='help-pop'; pop.className='popover help-pop';
+    pop.innerHTML = `<div class="pophead"><strong>${esc((item&&item.title)||key.replace(/[_-]/g,' '))}</strong><button class="iconbtn" id="help-close" aria-label="Close">×</button></div><div class="popbody">${body}</div>`;
+    document.body.appendChild(pop);
+    const btn = document.querySelector(`[data-help="${key}"]`);
+    const r = btn ? btn.getBoundingClientRect() : {top:80,left:80,bottom:100};
+    pop.style.position='fixed'; pop.style.top = Math.min(window.innerHeight-320, r.bottom+6)+'px'; pop.style.left = Math.min(window.innerWidth-380, Math.max(8,r.left))+'px'; pop.style.maxWidth='360px'; pop.style.zIndex='9999';
+    $("#help-close", pop).onclick = close;
+    setTimeout(()=>document.addEventListener('click', function h(e){ if(!pop.contains(e.target) && !(e.target.closest&&e.target.closest('[data-help]'))) { pop.remove(); document.removeEventListener('click',h); } }),0);
+    document.addEventListener('keydown', function k(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown',k);} });
+  })();
+}
+document.addEventListener('click', (e)=>{ const b=e.target.closest&&e.target.closest('[data-help]'); if(b){ e.preventDefault(); e.stopPropagation(); showHelp(b.dataset.help); } });
+
+function canManageAssignments(){ return state.user && ['super_admin','security_admin','security_analyst','appsec_engineer','devsecops_engineer'].includes(state.user.role); }
+function isAssignmentAdmin(){ return state.user && ['super_admin','security_admin'].includes(state.user.role); }
+
+
 const pagehead = (title, sub, actions = "", iconHtml = "") => `<div class="pagehead"><div><h1>${iconHtml} ${esc(title)} ${helpbtn(state.view)}</h1><div class="sub">${esc(sub)}</div></div><div class="actions">${actions}</div></div>`;
 const panel = (title, body, actions = "", flush = false) => `<section class="panel"><div class="phead"><span class="ptitle">${title}</span>${actions}</div><div class="pbody${flush ? " flush" : ""}">${body}</div></section>`;
 
@@ -344,8 +390,8 @@ async function renderOverview(opts = {}) {
   const stageLogs = stage ? (await api(`/api/logs?limit=6&source=${encodeURIComponent(stage.logs_source)}`).catch(() => ({ logs: [] }))).logs : [];
   state.pipelineStages = p.stages;
   $("#main").innerHTML = pagehead("Overview", "Organization-wide exposure and the live detection pipeline.",
-    canWrite() ? `<button class="btn sm" id="ov-demo">Load demo</button><button class="btn sm ghost" id="ov-reset">Reset demo</button>` : "") +
-    (o.demo ? `<div class="banner"><span class="chip st-triaged">DEMO</span> Synthetic demonstration records are active. They are labeled and isolated from production use.</div>` : "") +
+    canWrite() ? `<button class="btn sm" id="ov-demo">Load demo again</button><button class="btn sm ghost" id="ov-reset">Reload data</button>` : "") +
+    (o.demo ? `<div class="banner"><span class="chip st-triaged">DEMO</span> Synthetic demonstration records are active. They are labeled and isolated from production use. Use <strong>Load demo again</strong> / <strong>Reload data</strong> to reset assignments, employee workloads, and demo findings to the current demo state.</div>` : "") +
     `<div class="kpi-strip">
       <a class="kpi-card" href="#/findings?status=open"><div class="kv">${o.unresolved}</div><div class="kl">Open Findings</div></a>
       <a class="kpi-card t-crit" href="#/findings?severity=critical"><div class="kv">${o.critical + o.high}</div><div class="kl">Critical &amp; High</div></a>
@@ -387,8 +433,14 @@ async function renderOverview(opts = {}) {
       setTimeout(() => { const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== btn) { pop.remove(); document.removeEventListener("click", off); } }; document.addEventListener("click", off); }, 0);
     };
   });
-  const demo = $("#ov-demo"); if (demo) demo.onclick = async () => { await api("/api/demo", { method: "POST", body: {} }); toast("Demo data loaded", "ok"); renderOverview(); };
-  const reset = $("#ov-reset"); if (reset) reset.onclick = () => confirmModal("Reset demo data", "Close existing demo findings and reseed a fresh synthetic set.", async () => { const r = await api("/api/demo/reset", { method: "POST", body: {} }); toast(`Demo reset: ${r.seeded} seeded`, "ok"); renderOverview(); }, "Reset");
+  const doFullDemoReset = async (label) => {
+    if (typeof _asnTeamCache !== 'undefined') _asnTeamCache = null;
+    const r = await api("/api/demo/reset", { method: "POST", body: {} });
+    toast(`${label || 'Demo reset'}: assignments, employee workloads and demo data reset to current state (${r.seeded||0} seeded)`, "ok");
+    renderOverview();
+  };
+  const demo = $("#ov-demo"); if (demo) demo.onclick = () => confirmModal("Load demo again", "Reset EVERY employee assignment, workload/profile state, assignment history, and demo findings back to the current demo state for all users. Continue?", () => doFullDemoReset("Loaded demo"), "Load demo again");
+  const reset = $("#ov-reset"); if (reset) reset.onclick = () => confirmModal("Reload data", "Reset EVERY employee assignment, workload/profile state, assignment history, and demo findings back to the current demo state for all users. Continue?", () => doFullDemoReset("Data reloaded"), "Reload data");
   if (opts.soft) {
     window.scrollTo(0, scrollY);
     if (focusStage) $(`#pipeline-slot [data-stage="${focusStage}"]`)?.focus({ preventScroll: true });
@@ -471,71 +523,54 @@ async function renderIntelligence() {
 
 const DEFAULT_COLS = ["id", "type", "severity", "confidence", "validation", "source", "asset", "environment", "owner", "first", "last", "status"];
 async function renderFindings() {
-  const f = state.filters;
-  const params = new URLSearchParams({ sort: state.sort, page: state.page, page_size: state.pageSize });
+  const f = state.filters || (state.filters = {});
+  if (state.findingTab === undefined) state.findingTab = 'all';
+  const params = new URLSearchParams({ sort: state.sort||'created', page: state.page||1, page_size: state.pageSize||50 });
+  if (state.findingTab && state.findingTab !== 'all') params.set('tab', state.findingTab);
   for (const [k, v] of Object.entries(f)) if (v) params.set(k, v);
-  const [data, saved] = await Promise.all([api(`/api/findings?${params}`), api("/api/filters")]);
-  if (!state.cols) { try { state.cols = JSON.parse(localStorage.getItem("sx.cols")) || DEFAULT_COLS.slice(); } catch { state.cols = DEFAULT_COLS.slice(); } }
-  const cols = state.cols;
-  const pages = Math.max(1, Math.ceil(data.total / state.pageSize));
-  const cell = (r, c) => ({
-    id: `<span class="mono">${esc(r.id)}</span>`,
-    type: `${esc(r.title)}<span class="cellsub">${esc(r.detector_id)}</span>`,
-    severity: sevChip(r.severity_override || r.severity),
-    confidence: `<span class="mono" title="Detection confidence">${Math.round((r.confidence || 0.6) * 100)}%</span>`,
-    validation: `<span class="chip ${r.validation === "format_validated" ? "st-remediated" : "neutral"}" title="Validation status">${esc((r.validation || "pattern_match").replace(/_/g, " "))}</span>`,
-    source: esc(SLABEL[r.surface] || r.surface),
-    asset: `<span class="mono truncate" title="${esc(r.path)}">${esc(r.path)}:${r.line}</span>`,
-    environment: esc(r.environment || "unknown"),
-    owner: esc(r.assignee || r.owner || "-"),
-    first: `<span title="${utc(r.created_at)}">${rel(r.created_at)}</span>`,
-    last: `<span title="${utc(r.last_seen)}">${rel(r.last_seen)}</span>`,
-    status: stChip(r.status),
-  }[c]);
-  $("#main").innerHTML = pagehead("Findings", "The exposure center: investigate, assign and remediate detections.",
-    `<a class="btn sm" href="/api/export?format=csv">${icon("download")} CSV</a>`) +
-    `<section class="panel"><div class="toolbar">
-      <input class="input grow" id="f-q" placeholder="Search id, title, path, detector" value="${esc(f.q)}">
-      ${["severity", "surface", "status", "environment", "validation"].map((k) => `<select class="input" id="f-${k}" aria-label="${k}"><option value="">All ${k}</option>${(k === "severity" ? SEVS : k === "surface" ? SURFACES : k === "status" ? FINDING_ALL_STATES : k === "environment" ? ["production", "non-production", "unknown"] : ["format_validated", "pattern_match"]).map((v) => `<option value="${v}" ${f[k] === v ? "selected" : ""}>${v.replace(/_/g, " ")}</option>`).join("")}</select>`).join("")}
-      <select class="input" id="f-sort" aria-label="Sort">${["created", "severity", "occurrences", "pinned"].map((s) => `<option ${state.sort === s ? "selected" : ""}>${s}</option>`).join("")}</select>
-      <select class="input" id="f-saved" aria-label="Saved filters"><option value="">Saved views</option>${saved.filters.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("")}</select>
-      ${canWrite() ? '<button class="btn sm ghost" id="f-save">Save view</button>' : ""}
-      <button class="btn sm ghost" id="f-cols">Columns</button>
-    </div>
-    ${state.selection.size ? `<div class="bulkbar"><strong>${state.selection.size} selected</strong><select class="input" id="b-status"><option value="">Set status…</option>${LIFE.concat(FINDING_EXCEPTION_STATES).map((s) => `<option>${s}</option>`).join("")}</select><button class="btn sm" id="b-apply">Apply</button><button class="btn sm" id="b-allow">Allowlist</button><input class="input" id="b-assign" placeholder="Assignee"><button class="btn sm" id="b-assign-btn">Assign</button><input class="input" id="b-tag" placeholder="Tag"><button class="btn sm" id="b-tag-btn">Tag</button><button class="btn sm ghost" id="b-clear">Clear</button></div>` : ""}
-    <div class="twrap cardwrap"><table class="tbl cards"><thead><tr>${canWrite() ? '<th></th>' : ""}${cols.map((c) => `<th class="${["first", "last"].includes(c) ? "" : ""}">${c}</th>`).join("")}</tr></thead>
-    <tbody>${data.findings.map((r) => `<tr class="clickable ${state.selection.has(r.id) ? "selected" : ""}" data-open="${esc(r.id)}">${canWrite() ? `<td data-th="select"><input type="checkbox" data-select="${esc(r.id)}" ${state.selection.has(r.id) ? "checked" : ""} aria-label="Select"></td>` : ""}${cols.map((c) => `<td data-th="${c}">${cell(r, c)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length + 1}">${empty("No findings match", "Adjust filters or run a scan.")}</td></tr>`}</tbody></table></div>
-    <div class="pager"><button class="btn sm ghost" id="pg-prev" ${state.page <= 1 ? "disabled" : ""}>Prev</button><span class="spacer"></span><span>Page ${data.page} of ${pages} · ${data.total} findings</span><span class="spacer"></span><button class="btn sm ghost" id="pg-next" ${state.page >= pages ? "disabled" : ""}>Next</button></div></section>`;
-  const rerender = () => { state.page = 1; renderFindings(); };
-  $("#f-q").oninput = (e) => { clearTimeout(state.qt); state.qt = setTimeout(() => { f.q = e.target.value.trim(); rerender(); }, 300); };
-  for (const k of ["severity", "surface", "status", "environment", "validation"]) $(`#f-${k}`).onchange = (e) => { f[k] = e.target.value; rerender(); };
-  $("#f-sort").onchange = (e) => { state.sort = e.target.value; rerender(); };
-  $("#pg-prev").onclick = () => { state.page--; renderFindings(); };
-  $("#pg-next").onclick = () => { state.page++; renderFindings(); };
-  $("#f-saved").onchange = (e) => { const x = saved.filters.find((y) => y.id === e.target.value); if (x) { Object.assign(f, x.params); rerender(); } };
-  const sv = $("#f-save"); if (sv) sv.onclick = () => { const name = prompt("View name:"); if (name) api("/api/filters", { method: "POST", body: { name, params: f } }).then(() => { toast("View saved", "ok"); renderFindings(); }); };
-  $("#f-cols").onclick = (e) => {
-    closeOverlays("popover");
-    const pop = document.createElement("div"); pop.className = "popover";
-    pop.innerHTML = `<div class="pophead">Columns</div>` + DEFAULT_COLS.map((c) => `<label class="popitem"><input type="checkbox" data-col="${c}" ${cols.includes(c) ? "checked" : ""}> ${c}</label>`).join("");
-    $("#overlays").appendChild(pop);
-    const r = e.target.getBoundingClientRect();
-    pop.style.top = `${r.bottom + 6}px`; pop.style.left = `${Math.max(8, r.left - 180)}px`;
-    $$("[data-col]", pop).forEach((cb) => (cb.onchange = () => {
-      state.cols = cb.checked ? [...cols, cb.dataset.col] : cols.filter((c) => c !== cb.dataset.col);
-      try { localStorage.setItem("sx.cols", JSON.stringify(state.cols)); } catch {}
-      renderFindings();
-    }));
+  const data = await api(`/api/findings?${params}`);
+  const s = data.summary || {};
+  const pages = Math.max(1, Math.ceil((data.total||0) / (state.pageSize||50)));
+  const tabs = [['all','All'],['awaiting_assignment','Awaiting Assignment'],['primary_assessment','Primary Assessment'],['secondary_review','Secondary Review'],['admin_review','Awaiting Admin Review'],['remediation_pending','Remediation Pending'],['verification_pending','Verification Pending'],['closed','Closed']];
+  const metrics = [['New Findings',s.new],['Awaiting Assignment',s.awaiting_assignment],['Primary Assessment',s.primary_assessment],['Secondary Review',s.secondary_review],['Awaiting Admin Review',s.awaiting_admin_review],['Remediation Pending',s.remediation_pending],['Verification Pending',s.verification_pending],['Closed',s.closed]].map(([l,v])=>`<div class="kpi-card"><div class="kv">${v??0}</div><div class="kl">${esc(l)}</div></div>`).join('');
+  const stageChip = (wf) => {
+    const st = wf && wf.stage ? wf.stage : 'New';
+    const cls = {New:'neutral',Assigned:'st-triaged','Primary Review':'st-in_progress','Secondary Review':'st-in_progress','Admin Review':'st-triaged',Remediation:'st-in_progress',Verification:'st-remediated',Closed:'st-remediated'}[st]||'neutral';
+    return `<span class="chip ${cls}">${esc(st)}</span>`;
   };
-  $$("[data-select]").forEach((cb) => (cb.onclick = (e) => e.stopPropagation()));
-  $$("[data-select]").forEach((cb) => (cb.onchange = () => { cb.checked ? state.selection.add(cb.dataset.select) : state.selection.delete(cb.dataset.select); renderFindings(); }));
-  const ids = [...state.selection];
-  const bulk = (action, value) => api("/api/bulk", { method: "POST", body: { ids, action, value } }).then(() => { state.selection.clear(); toast(`Bulk ${action} applied`, "ok"); renderFindings(); });
-  const ba = $("#b-apply"); if (ba) ba.onclick = () => { const v = $("#b-status").value; if (v) bulk("status", v); };
-  const bl = $("#b-allow"); if (bl) bl.onclick = () => confirmModal("Allowlist selected", "Register fingerprints and mark false positive.", () => bulk("allowlist", "bulk"));
-  const bs = $("#b-assign-btn"); if (bs) bs.onclick = () => bulk("assign", $("#b-assign").value.trim());
-  const bt = $("#b-tag-btn"); if (bt) bt.onclick = () => bulk("tag", $("#b-tag").value.trim());
-  const bc = $("#b-clear"); if (bc) bc.onclick = () => { state.selection.clear(); renderFindings(); };
+  const rows = (data.findings||[]).map(r=>{
+    const wf = r.workflow || {};
+    const labels = (r.status_labels||wf.status_labels||[]).map(x=>`<span class="chip neutral" style="margin-left:4px;font-size:10px">${esc(x)}</span>`).join('');
+    return `<tr class="clickable" data-open="${esc(r.id)}">
+      <td class="mono">${esc(r.id)}</td>
+      <td>${esc(r.title)}<div class="cellsub">${esc(r.category||r.detector_id||'')}</div></td>
+      <td>${sevChip(r.severity_override||r.severity)}</td>
+      <td>${esc(r.category||'-')}</td>
+      <td>${esc(SLABEL[r.detection_source||r.surface]||r.detection_source||r.surface||'-')}</td>
+      <td class="mono truncate" title="${esc(r.path||'')}">${esc(r.path||'-')}${r.line?':'+r.line:''}</td>
+      <td>${stageChip(wf)}<div class="cellsub">${labels||'&nbsp;'}</div></td>
+      <td>${esc(r.primary_assignee||'-')}</td>
+      <td>${esc(r.secondary_assignee||'-')}</td>
+      <td><span title="${utc(r.created_at)}">${rel(r.created_at)}</span></td>
+      <td>${r.sla_status==='breached'?'<span class="chip st-false_positive">Breached</span>':(r.sla_status==='ok'?'<span class="chip st-remediated">OK</span>':'-')}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="11">${empty('No findings match','Adjust filters or run a scan.')}</td></tr>`;
+  $("#main").innerHTML = pagehead('Findings', 'Central findings queue — simple workflow: assign, primary assessment, secondary review, admin decision, verification.',
+      `<a class="btn sm" href="/api/export?format=csv">${icon('download')} CSV</a>`) +
+    `<div class="kpi-strip" style="margin-bottom:12px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">${metrics}</div>` +
+    `<section class="panel"><div class="toolbar" style="flex-wrap:wrap;gap:8px">
+      <div class="tabs" style="display:flex;flex-wrap:wrap;gap:6px;width:100%">${tabs.map(([k,l])=>`<button class="btn sm ${state.findingTab===k?'primary':'ghost'}" data-ftab="${k}">${l} ${s[k]!==undefined?`(${s[k]})`:''}</button>`).join('')}</div>
+      <input class="input grow" id="f-q" placeholder="Search finding" value="${esc(f.q||'')}">
+      <select class="input" id="f-severity"><option value="">All severity</option>${SEVS.map(v=>`<option value="${v}" ${f.severity===v?'selected':''}>${v}</option>`).join('')}</select>
+    </div>
+    <div class="twrap cardwrap"><table class="tbl cards"><thead><tr><th>ID</th><th>Finding</th><th>Severity</th><th>Category</th><th>Source</th><th>Asset</th><th>Current stage</th><th>Primary</th><th>Secondary</th><th>Detected</th><th>SLA</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="pager"><button class="btn sm ghost" id="pg-prev" ${state.page<=1?'disabled':''}>Prev</button><span class="spacer"></span><span>Page ${data.page||1} of ${pages} · ${data.total||0} findings</span><span class="spacer"></span><button class="btn sm ghost" id="pg-next" ${state.page>=pages?'disabled':''}>Next</button></div></section>`;
+  const rerender = ()=>{ state.page=1; renderFindings(); };
+  $$('[data-ftab]').forEach(b=>b.onclick=()=>{ state.findingTab=b.dataset.ftab; state.page=1; renderFindings(); });
+  const q=$('#f-q'); if(q) q.oninput=(e)=>{ clearTimeout(state.qt); state.qt=setTimeout(()=>{ f.q=e.target.value.trim(); rerender(); },300); };
+  const sev=$('#f-severity'); if(sev) sev.onchange=(e)=>{ f.severity=e.target.value; rerender(); };
+  const pp=$('#pg-prev'); if(pp) pp.onclick=()=>{ state.page--; renderFindings(); };
+  const pn=$('#pg-next'); if(pn) pn.onclick=()=>{ state.page++; renderFindings(); };
   bindOpeners();
 }
 
@@ -818,11 +853,11 @@ async function renderSettings() {
     body.innerHTML = panel("Data operations", `<dl class="kv"><dt>Database</dt><dd>${(ops.db_bytes / 1024).toFixed(1)} KiB</dd><dt>Jobs</dt><dd>${ops.jobs}</dd><dt>Schedules</dt><dd>${ops.schedules}</dd><dt>Users</dt><dd>${ops.users}</dd></dl>
       <div class="formrow" style="margin-top:12px"><a class="btn" href="/api/export?format=csv">Export CSV</a><a class="btn" href="/api/export?format=json">Export JSON</a>${isAdmin() ? `<button class="btn" id="do-backup">Backup</button><button class="btn ghost" id="do-vacuum">Vacuum</button>` : ""}</div>
       ${isAdmin() ? `<div class="formrow" style="margin-top:10px"><div class="field"><input class="input" id="do-days" type="number" value="90" min="1"></div><button class="btn danger" id="do-purge">Purge closed findings older than (days)</button></div>` : ""}
-      ${canWrite() ? `<div class="formrow" style="margin-top:10px"><button class="btn ghost" id="do-demo">Reset demo data</button></div>` : ""}`);
+      ${canWrite() ? `<div class="formrow" style="margin-top:10px"><button class="btn ghost" id="do-demo">Load demo again (reset all employee/demo data)</button></div>` : ""}`);
     const b = $("#do-backup"); if (b) b.onclick = async () => { const r = await api("/api/ops/backup", { method: "POST", body: {} }); toast(`Backup: ${r.path}`, "ok"); };
     const v = $("#do-vacuum"); if (v) v.onclick = async () => { await api("/api/ops/vacuum", { method: "POST", body: {} }); toast("Vacuum complete", "ok"); };
     const p = $("#do-purge"); if (p) p.onclick = () => confirmModal("Purge closed findings", "Removes remediated/false-positive findings older than the given days.", async () => { const r = await api("/api/ops/purge", { method: "POST", body: { days: +$("#do-days").value || 90 } }); toast(`Purged ${r.removed}`, "ok"); }, "Purge");
-    const dm = $("#do-demo"); if (dm) dm.onclick = () => confirmModal("Reset demo", "Close and reseed synthetic demo records.", async () => { await api("/api/demo/reset", { method: "POST", body: {} }); toast("Demo reset", "ok"); }, "Reset");
+    const dm = $("#do-demo"); if (dm) dm.onclick = () => confirmModal("Load demo again", "Reset EVERY employee assignment, workload/profile state, assignment history, and demo findings back to the current demo state for all users. Continue?", async () => { if (typeof _asnTeamCache !== 'undefined') _asnTeamCache = null; await api("/api/demo/reset", { method: "POST", body: {} }); toast("Demo data and all employee/assignment state reset to current demo state", "ok"); }, "Load demo again");
   } else {
     const cfg = await api("/api/config");
     const h = await api("/api/health");
@@ -856,42 +891,134 @@ async function loadDrawer() {
   const id = state.drawerId;
   if (!id) return;
   const d = await api(`/api/findings/${id}`);
-  const f = d.finding, ex = d.extra;
-  const tabs = [["overview", "Overview"], ["risk", "Risk"], ["evidence", "Evidence"], ["notes", "Notes"], ["history", "History"], ["checklist", "Checklist"]];
-  const lifeIdx = LIFE.indexOf(f.status === "open" ? "new" : f.status);
-  const body = {
-    overview: `<div class="dsect"><h3>Finding</h3><dl class="kv"><dt>ID</dt><dd class="mono">${esc(f.id)}</dd><dt>Detector</dt><dd class="mono">${esc(f.detector_id)}</dd><dt>Source</dt><dd>${esc(SLABEL[f.surface] || f.surface)}</dd><dt>Asset</dt><dd class="mono">${esc(f.path)}:${f.line}</dd><dt>Environment</dt><dd>${esc(f.meta.environment || "unknown")}</dd><dt>Owner</dt><dd>${esc(f.owner || "-")}</dd><dt>First detected</dt><dd>${utc(ex.first_seen || f.created_at)}</dd><dt>Last observed</dt><dd>${utc(ex.last_seen || f.updated_at)}</dd><dt>Occurrences</dt><dd>${ex.occurrences}</dd></dl></div>
-      <div class="dsect"><h3>Lifecycle</h3><div class="life">${LIFE.map((s, i) => `${i ? '<span class="larrow">→</span>' : ""}<button class="lstep ${i === lifeIdx ? "current" : i < lifeIdx ? "past" : ""}" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div><div class="liferow">${FINDING_EXCEPTION_STATES.map((s) => `<button class="btn sm ghost" data-life="${s}" ${!canWrite() ? "disabled" : ""}>${s.replace(/_/g, " ")}</button>`).join("")}</div></div>
-      ${canWrite() ? `<div class="dsect"><h3>Management</h3><div class="formrow"><div class="field"><input class="input" id="d-assign" value="${esc(ex.assignee)}" placeholder="Assignee"></div><button class="btn sm" id="d-assign-btn">Assign</button><div class="field"><input class="input" id="d-tags" value="${esc(ex.tags.join(", "))}" placeholder="Tags"></div><button class="btn sm" id="d-tags-btn">Tags</button></div><div class="formrow" style="margin-top:8px"><button class="btn sm" id="d-allow">Allowlist</button><button class="btn sm ghost" id="d-mute">${ex.muted ? "Unmute" : "Mute"}</button><button class="btn sm ghost" id="d-pin">${ex.pinned ? "Unpin" : "Pin"}</button></div></div>` : ""}
-      <div class="dsect"><h3>Provenance · how did that get there?</h3><dl class="kv">${Object.entries(f.meta.origin || {}).map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(String(v))}</dd>`).join("") || "<dt>Origin</dt><dd>not recorded</dd>"}</dl></div>
-      <div class="dsect"><h3>Related findings</h3>${(await api(`/api/findings/${id}/related`)).findings.map((r) => `<div class="listrow clickable" data-open="${esc(r.id)}"><span class="grow">${esc(r.title)}<span class="cellsub mono">${esc(r.path)}:${r.line}</span></span>${sevChip(r.severity)}</div>`).join("") || '<p style="color:var(--faint);font-size:12px">No related findings.</p>'}</div>`,
-    risk: `<div class="dsect"><h3>Risk assessment</h3>${riskbar(f.meta.risk)}<p style="font-size:12px;color:var(--dim);margin-top:8px">Band: <strong>${esc(f.meta.risk?.band || "-")}</strong> · explainable heuristic, not confirmed credential validity.</p><ul style="margin-top:8px;padding-left:18px;font-size:12px;color:var(--dim);display:flex;flex-direction:column;gap:4px">${(f.meta.risk?.factors || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div><div class="dsect"><h3>Assisted triage</h3>${d.triage ? `<div class="okbox">${esc(d.triage.verdict.replace(/_/g, " "))} · ${Math.round(d.triage.confidence * 100)}% · ${esc(d.triage.source)}<br>${esc(d.triage.recommendation)}</div>` : '<p style="color:var(--faint);font-size:12px">No assessment yet.</p>'}${canWrite() ? '<button class="btn sm" id="d-triage" style="margin-top:8px">Run triage</button>' : ""}</div>`,
-    evidence: `<div class="dsect"><h3>Masked evidence</h3><pre class="codeblock evidence">${esc(f.secret_masked)}</pre><dl class="kv" style="margin-top:10px"><dt>Fingerprint</dt><dd class="mono">${esc(f.fingerprint)}</dd><dt>Entropy</dt><dd>${f.entropy} bits/char</dd><dt>Confidence</dt><dd>${Math.round((f.meta.confidence || 0.6) * 100)}%</dd><dt>Validation</dt><dd>${esc(f.meta.validation || "pattern_match")}</dd></dl><p style="color:var(--faint);font-size:11.5px;margin-top:8px">Raw values are never stored or returned.</p></div>`,
-    notes: `<div class="dsect"><h3>Investigation notes</h3>${d.notes.map((n) => `<div class="feeditem"><span class="ficon">${icon("doc")}</span><div class="fbody"><div class="ftext">${esc(n.body)}</div><div class="fmeta"><span>${esc(n.username)}</span><span>${utc(n.ts)}</span></div></div></div>`).join("") || '<p style="color:var(--faint);font-size:12px">No notes.</p>'}${canWrite() ? `<div class="field" style="margin-top:10px"><textarea class="input" id="d-note" rows="3" placeholder="Add note"></textarea></div><button class="btn sm" id="d-note-btn">Add note</button>` : ""}</div>`,
-    history: `<div class="dsect"><h3>Audit history</h3><div class="feed">${d.history.map((h) => `<div class="feeditem"><span class="ficon">${icon("clock")}</span><div class="fbody"><div class="ftext">${esc(h.old)} → ${esc(h.new)}</div><div class="fmeta"><span>${esc(h.username)}</span><span>${utc(h.ts)}</span></div></div></div>`).join("") || '<p style="color:var(--faint);font-size:12px">No transitions recorded.</p>'}</div></div><div class="dsect"><h3>Remediation log</h3><div class="feed">${d.remediations.map((r) => `<div class="feeditem"><span class="ficon">${icon("wrench")}</span><div class="fbody"><div class="ftext">${esc(r.action)}</div><div class="fmeta"><span>${esc(r.detail)}</span><span>${utc(r.ts)}</span></div></div></div>`).join("") || '<p style="color:var(--faint);font-size:12px">No remediation actions.</p>'}</div></div>`,
-    checklist: `<div class="dsect"><h3>Remediation checklist</h3>${["Rotate the credential at its provider", "Remove the exposure from the source", "Purge from history, docs and chat", "Update consumers to the replacement", "Re-scan and verify remediation"].map((s, i) => `<label class="ckitem ${d.checklist[i]?.done ? "done" : ""}"><input type="checkbox" data-step="${i}" ${d.checklist[i]?.done ? "checked" : ""} ${!canWrite() ? "disabled" : ""}><span><span class="cktext">${esc(s)}</span>${d.checklist[i]?.username ? `<span class="ckmeta">by ${esc(d.checklist[i].username)}</span>` : ""}</span></label>`).join("")}</div>${canWrite() ? `<div class="dsect"><h3>Actions</h3><div class="formrow">${["rotate-guide", "preview-redact", "redact", "quarantine", "restore", "ticket", "verify"].map((a) => `<button class="btn sm" data-rem="${a}">${a.replace(/-/g, " ")}</button>`).join("")}</div><div id="d-rem-out" style="margin-top:8px"></div></div>` : ""}`,
-  }[state.drawerTab];
-  $(".drawer").innerHTML = `<div class="dhead"><div style="min-width:0;flex:1"><div class="dtitle">${esc(f.title)}</div><div class="dsub">${sevChip(f.severity)} ${stChip(f.status)} <span class="mono">${esc(f.id)}</span></div></div><button class="iconbtn" id="d-close" aria-label="Close">${icon("x")}</button></div><div class="dtabs">${tabs.map(([id2, label]) => `<button class="dtab ${state.drawerTab === id2 ? "active" : ""}" data-dtab="${id2}">${label}</button>`).join("")}</div><div class="dbody">${body}</div>`;
+  const f = d.finding, ex = d.extra || {};
+  const asn = d.assignment || {};
+  const asH = d.assignment_history || [];
+  const wf = d.workflow || asn.workflow || {stage:'New', stages:['New','Assigned','Primary Review','Secondary Review','Admin Review','Remediation','Verification','Closed'], status_labels:[]};
+  const canManage = (typeof canManageAssignments==='function' && canManageAssignments());
+  const isAdmin = (typeof isAssignmentAdmin==='function' && isAssignmentAdmin()) || canManage;
+  const me = state.user && state.user.username;
+  const isPrimary = me && asn.primary_owner === me;
+  const isSecondary = me && asn.secondary_reviewer === me;
+  const meta = f.meta || {}; const origin = meta.origin || {};
+  const curStage = wf.stage || 'New';
+  const stages = wf.stages || ['New','Assigned','Primary Review','Secondary Review','Admin Review','Remediation','Verification','Closed'];
+  const si = stages.indexOf(curStage);
+  const stageBar = `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin:8px 0 10px">${stages.map((s,i)=>`<span class="chip ${i<si?'st-remediated':i===si?'st-in_progress':'neutral'}" style="opacity:${i<=si?1:.45};font-size:11px">${i<si?'✓ ':''}${esc(s)}</span>`).join('<span style="color:var(--faint)">→</span>')}</div>`;
+  const labels = (wf.status_labels||[]).map(x=>`<span class="chip neutral" style="margin-right:4px">${esc(x)}</span>`).join('');
+  const essential = `<div class="dsect"><h3>Finding</h3><dl class="kv"><dt>Finding ID</dt><dd class="mono">${esc(f.id)}</dd><dt>Severity</dt><dd>${sevChip(f.severity)}</dd><dt>Risk score</dt><dd>${Math.round(((meta.risk||{}).score)||0)}</dd><dt>Description</dt><dd>${esc(meta.description||f.title||'')}</dd><dt>Detection source</dt><dd>${esc(SLABEL[f.surface]||f.surface||'-')}</dd><dt>Affected asset</dt><dd class="mono">${esc(f.path||'-')}${f.line?':'+f.line:''}</dd><dt>Detection date</dt><dd>${utc(f.created_at)}</dd><dt>Current workflow stage</dt><dd><strong>${esc(curStage)}</strong> ${labels}</dd></dl>${stageBar}</div>`;
+
+  const assessBlock = (title, who, cls, reason, evidence, submitted) => submitted ? `<div class="dsect" style="border:1px solid var(--border);border-radius:10px;padding:10px"><h4 style="margin:0 0 6px">${esc(title)} — ${esc(who||'-')}</h4><dl class="kv"><dt>Classification / outcome</dt><dd><strong>${esc((cls||'').replace(/_/g,' ')||'-')}</strong></dd><dt>Submitted</dt><dd>${utc(submitted)}</dd></dl><div style="margin-top:8px"><div class="cellsub">Reasoning / notes</div><div style="font-size:12px;white-space:pre-wrap">${esc(reason||'-')}</div></div>${evidence?`<div style="margin-top:8px"><div class="cellsub">Evidence</div><div style="font-size:12px;white-space:pre-wrap">${esc(String(evidence).slice(0,1200))}</div></div>`:''}</div>` : `<div class="okbox">${esc(title)}: not submitted yet.</div>`;
+
+  let primaryAction = '';
+  if (curStage === 'New' || !asn.primary_owner) {
+    primaryAction = canManage ? `<div class="dsect"><button class="btn primary" id="wf-assign-open">Assign Finding</button></div>
+      <div class="dsect" id="wf-assign-form" style="display:none;border:1px solid var(--border);border-radius:10px;padding:10px">
+        <h4 style="margin:0 0 8px">Assign Primary & Secondary</h4>
+        <div id="as-picker-owner"></div>
+        <div class="formrow" style="margin-top:8px"><div class="field"><label class="cellsub">Primary Assignee</label><input class="input" id="as-owner" placeholder="Primary (click or type)"></div><div class="field"><label class="cellsub">Secondary Assignee</label><input class="input" id="as-reviewer" placeholder="Secondary (optional)"></div></div>
+        <div id="as-picker-reviewer"></div>
+        <div class="field" style="margin-top:8px"><label class="cellsub">Assignment instructions</label><input class="input" id="as-reason" placeholder="Instructions / deadline notes"></div>
+        <div class="formrow" style="margin-top:8px"><button class="btn primary" id="as-manual-btn">Confirm Assignment</button></div>
+      </div>` : `<div class="okbox">Awaiting admin assignment.</div>`;
+   } else if (curStage === 'Assigned' || curStage === 'Primary Review') {
+     // Employee flow: after admin assignment, the employee goes directly to assessment.
+     // There is no mandatory Acknowledge step blocking the review; acknowledgement is recorded automatically on submit.
+     if (isPrimary || isAdmin) {
+       if (!asn.primary_submitted_at) primaryAction = `<div class="dsect"><h4>Primary Assessment</h4><p class="cellsub">Severity ${esc(f.severity)} · Assigned by ${esc(asn.assigned_by||'Admin')}. Review evidence and classify.</p>
+         ${asn.assignment_instructions?`<div class="cellsub" style="margin:6px 0"><strong>Instructions:</strong> ${esc(asn.assignment_instructions)}</div>`:''}
+         <div class="formrow" style="margin:8px 0"><label><input type="radio" name="pclass" value="true_positive"> True Positive</label> <label style="margin-left:12px"><input type="radio" name="pclass" value="false_positive"> False Positive</label></div>
+         <div class="field"><label class="cellsub">Evidence / reason (optional)</label><textarea class="input" id="wf-primary-reason" rows="2" placeholder="Optional reason or evidence"></textarea></div>
+         <div class="formrow" style="margin-top:8px"><button class="btn primary" id="wf-primary-submit">Send to Secondary</button></div></div>`;
+       else primaryAction = `<div class="okbox">Primary assessment submitted (${esc((asn.primary_classification||'').replace(/_/g,' '))}). Read-only. Automatically routed to Secondary Review.</div>`;
+     } else if (isSecondary) {
+       primaryAction = `<div class="okbox">Awaiting Primary Assessment by ${esc(asn.primary_owner||'-')}.</div>`;
+     } else {
+       primaryAction = `<div class="okbox">Awaiting Primary Triage by ${esc(asn.primary_owner||'-')}.</div>`;
+     }
+   } else if (curStage === 'Secondary Review') {
+     if (isSecondary || isAdmin) {
+       if (!asn.secondary_submitted_at) primaryAction = `<div class="dsect"><h4>Secondary Triage Review</h4>
+         <div class="okbox" style="margin-bottom:8px;white-space:pre-wrap"><strong>Primary assessment:</strong> ${esc((asn.primary_classification||'').replace(/_/g,' '))}${asn.primary_submitted_at?` · submitted ${utc(asn.primary_submitted_at)}`:''}${asn.primary_reasoning?`<br><strong>Primary notes:</strong> ${esc(asn.primary_reasoning)}`:''}${asn.primary_evidence?`<br><strong>Primary evidence:</strong> ${esc(String(asn.primary_evidence).slice(0,600))}`:''}</div>
+         <p class="cellsub" style="margin-bottom:8px">Review independently and confirm True or False Positive.</p>
+         <div class="formrow" style="margin-bottom:8px;flex-wrap:wrap;gap:12px"><label><input type="radio" name="sclass" value="true_positive"> True Positive</label><label><input type="radio" name="sclass" value="false_positive"> False Positive</label></div>
+         <label class="cellsub" style="display:block;margin-bottom:8px"><input type="checkbox" id="wf-s-disagree"> I disagree with the Primary assessment (explain below)</label>
+         <div class="field"><label class="cellsub">Evidence / reason (optional)</label><textarea class="input" id="wf-secondary-reason" rows="2" placeholder="Optional reason or evidence"></textarea></div>
+         <div class="formrow" style="margin-top:8px"><button class="btn primary" id="wf-secondary-submit">Send to Admin</button></div></div>`;
+       else primaryAction = `<div class="okbox">Secondary Review complete (${esc((asn.secondary_outcome||'').replace(/_/g,' '))}). Awaiting Admin Final Review.</div>`;
+     } else primaryAction = `<div class="okbox">Awaiting Secondary Triage Review by ${esc(asn.secondary_reviewer||'-')}.</div>`;
+  } else if (curStage === 'Admin Review') {
+    const sClass = (asn.secondary_outcome||'').replace('disagree_','').replace('confirm_',''); const disagree = asn.primary_classification && (asn.secondary_outcome||'').startsWith('disagree') || (asn.primary_classification && sClass && ['true_positive','false_positive'].includes(sClass) && sClass!==asn.primary_classification);
+    const comparison = `<div class="dsect"><h3>Review comparison</h3>${disagree?'<div class="errbox" style="margin-bottom:8px">Assessments disagree — admin decision required.</div>':''}
+      <div class="twrap"><table class="tbl"><thead><tr><th>Review detail</th><th>Primary</th><th>Secondary</th></tr></thead><tbody>
+      <tr><td>Employee</td><td>${esc(asn.primary_owner||'-')}</td><td>${esc(asn.secondary_reviewer||'-')}</td></tr>
+      <tr><td>Assessment</td><td>${esc((asn.primary_classification||'-').replace(/_/g,' '))}</td><td>${esc(((asn.secondary_outcome||'-').replace('disagree_','').replace(/_/g,' ')))} ${ (asn.secondary_outcome||'').startsWith('disagree') ? '<span class="chip st-false_positive" style="margin-left:4px">Disagrees</span>' : ''}</td></tr>
+      <tr><td>Evidence</td><td>${asn.primary_evidence?'Available':'-'}</td><td>${asn.secondary_evidence?'Available':'-'}</td></tr>
+      <tr><td>Notes</td><td>${asn.primary_reasoning?'Available':'-'}</td><td>${asn.secondary_reasoning?'Available':'-'}</td></tr>
+      <tr><td>Review status</td><td>${asn.primary_submitted_at?'Submitted':'Pending'}</td><td>${asn.secondary_submitted_at?'Submitted':'Pending'}</td></tr>
+      </tbody></table></div></div>
+      ${assessBlock('Primary Assessment', asn.primary_owner, asn.primary_classification, asn.primary_reasoning, asn.primary_evidence, asn.primary_submitted_at)}
+      ${assessBlock('Secondary Assessment', asn.secondary_reviewer, asn.secondary_outcome, asn.secondary_reasoning, asn.secondary_evidence, asn.secondary_submitted_at)}`;
+    if (isAdmin) primaryAction = comparison + `<div class="dsect"><h3>Final decision</h3>
+      <p class="cellsub" style="margin-bottom:10px">Select one option only, enter your justification, then submit. This is an admin-only decision and cannot be undone from this screen.</p>
+      <div class="formrow" style="margin-bottom:8px;gap:12px;flex-wrap:wrap"><label><input type="checkbox" name="adec" id="adec-tp" value="confirm_true_positive"> True Positive</label><label><input type="checkbox" name="adec" id="adec-fp" value="confirm_false_positive"> False Positive</label></div>
+      <div class="field"><label class="cellsub">Justification (required)</label><textarea class="input" id="wf-admin-reason" rows="2" placeholder="Why are you marking this as True / False Positive?"></textarea></div>
+      <div class="formrow" style="margin-top:10px;gap:10px"><button class="btn primary" id="wf-adec-tp-btn">Send to Remediation Center</button><button class="btn ghost" id="wf-adec-fp-btn">Mark as False Positive &amp; Close</button></div>
+      <p class="cellsub" style="margin-top:8px"><strong>True Positive</strong> → sends the finding to the Remediation Center for remediation and verification. <strong>False Positive</strong> → closes the finding immediately.</p></div>`;
+    else primaryAction = comparison + `<div class="okbox">Awaiting admin final review.</div>`;
+  } else if (curStage === 'Remediation') {
+    primaryAction = `<div class="dsect"><h3>Remediation</h3><dl class="kv"><dt>Remediation owner</dt><dd>${esc(asn.remediation_owner||asn.primary_owner||'-')}</dd><dt>Status</dt><dd>${esc(asn.remediation_status||'pending')}</dd></dl></div>`;
+    if (isAdmin) primaryAction += `<div class="dsect"><div class="formrow"><input class="input grow" id="wf-rem-owner2" value="${esc(asn.remediation_owner||asn.primary_owner||'')}" placeholder="Remediation owner"><button class="btn sm" id="wf-assign-rem">Assign remediation</button></div></div>`;
+    if (isPrimary || isAdmin || me === asn.remediation_owner) primaryAction += `<div class="dsect"><h4>Submit remediation</h4><div class="field"><textarea class="input" id="wf-rem-note" rows="2" placeholder="Remediation notes/evidence (required)"></textarea></div><div class="formrow" style="margin-top:8px"><button class="btn primary" id="wf-submit-rem">Submit for Verification</button></div></div>`;
+  } else if (curStage === 'Verification') {
+    primaryAction = `<div class="dsect"><h3>Verification</h3><p class="cellsub">Remediation submitted. ${asn.verification_requested_at?'Verification requested — awaiting admin review.':'Request verification, then admin approves or rejects.'}</p>${asn.remediation_note?`<div class="okbox" style="margin-top:8px;white-space:pre-wrap">${esc(asn.remediation_note)}</div>`:''}</div>`;
+    if ((isPrimary || isAdmin || me===asn.remediation_owner) && !asn.verification_requested_at) primaryAction += `<div class="formrow"><button class="btn primary" id="wf-req-ver">Request Verification</button></div>`;
+    if (isAdmin && asn.verification_requested_at && !asn.verification_decision) primaryAction += `<div class="dsect"><div class="field"><input class="input" id="as-vreason" placeholder="Approval/rejection reason"></div><div class="formrow" style="margin-top:8px"><button class="btn primary" id="as-vapprove-btn">Approve Verification</button><button class="btn ghost" id="as-vreject-btn">Reject</button></div></div>`;
+  } else if (curStage === 'Closed') {
+    primaryAction = `<div class="okbox">Workflow closed. ${wf.admin_decision==='confirm_false_positive'?'False Positive confirmed by admin.':'Finding verified/closed.'} ${asn.admin_decision_reason?`<br>Reason: ${esc(asn.admin_decision_reason)}`:''}</div>`;
+  }
+
+  const tabs = [['workflow','Workflow'],['evidence','Evidence'],['notes_history','Notes & History'],['checklist','Checklist']];
+  if (!tabs.find(t=>t[0]===state.drawerTab)) state.drawerTab = 'workflow';
+  const bodyMap = {
+    workflow: `${essential}${primaryAction}<div class="dsect"><h3>Assignment</h3><dl class="kv"><dt>Primary</dt><dd>${esc(asn.primary_owner||'-')}</dd><dt>Secondary</dt><dd>${esc(asn.secondary_reviewer||'-')}</dd><dt>Assigned by</dt><dd>${esc(asn.assigned_by||'-')}</dd><dt>Instructions</dt><dd>${esc(asn.assignment_instructions||'-')}</dd></dl></div><div class="dsect"><h3>Activity timeline</h3><div class="feed">${asH.map(h=>`<div class="feeditem"><span class="ficon">${icon('clock')}</span><div class="fbody"><div class="ftext">${esc(h.action)} ${h.to_owner?`→ ${esc(h.to_owner)}`:''} ${h.reason?`— ${esc(h.reason)}`:''}</div><div class="fmeta"><span>${esc(h.actor||'')}</span><span>${utc(h.ts)}</span></div></div></div>`).join('') || '<p style="color:var(--faint);font-size:12px">No activity yet.</p>'}</div></div>`,
+    evidence: `<div class="dsect"><h3>Masked evidence</h3><pre class="codeblock evidence">${esc(f.secret_masked||'')}</pre><dl class="kv" style="margin-top:10px"><dt>Fingerprint</dt><dd class="mono">${esc(f.fingerprint||'')}</dd><dt>Entropy</dt><dd>${f.entropy}</dd><dt>Validation</dt><dd>${esc(meta.validation||'pattern_match')}</dd></dl><p style="color:var(--faint);font-size:11.5px;margin-top:8px">Raw values are never stored or returned.</p></div>`,
+    notes_history: `<div class="dsect"><h3>Investigation notes</h3>${(d.notes||[]).map(n=>`<div class="feeditem"><span class="ficon">${icon('doc')}</span><div class="fbody"><div class="ftext">${esc(n.body)}</div><div class="fmeta"><span>${esc(n.username)}</span><span>${utc(n.ts)}</span></div></div></div>`).join('') || '<p style="color:var(--faint);font-size:12px">No notes.</p>'}${canWrite()?`<div class="field" style="margin-top:10px"><textarea class="input" id="d-note" rows="3" placeholder="Add note"></textarea></div><button class="btn sm" id="d-note-btn">Add note</button>`:''}</div><div class="dsect"><h3>Audit history</h3><div class="feed">${(d.history||[]).map(h=>`<div class="feeditem"><span class="ficon">${icon('clock')}</span><div class="fbody"><div class="ftext">${esc(h.old)} → ${esc(h.new)}</div><div class="fmeta"><span>${esc(h.username)}</span><span>${utc(h.ts)}</span></div></div></div>`).join('') || '<p style="color:var(--faint);font-size:12px">No transitions recorded.</p>'}</div></div>`,
+    checklist: `<div class="dsect"><h3>Remediation checklist</h3>${["Rotate the credential at its provider", "Remove the exposure from the source", "Purge from history, docs and chat", "Update consumers to the replacement", "Re-scan and verify remediation"].map((s, i) => `<label class="ckitem ${d.checklist?.[i]?.done ? 'done' : ''}"><input type="checkbox" data-step="${i}" ${d.checklist?.[i]?.done ? 'checked' : ''} ${!canWrite() ? 'disabled' : ''}><span><span class="cktext">${esc(s)}</span>${d.checklist?.[i]?.username ? `<span class="ckmeta">by ${esc(d.checklist[i].username)}</span>` : ''}</span></label>`).join('')}</div>${canWrite() ? `<div class="dsect"><h3>Actions</h3><div class="formrow">${["rotate-guide", "preview-redact", "redact", "quarantine", "restore", "ticket", "verify"].map(a=>`<button class="btn sm" data-rem="${a}">${a.replace(/-/g, ' ')}</button>`).join('')}</div><div id="d-rem-out" style="margin-top:8px"></div></div>` : ''}`,
+  };
+  $(".drawer").innerHTML = `<div class="dhead"><div style="min-width:0;flex:1"><div class="dtitle">${esc(f.title)}</div><div class="dsub">${sevChip(f.severity)} <span class="chip neutral">${esc(curStage)}</span> <span class="mono">${esc(f.id)}</span></div></div><button class="iconbtn" id="d-close" aria-label="Close">${icon('x')}</button></div><div class="dtabs">${tabs.map(([id2,label])=>`<button class="dtab ${state.drawerTab===id2?'active':''}" data-dtab="${id2}">${label}</button>`).join('')}</div><div class="dbody">${bodyMap[state.drawerTab]||bodyMap.workflow}</div>`;
   $("#d-close").onclick = closeDrawer;
-  $$("[data-dtab]").forEach((b) => (b.onclick = () => { state.drawerTab = b.dataset.dtab; loadDrawer(); }));
-  $$("[data-life]").forEach((b) => (b.onclick = async () => { await api(`/api/findings/${id}/status`, { method: "POST", body: { status: b.dataset.life } }); toast("Status recorded", "ok"); loadDrawer(); refresh(); }));
-  $$("[data-step]").forEach((cb) => (cb.onchange = () => api(`/api/findings/${id}/checklist`, { method: "POST", body: { idx: +cb.dataset.step, done: cb.checked } }).then(loadDrawer)));
+  $$("[data-dtab]").forEach(b => (b.onclick = () => { state.drawerTab = b.dataset.dtab; loadDrawer(); }));
+  $$("[data-step]").forEach(cb => (cb.onchange = () => api(`/api/findings/${id}/checklist`, { method:'POST', body:{ idx:+cb.dataset.step, done:cb.checked } }).then(loadDrawer)));
   const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
-  on("#d-triage", async () => { await api("/api/triage", { method: "POST", body: { id } }); loadDrawer(); });
-  on("#d-note-btn", async () => { await api(`/api/findings/${id}/notes`, { method: "POST", body: { body: $("#d-note").value } }); loadDrawer(); });
-  on("#d-assign-btn", async () => { await api(`/api/findings/${id}/assign`, { method: "POST", body: { assignee: $("#d-assign").value.trim() } }); toast("Assigned", "ok"); loadDrawer(); });
-  on("#d-tags-btn", async () => { await api(`/api/findings/${id}/tags`, { method: "POST", body: { tags: $("#d-tags").value.split(",").map((t) => t.trim()).filter(Boolean) } }); toast("Tags set", "ok"); loadDrawer(); });
-  on("#d-allow", () => confirmModal("Allowlist fingerprint", "Suppress this value across all surfaces.", async () => { await api("/api/allowlist", { method: "POST", body: { fingerprint: f.fingerprint, reason: "drawer" } }); toast("Allowlisted", "ok"); loadDrawer(); refresh(); }));
-  on("#d-mute", async () => { await api(`/api/findings/${id}/mute`, { method: "POST", body: { muted: !ex.muted } }); loadDrawer(); });
-  on("#d-pin", async () => { await api(`/api/findings/${id}/pin`, { method: "POST", body: { pinned: !ex.pinned } }); loadDrawer(); });
-  $$("[data-rem]").forEach((b) => (b.onclick = () => {
+  on('#d-note-btn', async () => { await api(`/api/findings/${id}/notes`, { method:'POST', body:{ body: $('#d-note').value } }); loadDrawer(); });
+  on('#wf-assign-open', () => { const f=$('#wf-assign-form'); if(f) f.style.display='block'; });
+  if (canManage && typeof getAssignmentTeam==='function') { getAssignmentTeam().then(team=>{ const o=$('#as-picker-owner'), r=$('#as-picker-reviewer'); if(o) o.innerHTML=assignmentPersonPicker('as-owner', team, {label:'Primary Assignee — click a name'}); if(r) r.innerHTML=assignmentPersonPicker('as-reviewer', team, {label:'Secondary Assignee — click a name'}); }).catch(()=>{}); }
+  on('#as-manual-btn', async () => { try{ const owner=$('#as-owner')?.value.trim(); const reviewer=$('#as-reviewer')?.value.trim(); const reason=$('#as-reason')?.value.trim(); const r=await api(`/api/assignment/finding/${id}/assign`,{method:'POST',body:{primary_owner:owner,secondary_reviewer:reviewer,reason,instructions:reason}}); if(r.ok||r.assignment||!r.error){ toast('Assignment saved — employees notified','ok'); } else { toast(r.error||'Failed','error'); } loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-ack', async()=>{ try{ await api(`/api/assignment/finding/${id}/ack`,{method:'POST',body:{}}); toast('Acknowledged','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-ack-sec', async()=>{ try{ await api(`/api/assignment/finding/${id}/ack`,{method:'POST',body:{}}); toast('Acknowledged','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-primary-start', async()=>{ try{ await api(`/api/assignment/finding/${id}/primary-start-investigation`,{method:'POST',body:{}}); toast('Investigation started','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-primary-submit', async()=>{ try{ const classification=(document.querySelector('input[name="pclass"]:checked')||{}).value; const reasoning=$('#wf-primary-reason')?.value.trim(); const r=await api(`/api/assignment/finding/${id}/primary-submit-assessment`,{method:'POST',body:{classification,reasoning}}); if(r.ok){ toast('Assessment submitted to secondary reviewer','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-secondary-start', async()=>{ try{ await api(`/api/assignment/finding/${id}/secondary-start-review`,{method:'POST',body:{}}); toast('Secondary review started','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-secondary-submit', async()=>{ try{ const classification=(document.querySelector('input[name="sclass"]:checked')||{}).value; const disagrees=!!($('#wf-s-disagree')&&$('#wf-s-disagree').checked); const reasoning=$('#wf-secondary-reason')?.value.trim(); const r=await api(`/api/assignment/finding/${id}/secondary-submit-assessment`,{method:'POST',body:{classification,disagrees,reasoning}}); if(r.ok){ toast('Review submitted to admin','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-adec-tp-btn', async()=>{ try{ const tp=$('#adec-tp'); const fp=$('#adec-fp'); if (!tp || !tp.checked) { toast('Select the True Positive checkbox first','error'); return; } if (fp && fp.checked) { toast('Only one decision can be selected','error'); return; } const reason=$('#wf-admin-reason')?.value.trim(); if (!reason) { toast('Justification required','error'); return; } const r=await api(`/api/assignment/finding/${id}/admin-final-decision`,{method:'POST',body:{decision:'confirm_true_positive',reason}}); if(r.ok){ toast('Finding sent to Remediation Center','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-adec-fp-btn', async()=>{ try{ const tp=$('#adec-tp'); const fp=$('#adec-fp'); if (!fp || !fp.checked) { toast('Select the False Positive checkbox first','error'); return; } if (tp && tp.checked) { toast('Only one decision can be selected','error'); return; } const reason=$('#wf-admin-reason')?.value.trim(); if (!reason) { toast('Justification required','error'); return; } const r=await api(`/api/assignment/finding/${id}/admin-final-decision`,{method:'POST',body:{decision:'confirm_false_positive',reason}}); if(r.ok){ toast('Finding closed as False Positive','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-assign-rem', async()=>{ try{ await api(`/api/assignment/finding/${id}/assign-remediation`,{method:'POST',body:{remediation_owner:$('#wf-rem-owner2')?.value.trim()}}); toast('Remediation assigned','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-submit-rem', async()=>{ try{ const note=$('#wf-rem-note')?.value.trim(); const r=await api(`/api/assignment/finding/${id}/submit-remediation`,{method:'POST',body:{note,reason:note}}); if(r.ok){ toast('Remediation submitted','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-req-ver', async()=>{ try{ await api(`/api/assignment/finding/${id}/request-verification`,{method:'POST',body:{note:'Verification requested after remediation'}}); toast('Verification requested','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#as-assist-btn', async()=>{ const reason=prompt('What assistance do you need from Admin?')||'Assistance requested'; try{ await api(`/api/assignment/finding/${id}/request-assistance`,{method:'POST',body:{reason}}); toast('Request sent to admin','ok'); }catch(e){ toast(e.message,'error'); } });
+  on('#as-vapprove-btn', async()=>{ try{ await api(`/api/assignment/finding/${id}/approve-verification`,{method:'POST',body:{reason:($('#as-vreason')||{}).value||'Approved'}}); toast('Verification approved','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#as-vreject-btn', async()=>{ const reason=($('#as-vreason')||{}).value||'Rejected'; try{ await api(`/api/assignment/finding/${id}/reject-verification`,{method:'POST',body:{reason}}); toast('Verification rejected','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  $$('[data-rem]').forEach(b => (b.onclick = () => {
     const action = b.dataset.rem;
-    const exec = async () => { const r = await api("/api/remediate", { method: "POST", body: { id, action } }); $("#d-rem-out").innerHTML = `<pre class="codeblock">${esc(r.detail)}</pre>`; toast(`${action} complete`, "ok"); loadDrawer(); refresh(); };
-    if (["redact", "quarantine"].includes(action)) confirmModal(`${action} finding`, "Modifies or moves the source file. The credential must still be rotated.", exec, action);
+    const exec = async () => { const r = await api('/api/remediate', { method:'POST', body:{ id, action } }); $('#d-rem-out').innerHTML = `<pre class="codeblock">${esc(r.detail)}</pre>`; toast(`${action} complete`, 'ok'); loadDrawer(); refresh(); };
+    if (['redact','quarantine'].includes(action)) confirmModal(`${action} finding`, 'Modifies or moves the source file. The credential must still be rotated.', exec, action);
     else exec();
   }));
   bindOpeners();
 }
+
+/* ================= Hubs ================= */
 
 /* ================= Hubs ================= */
 
@@ -1262,21 +1389,166 @@ async function renderGroups() {
     panel("Group inventory", `<div class="twrap"><table class="tbl"><thead><tr><th>Group</th><th>Dimension</th><th class="num">Assets</th><th class="num">Findings</th><th class="num">Critical</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.dimension)}</td><td class="num">${r.assets||0}</td><td class="num">${r.findings||0}</td><td class="num">${r.critical||0}</td></tr>`).join("") || '<tr><td colspan="5">No groups derived yet.</td></tr>'}</tbody></table></div>`, "", true);
 }
 
+
+
+function assignmentPersonPicker(targetId, team, opts={}){
+  const list=(team||[]).filter(u=>u && u.username);
+  if(!list.length) return '';
+  const label = opts.label || 'Pick assignee (click name)';
+  return `<div class="asn-picker" style="margin:6px 0"><div class="cellsub" style="margin-bottom:4px">${esc(label)}</div><div style="display:flex;flex-wrap:wrap;gap:6px">${list.map(u=>`<button type="button" class="btn sm ghost asn-pick" data-target="${esc(targetId)}" data-user="${esc(u.username)}" title="${esc((u.role||'').replace(/_/g,' ')+(u.title?' - '+u.title:''))}" ${u.availability_status && u.availability_status!=='available'?'style="opacity:.65"':''}>${typeof personAvatar==='function'?personAvatar(u.username,{size:'sm'}):''}<span>${esc(u.username)}</span>${u.username==='admin'?'<span class="chip neutral" style="margin-left:4px;font-size:10px">Admin</span>':''}</button>`).join('')}</div></div>`;
+}
+document.addEventListener('click',(e)=>{ const b=e.target.closest&&e.target.closest('.asn-pick'); if(!b) return; e.preventDefault(); const inp=document.getElementById(b.dataset.target); if(inp){ inp.value=b.dataset.user; inp.dispatchEvent(new Event('input',{bubbles:true})); } });
+let _asnTeamCache=null;
+async function getAssignmentTeam(){ if(_asnTeamCache) return _asnTeamCache; try{ if(typeof canManageAssignments==='function' && canManageAssignments()){ const d=await api('/api/assignment/profiles'); _asnTeamCache=d.profiles? (d.profiles.map(p=>Object.assign({username:p.username},(d.workloads||{})[p.username]||{},p))) : (Object.values(d.workloads||{})); } }catch(e){} if(!_asnTeamCache){ _asnTeamCache=(state.users||[]).map(u=>({username:u.username,role:u.role,title:u.title})); }
+  if(!_asnTeamCache||!_asnTeamCache.length){ _asnTeamCache=[{username:'admin',role:'super_admin',title:'Platform Administrator'},{username:'r.sharma',role:'appsec_engineer'},{username:'p.patel',role:'security_analyst'},{username:'a.kumar',role:'devsecops_engineer'},{username:'n.singh',role:'auditor'},{username:'v.iyer',role:'developer'}]; }
+  return _asnTeamCache; }
+
+async function renderAssignments() {
+  _asnTeamCache = null;
+  if (!canManageAssignments()) { $("#main").innerHTML = pagehead("Team Workload & Assignment","Intelligent assignment and workload management.") + empty("Access restricted","Your role does not have access to this dashboard. Use My Assignments for your own work."); return; }
+  $("#main").innerHTML = pagehead("Team Workload & Assignment","Explainable ownership, workload balancing, SLA and accountability.") + skeleton();
+  let d; try { d = await api('/api/assignment/dashboard'); } catch(e){ $("#main").innerHTML = pagehead("Team Workload & Assignment","") + banner(esc(e.message),'error'); return; }
+  const m = d.metrics||{}; const q = d.queues||{}; const team = d.team||[]; const sla = d.sla_config||{};
+  function helpBtnSmall(key){ return `<button class="helpbtn" data-help="${key}" aria-label="Help" style="margin-left:4px">?</button>`; }
+  const kpis = `<div class="kpi-strip">
+    ${[['Total findings',m.total_findings,'auto_assignment'],['Unassigned',m.unassigned,'auto_assignment'],['Critical unassigned',m.critical_unassigned,'severity'],['High assigned',m.high_assigned,'severity'],['Pending ack',m.pending_ack,'acknowledgement'],['Overdue',m.overdue,'sla'],['Reassignment requests',m.reassignment_requests,'reassignment'],['SLA breaches',m.sla_breaches,'escalation']].map(([l,v,k])=>`<div class="kpi-card"><div class="kv">${v??0}</div><div class="kl">${esc(l)} ${helpBtnSmall(k)}</div></div>`).join('')}
+  </div>`;
+  const teamTbl = `<div class="twrap"><table class="tbl"><thead><tr><th>Employee</th><th>Role/Expertise</th><th>Active</th><th>Critical/High</th><th>Workload ${helpBtnSmall('workload')}</th><th>Capacity</th><th>Availability</th><th>Overdue</th>${isAssignmentAdmin()?'<th>Admin</th>':''}</tr></thead><tbody>${team.map(u=>`<tr><td>${typeof personAvatar==='function'?personAvatar(u.username,{size:'sm'}):''} <strong>${esc(u.username)}</strong><div class="cellsub">${esc(u.title||'')}</div></td><td>${esc((u.role||'').replace(/_/g,' '))}<div class="cellsub">${esc((u.skills||[]).slice(0,3).join(', ')||'-')}</div></td><td>${u.active_findings||0}</td><td>${u.critical_high||0}</td><td><div style="display:flex;align-items:center;gap:6px"><div style="flex:1;height:6px;background:var(--raised);border-radius:99px;min-width:60px"><span style="display:block;height:100%;width:${Math.min(100,u.workload_pct||0)}%;background:${(u.workload_pct||0)>=90?'var(--danger)':(u.workload_pct||0)>=70?'var(--warn)':'var(--ok)'};border-radius:99px"></span></div><span>${u.workload_pct||0}%</span></div><div class="cellsub">${u.workload_points||0}/${u.max_capacity||20} pts</div></td><td>${u.available_capacity||0} pts</td><td><span class="chip ${u.availability_status==='available'?'st-remediated':'st-false_positive'}">${esc(u.availability_status||'available')}</span></td><td>${u.overdue||0}</td>${isAssignmentAdmin()?`<td><button class="btn sm ghost" data-prof-edit="${esc(u.username)}" data-cap="${u.max_capacity||20}" data-avail="${esc(u.availability_status||'available')}" data-elig="${u.assignment_eligible?1:0}">Edit</button></td>`:''}</tr>`).join('') || '<tr><td colspan="9">No team data.</td></tr>'}</tbody></table></div>`;
+  function queuePanel(name, key, opts={}){
+    const rows=q[key]||[]; const bulk = opts.bulk && canManageAssignments();
+    return panel(`${name} (${rows.length}) ${opts.help?helpBtnSmall(opts.help):''}`, `<div class="twrap"><table class="tbl"><thead><tr>${bulk?'<th><input type="checkbox" data-bulk-all="'+key+'"></th>':''}<th>Finding</th><th>Severity</th><th>Primary owner</th><th>Reviewer</th><th>Status</th><th>SLA</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr>${bulk?`<td><input type="checkbox" class="bulk-sel" data-q="${key}" value="${esc(r.finding_id)}"></td>`:''}<td>${esc(r.title)}<div class="cellsub mono">${esc(r.finding_id)}</div></td><td>${typeof sevChip==='function'?sevChip(r.severity):esc(r.severity)}</td><td>${esc(r.primary_owner||'-')}</td><td>${esc(r.secondary_reviewer||'-')}</td><td><span class="chip neutral">${esc((r.assignment_status||'').replace(/_/g,' '))}</span></td><td>${r.sla_breached?'<span class="chip st-false_positive">Breached</span>':'<span class="chip st-remediated">OK</span>'}</td><td><button class="btn sm ghost" data-open="${esc(r.finding_id)}">Open</button> ${canManageAssignments() && key==='unassigned'?`<button class="btn sm" data-as-auto="${esc(r.finding_id)}">Auto</button>`:''}</td></tr>`).join('') || `<tr><td colspan="${bulk?8:7}">None.</td></tr>`}</tbody></table></div>${bulk?`<div style="margin-top:8px">${assignmentPersonPicker(`bulk-owner-${key}`, team, {label:'Assign selected to (click name)'})}<div class="formrow"><div class="field"><input class="input" id="bulk-owner-${key}" placeholder="Primary owner"></div><div class="field grow"><input class="input" id="bulk-reason-${key}" placeholder="Reason"></div><button class="btn sm primary" data-bulk-assign="${key}">Bulk assign selected</button></div></div>`:''}`, '', true);
+  }
+  const adminControls = isAssignmentAdmin() ? panel('Administrator controls '+helpBtnSmall('override'), `
+    <div class="grid c2">
+      <div><h4 style="margin:0 0 8px">Assignment policy & SLA ${helpBtnSmall('sla')}</h4>
+        <div class="formrow"><label class="field">Assignment mode ${helpBtnSmall('auto_assignment')}<select class="input" id="asn-mode"><option value="automatic" ${(sla.assignment_mode||'admin_approval')==='automatic'?'selected':''}>Fully automatic</option><option value="admin_approval" ${(sla.assignment_mode||'admin_approval')==='admin_approval'?'selected':''}>Admin approval (recommended)</option><option value="manual" ${(sla.assignment_mode||'admin_approval')==='manual'?'selected':''}>Manual assignment</option></select></label><label class="field">Engine enabled<select class="input" id="asn-enabled"><option value="1" ${sla.assignment_enabled!==false?'selected':''}>Enabled</option><option value="0" ${sla.assignment_enabled===false?'selected':''}>Disabled</option></select></label></div>
+        <div class="formrow"><label class="field">Critical ack (hrs)<input class="input" id="sla-c-ack" type="number" min="0" step="0.5" value="${esc(((sla.ack_hours||{}).critical)||4)}"></label><label class="field">Critical remediate (hrs)<input class="input" id="sla-c-rem" type="number" min="0" step="0.5" value="${esc(((sla.remediate_hours||{}).critical)||4)}"></label></div>
+        <div class="formrow"><label class="field">High ack (hrs)<input class="input" id="sla-h-ack" type="number" min="0" step="0.5" value="${esc(((sla.ack_hours||{}).high)||4)}"></label><label class="field">High remediate (hrs)<input class="input" id="sla-h-rem" type="number" min="0" step="0.5" value="${esc(((sla.remediate_hours||{}).high)||24)}"></label></div>
+        <button class="btn sm" id="sla-save">Save policy/SLA</button> <button class="btn sm ghost" id="sla-escalate">Run escalation check</button>
+      </div>
+      <div><h4 style="margin:0 0 8px">Employee profile (admin)</h4>
+        ${assignmentPersonPicker('prof-user', team, {label:'Select employee (click name)'})}<div class="formrow"><div class="field"><input class="input" id="prof-user" placeholder="username (e.g. r.sharma)"></div><div class="field"><input class="input" id="prof-cap" type="number" min="1" step="0.5" placeholder="Max capacity pts"></div></div>
+        <div class="formrow"><div class="field"><select class="input" id="prof-avail"><option value="available">available</option><option value="unavailable">unavailable</option><option value="leave">leave</option></select></div><div class="field"><select class="input" id="prof-elig"><option value="1">assignment eligible</option><option value="0">not eligible</option></select></div></div>
+        <button class="btn sm" id="prof-save">Save profile</button>
+        <p class="cellsub" style="margin-top:8px">Profile changes affect eligibility and workload capacity. RBAC permissions remain unchanged.</p>
+      </div>
+    </div>`) : '';
+  $("#main").innerHTML = pagehead("Employee Operations","Admin command centre: who is working on what, acknowledgements, workload, availability and SLA accountability. "+helpBtnSmall('workload'), `<button class="btn sm" id="as-refresh">Refresh</button>`) +
+    (state.user && typeof canWrite==='function' && !canWrite() ? banner('Read-only role: you can view assignment data but cannot perform mutations. '+helpBtnSmall('read_only'), 'warn') : '') +
+    kpis +
+    panel("Employee workload overview "+helpBtnSmall('workload'), teamTbl, '', true) +
+    adminControls +
+    `<div class="grid c2" style="margin-top:12px">` + queuePanel('Unassigned','unassigned',{help:'auto_assignment',bulk:true}) + queuePanel('Awaiting acknowledgement','awaiting_ack',{help:'acknowledgement'}) + `</div>` +
+    `<div class="grid c2" style="margin-top:12px">` + queuePanel('In progress / Acknowledged','in_progress') + queuePanel('Overdue / SLA risk','overdue',{help:'sla'}) + `</div>` +
+    `<div class="grid c2" style="margin-top:12px">` + queuePanel('Reassignment requests','reassignment_requests',{help:'reassignment'}) + queuePanel('Blocked','blocked') + `</div>` +
+    panel("Recommended / awaiting admin approval", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding</th><th>Severity</th><th>Suggested owner</th><th>Explanation</th><th></th></tr></thead><tbody>${(q.recommended||[]).map(r=>`<tr><td>${esc(r.title)}<div class="cellsub mono">${esc(r.finding_id)}</div></td><td>${typeof sevChip==='function'?sevChip(r.severity):esc(r.severity)}</td><td>${esc(r.primary_owner||'-')}${r.secondary_reviewer?`<div class="cellsub">review: ${esc(r.secondary_reviewer)}</div>`:''}</td><td>${esc((r.explanation||'').slice(0,140))}</td><td><button class="btn sm ghost" data-open="${esc(r.finding_id)}">Open</button> ${canManageAssignments()?`<button class="btn sm" data-as-approve="${esc(r.finding_id)}">Approve</button><button class="btn sm ghost" data-as-reject="${esc(r.finding_id)}">Reject</button>`:''}</td></tr>`).join('') || '<tr><td colspan="5">None.</td></tr>'}</tbody></table></div>`, '', true);
+  const rf=$("#as-refresh"); if(rf) rf.onclick=()=>renderAssignments();
+  $$('[data-as-auto]').forEach(b=>b.onclick=async()=>{ try{ const r=await api(`/api/assignment/finding/${b.dataset.asAuto}/auto`,{method:'POST',body:{}}); if(r.ok) toast('Assigned: '+(r.chosen&&r.chosen.username),'ok'); else if(r.recommended) toast('Recommendation generated - admin review needed','info'); else toast(r.error||'Assignment failed','error'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
+  $$('[data-as-approve]').forEach(b=>b.onclick=async()=>{ if(!confirm('Approve the recommended assignment for this finding?')) return; try{ const r=await api(`/api/assignment/finding/${b.dataset.asApprove}/approve`,{method:'POST',body:{reason:'Approved recommendation'}}); if(r.ok) toast('Approved','ok'); else toast(r.error||'Failed','error'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
+  $$('[data-as-reject]').forEach(b=>b.onclick=async()=>{ const reason=prompt('Reason for rejecting recommendation?')||'Rejected'; try{ await api(`/api/assignment/finding/${b.dataset.asReject}/reject`,{method:'POST',body:{reason}}); toast('Rejected','ok'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
+  $$('[data-prof-edit]').forEach(b=>b.onclick=()=>{ const pu=$('#prof-user'),pc=$('#prof-cap'),pa=$('#prof-avail'),pe=$('#prof-elig'); if(pu)pu.value=b.dataset.profEdit; if(pc)pc.value=b.dataset.cap; if(pa)pa.value=b.dataset.avail; if(pe)pe.value=b.dataset.elig; });
+  on('#sla-save', async()=>{ try{ const cfg={...sla, ack_hours:{critical:+$('#sla-c-ack').value||4,high:+$('#sla-h-ack').value||4,medium:(sla.ack_hours||{}).medium||8,low:(sla.ack_hours||{}).low||24,info:(sla.ack_hours||{}).info||48},remediate_hours:{critical:+$('#sla-c-rem').value||4,high:+$('#sla-h-rem').value||24,medium:(sla.remediate_hours||{}).medium||72,low:(sla.remediate_hours||{}).low||168,info:(sla.remediate_hours||{}).info||336},assignment_mode:($('#asn-mode')||{}).value||'admin_approval',assignment_enabled:(($('#asn-enabled')||{}).value||'1')==='1',escalate_after_ack_breach:true,escalate_after_remediation_breach:true}; await api('/api/assignment/sla-config',{method:'POST',body:cfg}); toast('Policy/SLA saved','ok'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
+  on('#sla-escalate', async()=>{ try{ const r=await api('/api/assignment/escalate-check',{method:'POST',body:{}}); toast('Escalation check: '+(r.escalated||0)+' emitted','ok'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
+  on('#prof-save', async()=>{ try{ const u=$('#prof-user').value.trim(); if(!u) return toast('Username required','error'); await api('/api/assignment/profiles/'+encodeURIComponent(u),{method:'POST',body:{max_capacity:+($('#prof-cap').value)||20,availability_status:$('#prof-avail').value,assignment_eligible:$('#prof-elig').value==='1'}}); toast('Profile updated','ok'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
+  $$('[data-bulk-all]').forEach(cb=>cb.onchange=()=>{ $$('.bulk-sel[data-q="'+cb.dataset.bulkAll+'"]').forEach(x=>x.checked=cb.checked); });
+  $$('[data-bulk-assign]').forEach(b=>b.onclick=async()=>{ const key=b.dataset.bulkAssign; const ids=$$('.bulk-sel[data-q="'+key+'"]:checked').map(x=>x.value); if(!ids.length) return toast('Select findings first','error'); const owner=$('#bulk-owner-'+key).value.trim(); const reason=$('#bulk-reason-'+key).value.trim(); if(!owner) return toast('Primary owner required','error'); if(!confirm(`Bulk assign ${ids.length} findings to ${owner}? Each finding gets an individual audit record.`)) return; try{ await api('/api/assignment/bulk',{method:'POST',body:{action:'assign',finding_ids:ids,primary_owner:owner,reason}}); toast('Bulk assignment processed','ok'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
+  // Who is working on what (workflow-stage aware, admin view)
+  try {
+    const all = await api('/api/findings?page_size=200');
+    const active = (all.findings||[]).filter(r=> (r.workflow_stage||'New')!=='Closed' && (r.primary_assignee||r.secondary_assignee));
+    const by = {};
+    active.forEach(r=>{ const p=r.primary_assignee||'(unassigned)'; (by[p]=by[p]||[]).push({who:p,role:'Primary',stage:r.workflow_stage,title:r.title,id:r.id,sev:r.severity}); if(r.secondary_assignee){ (by[r.secondary_assignee]=by[r.secondary_assignee]||[]).push({who:r.secondary_assignee,role:'Secondary',stage:r.workflow_stage,title:r.title,id:r.id,sev:r.severity}); } });
+    const html = Object.keys(by).sort().map(name=>`<div class="panel" style="padding:10px;margin-bottom:8px"><strong>${esc(name)}</strong>${by[name].map(x=>`<div class="listrow clickable" data-open="${esc(x.id)}" style="margin-top:6px"><span class="grow">${esc(x.role)} · ${esc(x.stage)}<span class="cellsub">${esc(x.title)}</span></span>${sevChip?sevChip(x.sev):''}</div>`).join('')}</div>`).join('') || '<p style="color:var(--faint);font-size:12px">No active assignments.</p>';
+    $('#main').insertAdjacentHTML('beforeend', panel('Who Is Working on What?', `<p class="cellsub" style="margin-bottom:8px">Live workflow activity by employee (admin only). Click any item to open the finding.</p>${html}`, '', true));
+  } catch(e){}
+  if (typeof bindOpeners==='function') bindOpeners();
+}
+
+async function renderAdminWorkspace(d) {
+  const card = (r) => `<div class="panel" style="padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div><strong>${esc(r.title)}</strong><div class="cellsub mono">${esc(r.finding_id)}</div></div>${(typeof sevChip==='function')?sevChip(r.severity):esc(r.severity)}</div>
+    <div class="cellsub" style="margin-top:6px">Stage: <strong>${esc(r.workflow_stage||'-')}</strong> ${(r.status_labels||[]).map(x=>`<span class="chip neutral">${esc(x)}</span>`).join(' ')} · Primary: ${esc(r.primary_assignee||r.primary_owner||'-')} · Secondary: ${esc(r.secondary_assignee||r.secondary_reviewer||'-')}</div>
+    <div class="formrow" style="margin-top:8px"><button class="btn sm primary" data-open="${esc(r.finding_id)}">Open for final review</button></div></div>`;
+  const section = (name, arr, hint) => `<section class="panel" style="margin-bottom:12px"><div class="phead"><span class="ptitle">${esc(name)} (${arr.length})</span></div><div class="pbody">${hint?`<p class="cellsub" style="margin-bottom:8px">${esc(hint)}</p>`:''}${arr.length?arr.map(card).join(''):'<p style="color:var(--faint);font-size:12px">None.</p>'}</div></section>`;
+  $("#main").innerHTML = pagehead("My Workspace","Awaiting final review and in-progress remediation decisions.") +
+    `<div class="kpi-strip"><div class="kpi-card t-warn"><div class="kv">${(d.awaiting_final_review||[]).length}</div><div class="kl">Awaiting final review</div></div><div class="kpi-card"><div class="kv">${(d.remediation_progress||[]).length}</div><div class="kl">Remediation in progress</div></div><div class="kpi-card"><div class="kv">${(d.admin_decided||[]).length}</div><div class="kl">Decisions made (recent)</div></div></div>` +
+    section('Awaiting Final Review', d.awaiting_final_review||[], 'Open, compare primary/secondary assessments, submit final decision and send to remediation when appropriate.') +
+    section('Remediation In Progress', d.remediation_progress||[], 'Remediation is in progress after your decision.') +
+    `<a class="btn sm ghost" href="#/remediation" style="display:inline-block;margin-top:8px">Open Remediation Center</a>`;
+  bindOpeners();
+}
+
+async function renderMyAssignments() {
+  $("#main").innerHTML = pagehead("My Workspace","Simple view of your assignments and what to do next.") + skeleton();
+  let d; try { d = await api('/api/assignment/my'); } catch(e){ $("#main").innerHTML = pagehead("My Workspace","") + banner(esc(e.message),'error'); return; }
+  if (typeof isAssignmentAdmin==='function' && isAssignmentAdmin()) { renderAdminWorkspace(d); return; }
+  const card = (r) => `<div class="panel" style="padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><div><strong>${esc(r.title)}</strong><div class="cellsub mono">${esc(r.finding_id)}</div></div>${sevChip?sevChip(r.severity):esc(r.severity)}</div>
+    <div class="cellsub" style="margin-top:6px">Stage: <strong>${esc(r.workflow_stage||'-')}</strong> ${(r.status_labels||[]).map(x=>`<span class="chip neutral">${esc(x)}</span>`).join(' ')} · Role: ${esc(r.my_role||'-')}</div>
+    ${r.assignment_instructions?`<div style="font-size:12px;margin-top:6px">${esc(r.assignment_instructions)}</div>`:''}
+    <div class="formrow" style="margin-top:8px"><button class="btn sm primary" data-open="${esc(r.finding_id)}">Open task</button></div></div>`;
+  const section = (name, arr, hint) => `<section class="panel" style="margin-bottom:12px"><div class="phead"><span class="ptitle">${esc(name)} (${arr.length})</span></div><div class="pbody">${hint?`<p class="cellsub" style="margin-bottom:8px">${esc(hint)}</p>`:''}${arr.length?arr.map(card).join(''):'<p style="color:var(--faint);font-size:12px">None.</p>'}</div></section>`;
+  $("#main").innerHTML = pagehead("My Workspace","Open your task, review evidence, decide True/False Positive, submit. Open a task to take the next action.") +
+    `<div class="kpi-strip"><div class="kpi-card t-warn"><div class="kv">${(d.pending_ack||[]).length}</div><div class="kl">Awaiting my action</div></div><div class="kpi-card"><div class="kv">${(d.primary_reviews||[]).length}</div><div class="kl">Primary Assignments</div></div><div class="kpi-card"><div class="kv">${(d.secondary_reviews||[]).length}</div><div class="kl">Secondary Review</div></div><div class="kpi-card"><div class="kv">${(d.remediation_tasks||[]).length}</div><div class="kl">Remediation tasks</div></div><div class="kpi-card"><div class="kv">${((d.completed||[]).length)}</div><div class="kl">My Completed Reviews</div></div></div>` +
+    section('Awaiting My Action', d.pending_ack||[], 'Review evidence, decide True/False Positive, and submit.') +
+    section('Primary Assignments', d.primary_reviews||[], 'Review evidence, classify True/False Positive, and submit to secondary reviewer.') +
+    section('Secondary Review', d.secondary_reviews||[], 'Independently review the primary assessment and submit to Admin.') +
+    section('My Remediation Tasks', d.remediation_tasks||[], 'Complete remediation and submit for verification.') +
+    section('My Verification Requests', d.verification_requests||[], 'Verification in progress.') +
+    section('My Completed Reviews', (d.completed||[]).slice(0,30), '');
+  bindOpeners();
+}
+
+async function renderAdminReview() {
+  if (!canManageAssignments()) { $("#main").innerHTML = pagehead("Awaiting Final Review","Admin only.") + empty("Access restricted","Only administrators can access final review."); return; }
+  $("#main").innerHTML = pagehead("Awaiting Final Review","Findings with completed secondary assessment — compare and make the final admin decision.") + skeleton();
+  let data; try { data = await api('/api/findings?tab=admin_review&page_size=100'); } catch(e){ $("#main").innerHTML = pagehead("Awaiting Final Review","") + banner(esc(e.message),'error'); return; }
+  const rows = (data.findings||[]).map(r=>`<tr class="clickable" data-open="${esc(r.id)}"><td class="mono">${esc(r.id)}</td><td>${esc(r.title)}</td><td>${sevChip?sevChip(r.severity):esc(r.severity)}</td><td>${esc(r.primary_assignee||'-')}</td><td>${esc(r.secondary_assignee||'-')}</td><td><span class="chip st-triaged">Awaiting Admin Final Review</span></td><td>${esc(r.due_at||'-')}</td></tr>`).join('') || `<tr><td colspan="7">${empty('No findings awaiting final review','Secondary submissions will appear here.')}</td></tr>`;
+  $("#main").innerHTML = pagehead("Awaiting Final Review","Compare primary and secondary assessments, then make the final decision.") +
+    panel("Awaiting Admin Final Review", `<div class="twrap"><table class="tbl"><thead><tr><th>ID</th><th>Finding</th><th>Severity</th><th>Primary</th><th>Secondary</th><th>Stage</th><th>Due</th></tr></thead><tbody>${rows}</tbody></table></div>`, '', true);
+  bindOpeners();
+}
+
+async function renderClosedReports() {
+  if (!canManageAssignments()) { $("#main").innerHTML = pagehead("Closed Findings","Admin only.") + empty("Access restricted","Only administrators can access the Closed Reports command center section."); return; }
+  $("#main").innerHTML = pagehead("Closed Findings","All findings finally closed. Historical records retained.") + skeleton();
+  let data; try { data = await api('/api/findings?tab=closed&page_size=200'); } catch(e){ $("#main").innerHTML = pagehead("Closed Reports","") + banner(esc(e.message),'error'); return; }
+  const ids = (data.findings||[]).map(f=>f.id).slice(0,200);
+  const details = await Promise.all(ids.map(id=>api(`/api/findings/${id}`).catch(()=>null)));
+  const rows = details.filter(Boolean).map(d=>{
+    const f=d.finding||{}, a=d.assignment||{}, wf=d.workflow||{};
+    const final = a.admin_decision==='confirm_false_positive'?'False Positive':(a.admin_decision==='confirm_true_positive'?'True Positive (closed)':(wf.stage||'Closed'));
+    const closedAt = a.verified_at || a.completed_at || a.admin_decision_at || f.updated_at || f.created_at;
+    return `<tr class="clickable" data-open="${esc(f.id)}"><td class="mono">${esc(f.id)}</td><td>${esc(f.title)}</td><td>${sevChip?sevChip(f.severity):esc(f.severity)}</td><td>${esc(a.primary_owner||'-')}</td><td>${esc(a.secondary_reviewer||'-')}</td><td>${esc((a.primary_classification||'-').replace(/_/g,' '))}</td><td>${esc((a.secondary_outcome||a.secondary_classification||'-').replace(/_/g,' '))}</td><td>${esc(final)}</td><td>${utc(closedAt)}</td><td>${esc((a.admin_decision_reason||a.verification_rejection_reason||'').slice(0,120))}</td></tr>`;
+  }).join('') || `<tr><td colspan="10">${empty('No closed reports yet','Closed reports will appear here automatically.')}</td></tr>`;
+  $("#main").innerHTML = pagehead("Closed Reports","Admin Command Centre — historical closed reports (retained).") +
+    panel("Closed Reports", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding ID</th><th>Title</th><th>Severity</th><th>Primary</th><th>Secondary</th><th>Primary assessment</th><th>Secondary assessment</th><th>Final Admin decision</th><th>Closure date</th><th>Closure reason</th></tr></thead><tbody>${rows}</tbody></table></div>`, 'Open any report to inspect full investigation history, assessments, evidence and final decision.', true);
+  bindOpeners();
+}
+
+
+
 const VIEWS = {
-  home: renderHome, overview: renderOverview, posture: renderPosture, intelligence: renderIntelligence,
-  findings: renderFindings, vulnerabilities: renderFindings, sources: renderSources, rules: renderRules, playground: renderPlayground,
+  home: renderHome, overview: renderOverview, "my-assignments": renderMyAssignments, posture: renderPosture, intelligence: renderIntelligence,
+  findings: renderFindings, "admin-review": renderAdminReview, "closed-reports": renderClosedReports, vulnerabilities: renderFindings, sources: renderSources, rules: renderRules, playground: renderPlayground,
   scans: renderScans, repositories: renderSurfaceView, developer: renderSurfaceView, cloud: renderSurfaceView,
-  cicd: renderSurfaceView, saas: renderSurfaceView, assets: renderAssets, technologies: renderTechnologies, groups: renderGroups, remediation: renderRemediation,
+  cicd: renderSurfaceView, saas: renderSurfaceView, assets: renderAssets, technologies: renderTechnologies, groups: renderGroups, assignments: renderAssignments, remediation: renderRemediation,
   alerts: renderAlerts, investigations: renderInvestigations, exceptions: renderExceptions, hubs: renderHubs,
   architecture: renderArchitecture, workers: renderWorkers, agents: renderAIAgents, mcp: renderMcp, tools: renderTools, integrations: renderIntegrations, jobs: renderJobs, logs: renderLogs, audit: renderAudit,
   health: renderHealth, reports: renderReports, compliance: renderCompliance, access: renderAccess,
   settings: renderSettings,
 };
-const VIEW_ICON = { home: "home", overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", vulnerabilities: "warn", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", technologies: "layers", groups: "grid", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", hubs: "pulse", architecture: "layers", workers: "pulse", agents: "pulse", mcp: "plug", tools: "wrench", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
+const VIEW_ICON = { home: "home", overview: "grid", assignments: "list", "my-assignments": "doc", posture: "chart", intelligence: "pulse", findings: "search", vulnerabilities: "warn", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", technologies: "layers", groups: "grid", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", hubs: "pulse", architecture: "layers", workers: "pulse", agents: "pulse", mcp: "plug", tools: "wrench", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
 
-function refresh() {
+async function refresh() {
   const fn = VIEWS[state.view];
-  if (fn) Promise.resolve(fn({ soft: true })).catch(() => { /* keep last good render; live dot reports connectivity */ });
+  if (!fn) return;
+  const view = state.view;
+  const scrollY = window.scrollY;
+  const scrollX = window.scrollX;
+  try {
+    await fn({ soft: true });
+  } catch { /* keep last good render; live dot reports connectivity */ }
+  // Preserve scroll across auto-refresh (renderers replace #main.innerHTML, which resets scroll to top)
+  if (state.view === view && !state.drawerId) window.scrollTo(scrollX, scrollY);
 }
 
 function route() {

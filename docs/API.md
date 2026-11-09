@@ -306,3 +306,35 @@ curl -b jar.txt -X POST http://127.0.0.1:8710/api/reports \
   -H "Content-Type: application/json" -d '{"type":"executive","format":"csv"}'
 curl -b jar.txt -o report.csv http://127.0.0.1:8710/api/reports/rpt-.../download
 ```
+
+### Assignment, workload, and contextual help
+
+All routes require authentication and follow existing CSRF/origin protections for cookie-authenticated POSTs.
+
+| Method | Path | RBAC | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/help` | any authenticated | Centralized contextual help registry |
+| GET | `/api/help/<key>` | any authenticated | Single help entry |
+| GET | `/api/assignment/dashboard` | `super_admin, security_admin, security_analyst, appsec_engineer, devsecops_engineer` | Team workload/assignment metrics, queues, team profiles |
+| GET | `/api/assignment/my` | any authenticated | Personal assignments and review requests for the current user |
+| GET | `/api/assignment/profiles` | manager roles (same as dashboard) | Employee profiles + workloads |
+| GET | `/api/assignment/finding/<id>` | any authenticated (finding access context) | Assignment detail + history for a finding |
+| GET | `/api/assignment/history/<id>` | any authenticated | Assignment history |
+| GET | `/api/assignment/sla-config` | any authenticated (GET) | Configurable SLA/ack hours |
+| POST | `/api/assignment/sla-config` | `super_admin, security_admin` | Update SLA config (audited) |
+| POST | `/api/assignment/escalate-check` | manager roles | Emit deduplicated SLA escalation notifications |
+| POST | `/api/assignment/profiles/<username>` | `super_admin, security_admin` | Update profile/capacity/availability/eligibility (audited) |
+| POST | `/api/assignment/finding/<id>/auto` | manager roles | Automatic/recommended assignment with explanation |
+| POST | `/api/assignment/finding/<id>/assign` | manager roles | Manual assignment; `admin_override=true` requires `reason` (audited) |
+| POST | `/api/assignment/finding/<id>/reassign` | manager roles | Reassign with reason; override rules apply |
+| POST | `/api/assignment/finding/<id>/ack` | primary owner or admin | Acknowledge assignment |
+| POST | `/api/assignment/finding/<id>/start` | primary owner or admin | Mark in progress |
+| POST | `/api/assignment/finding/<id>/block` | primary owner or admin | Mark blocked with reason |
+| POST | `/api/assignment/finding/<id>/request-reassign` | primary owner or admin | Request reassignment (audited) |
+| POST | `/api/assignment/finding/<id>/complete` | primary owner or admin | Mark completed |
+| POST | `/api/assignment/finding/<id>/verify` | secondary reviewer or manager/admin | Mark verified |
+| POST | `/api/assignment/bulk` | manager roles | Bulk assign/auto operations with confirmation in UI; each finding recorded individually |
+
+**Manual/override body fields (typical):** `primary_owner`, `secondary_reviewer`, `reason`, `due_at`, `instructions`, `admin_override`. Backend validates target existence, disabled state, eligibility/availability/capacity/role suitability unless a valid admin override with mandatory reason is provided.
+
+**Finding detail enrichment:** `GET /api/findings/<id>` includes `assignment` and `assignment_history`. Legacy `POST /api/findings/<id>/assign` synchronizes with the assignment system for backward compatibility.

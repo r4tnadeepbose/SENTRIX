@@ -155,3 +155,14 @@ The monolith is deliberately seam-ready. Candidate extraction boundaries, in ord
 5. **Auth** — `AuthManager` is the single authority; replacing it with an OIDC provider requires implementing the same `session_user`/`bearer_user` contract.
 
 The storage layer is the hard boundary: everything currently assumes one SQLite file. PostgreSQL support (ROADMAP) means re-implementing `Storage`/`ExtStorage` behind the same method surface, not changing callers.
+
+## Intelligent assignment engine (additive)
+
+SENTRIX includes an explainable assignment and workload subsystem integrated with the existing modular monolith:
+
+- **Engine:** `sentrix/core/assignment.py` scores eligible candidates using finding severity/domain, RBAC/role suitability, skills/expertise, severity-weighted workload, availability/capacity, and ownership context. It produces automatic, recommended, or manual decisions with explanations.
+- **API/policy layer:** `sentrix/core/assignment_api.py` + `sentrix/server.py` enforce backend RBAC, validate targets, emit notifications/escalations, and expose dashboard/personal/help endpoints.
+- **Persistence:** `ExtStorage` migration v4 adds `employee_profiles`, `finding_assignments`, `assignment_history`, and `assignment_sla_config` (additive; backward-compatible with legacy assignee/owner fields).
+- **UI:** Team Workload & Assignment and My Assignments views, finding Assignment tab, and contextual help popovers in the SPA.
+
+Assignment status is tracked separately from the finding lifecycle to preserve existing workflows.

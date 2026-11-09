@@ -121,3 +121,15 @@ Eight roles; enforcement happens server-side on every request (`Handler._authori
 3. You will receive an acknowledgment as soon as practical; coordination happens privately and credit is given in release notes unless you prefer otherwise.
 
 Allow maintainers reasonable time to remediate before public disclosure. Never test with live credentials, and never paste real secrets into reports — use masked or synthetic values.
+
+## Assignment & workload RBAC / controls
+
+- Assignment APIs enforce **backend authorization** (hidden UI controls are not sufficient).
+- **View team dashboard/profiles/queues:** `super_admin`, `security_admin`, `security_analyst`, `appsec_engineer`, `devsecops_engineer`.
+- **Personal assignments:** authenticated user can view own assignments/review requests via `/api/assignment/my`.
+- **Auto/manual/reassign/bulk:** authorized manager roles above; targets validated for existence, enabled state, eligibility, availability, capacity, and role/severity suitability.
+- **Admin override:** only `super_admin`/`security_admin`, requires mandatory `reason`, and is audited/logged. Override does not make disabled/nonexistent targets valid.
+- **Owner actions:** acknowledge/start/block/complete/request-reassign are restricted to the primary owner or admin (as implemented) to prevent cross-user mutation/IDOR-style reassignment.
+- **Secondary reviewer:** can verify (and participate as authorized) but does not automatically inherit primary-owner permissions.
+- **Sensitive data:** no raw credentials/secret values in assignment explanations, scoring metadata, history, audit details, or notifications.
+- **Auditability:** assignment history records action/actor/timestamp/reason; admin overrides and SLA/profile config changes are audited via auth/system logs.

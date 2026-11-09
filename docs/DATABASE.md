@@ -148,3 +148,14 @@ The storage layer is the designated seam: all SQL is confined to `Storage`/`ExtS
 4. Keep SQLite as the offline/edge mode; the choice would be a `[storage]` config switch.
 
 This is roadmap work — see [ROADMAP.md](ROADMAP.md). Nothing in the current release connects to PostgreSQL.
+
+## Assignment & workload tables (migration v4, additive)
+
+| Table | Key columns | Purpose |
+| --- | --- | --- |
+| `employee_profiles` | `username` PK, `skills` (JSON), `expertise` (JSON), `max_capacity` REAL, `availability_status`, `assignment_eligible`, `updated_by`, `updated_at` | Skill/expertise/capacity/availability/eligibility per roster user; influences suitability, not RBAC permissions |
+| `finding_assignments` | `finding_id` PK, `primary_owner`, `secondary_reviewer`, `status`, `method`, `explanation`, `scoring` (JSON), `assigned_by`, `assigned_at`, `acknowledged_at`, `ack_due_at`, `due_at`, reassignment/block/completion/verification fields, `sla_config` (JSON), `updated_at` | Current assignment state separate from finding lifecycle; stores explainable decision metadata |
+| `assignment_history` | `id` PK, `finding_id`, `action`, `from/to_owner`, `from/to_reviewer`, `status`, `reason`, `actor`, `details` (JSON), `ts` | Auditable assignment workflow history (actor/timestamp/reason) |
+| `assignment_sla_config` | `id=1` singleton, `config` (JSON), `updated_by`, `updated_at` | Configurable acknowledgement/remediation SLA hours and escalation flags |
+
+Indexes: `idx_assign_primary`, `idx_assign_secondary`, `idx_assign_status`, `idx_assign_history_fid`. Migration `4` is recorded in `migrations`. Existing `finding_extra.assignee` and `findings.owner` are synchronized for backward compatibility; raw secrets are never stored in assignment metadata/history/notifications.

@@ -79,6 +79,39 @@ CREATE TABLE IF NOT EXISTS custom_rules (
     id TEXT PRIMARY KEY, title TEXT, severity TEXT, pattern TEXT,
     created_by TEXT, created_at TEXT, enabled INTEGER DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS employee_profiles (
+    username TEXT PRIMARY KEY, skills TEXT DEFAULT '[]', expertise TEXT DEFAULT '{}',
+    max_capacity REAL DEFAULT 20, availability_status TEXT DEFAULT 'available',
+    assignment_eligible INTEGER DEFAULT 1, updated_by TEXT DEFAULT '', updated_at TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS finding_assignments (
+    finding_id TEXT PRIMARY KEY, primary_owner TEXT DEFAULT '', secondary_reviewer TEXT DEFAULT '',
+    status TEXT DEFAULT 'unassigned', method TEXT DEFAULT '', explanation TEXT DEFAULT '',
+    scoring TEXT DEFAULT '{}', assigned_by TEXT DEFAULT '', assigned_at TEXT DEFAULT '',
+    acknowledged_at TEXT DEFAULT '', secondary_acknowledged_at TEXT DEFAULT '', ack_due_at TEXT DEFAULT '', due_at TEXT DEFAULT '',
+    priority TEXT DEFAULT '', assignment_instructions TEXT DEFAULT '', assistance_requested_at TEXT DEFAULT '', assistance_reason TEXT DEFAULT '',
+    primary_investigation_started_at TEXT DEFAULT '', primary_classification TEXT DEFAULT '', primary_reasoning TEXT DEFAULT '', primary_evidence TEXT DEFAULT '', primary_submitted_at TEXT DEFAULT '',
+    secondary_review_started_at TEXT DEFAULT '', secondary_outcome TEXT DEFAULT '', secondary_reasoning TEXT DEFAULT '', secondary_evidence TEXT DEFAULT '', secondary_submitted_at TEXT DEFAULT '',
+    admin_decision TEXT DEFAULT '', admin_decision_reason TEXT DEFAULT '', admin_decision_by TEXT DEFAULT '', admin_decision_at TEXT DEFAULT '', reassessment_target TEXT DEFAULT '',
+    remediation_owner TEXT DEFAULT '', remediation_status TEXT DEFAULT '', remediation_submitted_at TEXT DEFAULT '', remediation_note TEXT DEFAULT '',
+    verification_requested_at TEXT DEFAULT '', verification_note TEXT DEFAULT '', verification_evidence TEXT DEFAULT '', verification_decision TEXT DEFAULT '', verification_decided_by TEXT DEFAULT '', verification_decided_at TEXT DEFAULT '', verification_rejection_reason TEXT DEFAULT '',
+    blocked_reason TEXT DEFAULT '', reassignment_requested_by TEXT DEFAULT '',
+    reassignment_reason TEXT DEFAULT '', completed_at TEXT DEFAULT '', verified_at TEXT DEFAULT '',
+    sla_config TEXT DEFAULT '{}', updated_at TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS assignment_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, finding_id TEXT NOT NULL, action TEXT NOT NULL,
+    from_owner TEXT DEFAULT '', to_owner TEXT DEFAULT '', from_reviewer TEXT DEFAULT '',
+    to_reviewer TEXT DEFAULT '', status TEXT DEFAULT '', reason TEXT DEFAULT '',
+    actor TEXT DEFAULT '', details TEXT DEFAULT '{}', ts TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS assignment_sla_config (
+    id INTEGER PRIMARY KEY CHECK (id=1), config TEXT NOT NULL, updated_by TEXT DEFAULT '', updated_at TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_assign_primary ON finding_assignments(primary_owner);
+CREATE INDEX IF NOT EXISTS idx_assign_secondary ON finding_assignments(secondary_reviewer);
+CREATE INDEX IF NOT EXISTS idx_assign_status ON finding_assignments(status);
+CREATE INDEX IF NOT EXISTS idx_assign_history_fid ON assignment_history(finding_id);
 """
 
 
@@ -109,7 +142,50 @@ class ExtStorage(Storage, HubsStorage):
         self._db.execute("UPDATE users SET role='security_analyst' WHERE role='analyst'")
         self._db.execute("INSERT OR IGNORE INTO migrations VALUES (2, ?)", (now_iso(),))
         self._db.execute("INSERT OR IGNORE INTO migrations VALUES (3, ?)", (now_iso(),))
+        self._db.execute("INSERT OR IGNORE INTO migrations VALUES (4, ?)", (now_iso(),))
+        for ddl in (
+            "ALTER TABLE finding_assignments ADD COLUMN secondary_acknowledged_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN priority TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN assignment_instructions TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN assistance_requested_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN assistance_reason TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN verification_requested_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN verification_note TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN verification_evidence TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN verification_decision TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN verification_decided_by TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN verification_decided_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN verification_rejection_reason TEXT DEFAULT ''",
+        ):
+            try: self._db.execute(ddl)
+            except sqlite3.OperationalError: pass
+        for ddl in (
+            "ALTER TABLE finding_assignments ADD COLUMN primary_investigation_started_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN primary_classification TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN primary_reasoning TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN primary_evidence TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN primary_submitted_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN secondary_review_started_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN secondary_outcome TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN secondary_reasoning TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN secondary_evidence TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN secondary_submitted_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN admin_decision TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN admin_decision_reason TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN admin_decision_by TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN admin_decision_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN reassessment_target TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN remediation_owner TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN remediation_status TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN remediation_submitted_at TEXT DEFAULT ''",
+            "ALTER TABLE finding_assignments ADD COLUMN remediation_note TEXT DEFAULT ''",
+        ):
+            try: self._db.execute(ddl)
+            except sqlite3.OperationalError: pass
+        self._db.execute("INSERT OR IGNORE INTO migrations VALUES (5, ?)", (now_iso(),))
+        self._db.execute("INSERT OR IGNORE INTO migrations VALUES (6, ?)", (now_iso(),))
         self._db.commit()
+        self._ensure_assignment_sla_config()
         self.hubs_init()
 
     # -- users / sessions / tokens
@@ -620,6 +696,199 @@ class ExtStorage(Storage, HubsStorage):
     # ── SLA helpers ───────────────────────────────────────────────────────
 
     SLA_HOURS = {"critical": 24, "high": 72, "medium": 168, "low": 336, "info": 720}
+
+
+
+    # -- assignment / workload / SLA (enterprise assignment engine) -------------
+    def _ensure_assignment_sla_config(self):
+        from sentrix.core.assignment import default_sla_config
+        with self._lock:
+            row = self._db.execute("SELECT 1 FROM assignment_sla_config WHERE id=1").fetchone()
+            if not row:
+                self._db.execute("INSERT INTO assignment_sla_config (id, config, updated_by, updated_at) VALUES (1,?,?,?)",
+                                 (json.dumps(default_sla_config()), "system", now_iso()))
+                self._db.commit()
+
+    def get_assignment_sla_config(self):
+        row = self._db.execute("SELECT * FROM assignment_sla_config WHERE id=1").fetchone()
+        if not row:
+            from sentrix.core.assignment import default_sla_config
+            return default_sla_config()
+        try: return json.loads(row["config"])
+        except Exception:
+            from sentrix.core.assignment import default_sla_config
+            return default_sla_config()
+
+    def set_assignment_sla_config(self, config, actor="admin"):
+        with self._lock:
+            self._db.execute("INSERT INTO assignment_sla_config (id, config, updated_by, updated_at) VALUES (1,?,?,?) "
+                             "ON CONFLICT(id) DO UPDATE SET config=excluded.config, updated_by=excluded.updated_by, updated_at=excluded.updated_at",
+                             (json.dumps(config), actor, now_iso()))
+            self._db.commit()
+
+    def reset_assignment_demo_state(self, actor="system"):
+        """Reset assignment/workload/employee state to current demo defaults (admin action)."""
+        from sentrix.core.assignment import default_sla_config, profile_defaults
+        users = self.list_users()
+        with self._lock:
+            self._db.execute("DELETE FROM finding_assignments")
+            self._db.execute("DELETE FROM assignment_history")
+            self._db.execute("DELETE FROM employee_profiles")
+            self._db.execute("UPDATE finding_extra SET assignee=''")
+            self._db.execute("UPDATE findings SET owner=''")
+            self._db.execute("INSERT OR REPLACE INTO assignment_sla_config (id, config, updated_by, updated_at) VALUES (1,?,?,?)",
+                             (json.dumps(default_sla_config()), actor, now_iso()))
+            self._db.commit()
+        for u in users:
+            uname = u.get("username")
+            if not uname: continue
+            d = profile_defaults(uname, u.get("role",""), u.get("title",""))
+            with self._lock:
+                self._db.execute("INSERT INTO employee_profiles (username,skills,expertise,max_capacity,availability_status,assignment_eligible,updated_by,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                                 (uname, json.dumps(d["skills"]), json.dumps(d["expertise"]), d["max_capacity"],
+                                  d["availability_status"], 1 if d["assignment_eligible"] else 0, actor, now_iso()))
+                self._db.commit()
+
+    def ensure_employee_profiles(self, users):
+        from sentrix.core.assignment import profile_defaults
+        for u in users:
+            uname = u.get("username") if isinstance(u, dict) else getattr(u, "username", "")
+            if not uname: continue
+            row = self._db.execute("SELECT 1 FROM employee_profiles WHERE username=?", (uname,)).fetchone()
+            if row: continue
+            d = profile_defaults(uname, u.get("role","") if isinstance(u,dict) else getattr(u,"role",""),
+                                 u.get("title","") if isinstance(u,dict) else getattr(u,"title",""))
+            with self._lock:
+                self._db.execute("INSERT INTO employee_profiles (username,skills,expertise,max_capacity,availability_status,assignment_eligible,updated_by,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+                                 (uname, json.dumps(d["skills"]), json.dumps(d["expertise"]), d["max_capacity"],
+                                  d["availability_status"], 1 if d["assignment_eligible"] else 0, "system", now_iso()))
+                self._db.commit()
+
+    def get_employee_profile(self, username):
+        row = self._db.execute("SELECT * FROM employee_profiles WHERE username=?", (username,)).fetchone()
+        if not row: return None
+        d = dict(row)
+        d["skills"] = json.loads(d.get("skills") or "[]")
+        d["expertise"] = json.loads(d.get("expertise") or "{}")
+        d["assignment_eligible"] = bool(d.get("assignment_eligible"))
+        return d
+
+    def upsert_employee_profile(self, username, actor, **fields):
+        # ensure row
+        if not self._db.execute("SELECT 1 FROM employee_profiles WHERE username=?", (username,)).fetchone():
+            self.ensure_employee_profiles([{"username": username}])
+        if "skills" in fields and not isinstance(fields["skills"], str): fields["skills"] = json.dumps(fields["skills"])
+        if "expertise" in fields and not isinstance(fields["expertise"], str): fields["expertise"] = json.dumps(fields["expertise"])
+        if "assignment_eligible" in fields: fields["assignment_eligible"] = 1 if fields["assignment_eligible"] else 0
+        fields["updated_by"] = actor; fields["updated_at"] = now_iso()
+        allowed = {"skills","expertise","max_capacity","availability_status","assignment_eligible","updated_by","updated_at"}
+        sets = []; vals = []
+        for k,v in fields.items():
+            if k in allowed: sets.append(f"{k}=?"); vals.append(v)
+        if not sets: return self.get_employee_profile(username)
+        vals.append(username)
+        with self._lock:
+            self._db.execute(f"UPDATE employee_profiles SET {', '.join(sets)} WHERE username=?", vals)
+            self._db.commit()
+        return self.get_employee_profile(username)
+
+    def list_employee_profiles(self, users=None):
+        if users is not None:
+            self.ensure_employee_profiles(users)
+        rows = self._db.execute("SELECT * FROM employee_profiles").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r); d["skills"] = json.loads(d.get("skills") or "[]"); d["expertise"] = json.loads(d.get("expertise") or "{}")
+            d["assignment_eligible"] = bool(d.get("assignment_eligible")); out.append(d)
+        return out
+
+    def get_assignment(self, finding_id):
+        row = self._db.execute("SELECT * FROM finding_assignments WHERE finding_id=?", (finding_id,)).fetchone()
+        base = {"finding_id": finding_id, "primary_owner": "", "secondary_reviewer": "", "status": "unassigned",
+                "method": "", "explanation": "", "scoring": {}, "assigned_by": "", "assigned_at": "",
+                "acknowledged_at": "", "secondary_acknowledged_at": "", "ack_due_at": "", "due_at": "",
+                "priority": "", "assignment_instructions": "", "assistance_requested_at": "", "assistance_reason": "",
+                "primary_investigation_started_at": "", "primary_classification": "", "primary_reasoning": "", "primary_evidence": "", "primary_submitted_at": "",
+                "secondary_review_started_at": "", "secondary_outcome": "", "secondary_reasoning": "", "secondary_evidence": "", "secondary_submitted_at": "",
+                "admin_decision": "", "admin_decision_reason": "", "admin_decision_by": "", "admin_decision_at": "", "reassessment_target": "",
+                "remediation_owner": "", "remediation_status": "", "remediation_submitted_at": "", "remediation_note": "",
+                "verification_requested_at": "", "verification_note": "", "verification_evidence": "", "verification_decision": "", "verification_decided_by": "", "verification_decided_at": "", "verification_rejection_reason": "",
+                "blocked_reason": "", "reassignment_requested_by": "", "reassignment_reason": "", "completed_at": "", "verified_at": "", "sla_config": {}}
+        if not row:
+            return base
+        d = dict(row)
+        for k in ("scoring","sla_config"):
+            try: d[k] = json.loads(d.get(k) or "{}")
+            except Exception: d[k] = {}
+        return d
+
+    def upsert_assignment(self, finding_id, actor, reason="", action="update", sync_finding=True, **fields):
+        now = now_iso()
+        cur = self.get_assignment(finding_id)
+        with self._lock:
+            self._db.execute("INSERT OR IGNORE INTO finding_assignments (finding_id, updated_at) VALUES (?,?)", (finding_id, now))
+            if "scoring" in fields and not isinstance(fields["scoring"], str): fields["scoring"] = json.dumps(fields["scoring"])
+            if "sla_config" in fields and not isinstance(fields["sla_config"], str): fields["sla_config"] = json.dumps(fields["sla_config"])
+            fields["updated_at"] = now
+            sets=[]; vals=[]
+            for k,v in fields.items():
+                sets.append(f"{k}=?"); vals.append(v)
+            if sets:
+                vals.append(finding_id)
+                self._db.execute(f"UPDATE finding_assignments SET {', '.join(sets)} WHERE finding_id=?", vals)
+            self._db.commit()
+        new = self.get_assignment(finding_id)
+        # sync legacy fields for compatibility
+        if sync_finding and new.get("primary_owner") is not None:
+            try:
+                self.update_extra(finding_id, assignee=new.get("primary_owner") or "")
+                with self._lock:
+                    self._db.execute("UPDATE findings SET owner=?, updated_at=? WHERE id=?",
+                                     (new.get("primary_owner") or "", now, finding_id))
+                    self._db.commit()
+            except Exception:
+                pass
+        # history
+        self.add_assignment_history(finding_id, action,
+                                    from_owner=cur.get("primary_owner",""), to_owner=new.get("primary_owner",""),
+                                    from_reviewer=cur.get("secondary_reviewer",""), to_reviewer=new.get("secondary_reviewer",""),
+                                    status=new.get("status",""), reason=reason, actor=actor,
+                                    details={"method": new.get("method",""), "prev_status": cur.get("status","")})
+        return new
+
+    def add_assignment_history(self, finding_id, action, from_owner="", to_owner="", from_reviewer="", to_reviewer="",
+                               status="", reason="", actor="", details=None):
+        with self._lock:
+            self._db.execute("INSERT INTO assignment_history (finding_id,action,from_owner,to_owner,from_reviewer,to_reviewer,status,reason,actor,details,ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                             (finding_id, action, from_owner, to_owner, from_reviewer, to_reviewer, status, reason, actor,
+                              json.dumps(details or {}), now_iso()))
+            self._db.commit()
+
+    def list_assignment_history(self, finding_id, limit=100):
+        rows = self._db.execute("SELECT * FROM assignment_history WHERE finding_id=? ORDER BY id DESC LIMIT ?", (finding_id, limit)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try: d["details"] = json.loads(d.get("details") or "{}")
+            except Exception: d["details"] = {}
+            out.append(d)
+        return out
+
+    def list_assignments(self, status=None, primary_owner=None, secondary_reviewer=None, limit=2000):
+        sql = "SELECT * FROM finding_assignments WHERE 1=1"; args=[]
+        if status: sql += " AND status=?"; args.append(status)
+        if primary_owner: sql += " AND primary_owner=?"; args.append(primary_owner)
+        if secondary_reviewer: sql += " AND secondary_reviewer=?"; args.append(secondary_reviewer)
+        sql += " ORDER BY updated_at DESC LIMIT ?"; args.append(limit)
+        rows = self._db.execute(sql, args).fetchall()
+        out=[]
+        for r in rows:
+            d=dict(r)
+            for k in ("scoring","sla_config"):
+                try: d[k]=json.loads(d.get(k) or "{}")
+                except Exception: d[k]={}
+            out.append(d)
+        return out
 
     def finding_sla(self, finding, extra=None):
         """Return SLA info dict for a finding."""
