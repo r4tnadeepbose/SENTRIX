@@ -44,7 +44,7 @@ AVATAR_FILE = re.compile(r"^[A-Za-z0-9._-]+\.(?:jpg|jpeg|png|webp)$")
 FINDING_ID = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)$")
 FINDING_SUB = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)/(status|notes|tags|assign|severity|pin|mute|related|checklist|history)$")
 ID_SUB = re.compile(r"^/api/(jobs|schedules|rules|tokens|users|filters)/([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)$")
-PUBLIC_GET = {"/", "/login", "/favicon.svg", "/logo.svg", "/api/health", "/api/auth/demo-info"}
+PUBLIC_GET = {"/", "/login", "/favicon.svg", "/home-favicon.svg", "/home-favicon.png", "/logo.svg", "/api/health", "/api/auth/demo-info"}
 ADMIN_PREFIXES = ("/api/users/", "/api/tokens", "/api/ops/restore", "/api/ops/import", "/api/ops/purge")
 # Sentinel returned by response helpers so dispatchers can tell "handled"
 # from "route not found" without inspecting the socket.
@@ -181,6 +181,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(ROOT / "sentrix" / "dashboard" / name)
         if path == "/favicon.svg":
             return self._file(ROOT / "assets" / "favicon.svg")
+        if path == "/home-favicon.svg":
+            return self._file(ROOT / "assets" / "home-favicon.svg")
+        if path == "/home-favicon.png":
+            return self._file(ROOT / "assets" / "home-favicon.png")
         if path == "/logo.svg":
             return self._file(ROOT / "assets" / "logo.svg")
         if path == "/api/health":
@@ -627,6 +631,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _extra_get(self, path, query):
         from sentrix.core import integrations, reports, risk
+        from sentrix.remediation.playbooks import PLAYBOOKS
         state = self.state
         storage = state.storage
         findings = storage.list_findings(limit=5000)
@@ -666,6 +671,94 @@ class Handler(BaseHTTPRequestHandler):
                 "detectors": len(__import__("sentrix.detectors", fromlist=["all_detectors"]).all_detectors()),
                 "surfaces": sorted({f.surface for f in findings}),
                 "demo": demo,
+            })
+        if path == "/api/home":
+            stats = storage.stats()
+            jobs = storage.list_jobs(limit=500)
+            demo = bool(cfg_get(state.cfg, "auth.demo_mode", False))
+            inv = __import__("sentrix.core.integrations", fromlist=["inventory"]).inventory(state.cfg, storage, demo)
+            now = time.time()
+            def _ts(s):
+                try: return time.mktime(time.strptime((s or "")[:19], "%Y-%m-%dT%H:%M:%S"))
+                except Exception: return None
+            # MTTR (hours) from remediation history
+            hist = []
+            try:
+                conn = storage._connect(); conn.row_factory = __import__("sqlite3").Row
+                for r in conn.execute("SELECT ts, details FROM events WHERE event='remediation.success' ORDER BY id DESC LIMIT 100").fetchall():
+                    try:
+                        d = json.loads(r["details"] or "{}"); t1 = _ts(d.get("created_at")); t2 = _ts(r["ts"])
+                        if t1 and t2 and t2 >= t1: hist.append(t2 - t1)
+                    except Exception: pass
+                conn.close()
+            except Exception: pass
+            mttr_hours = round(sum(hist)/len(hist)/3600, 2) if hist else None
+            # Top sources with honest 30d trend (count in last 30d vs previous 30d) from findings
+            src = {}
+            for f in findings:
+                s = src.setdefault(f.surface, {"surface": f.surface, "findings": 0, "last_event": f.updated_at or f.created_at, "last30": 0, "prev30": 0})
+                s["findings"] += 1
+                ts = _ts(f.created_at)
+                if ts:
+                    if ts >= now - 30*86400: s["last30"] += 1
+                    elif ts >= now - 60*86400: s["prev30"] += 1
+                if (f.updated_at or f.created_at or "") > (s["last_event"] or ""): s["last_event"] = f.updated_at or f.created_at
+            top_sources = []
+            for v in sorted(src.values(), key=lambda x: -x["findings"]):
+                base = max(1, v["prev30"])
+                trend_pct = round(100 * (v["last30"] - v["prev30"]) / base) if (v["last30"] or v["prev30"]) else None
+                top_sources.append({"surface": v["surface"], "findings": v["findings"], "last_event": v["last_event"], "trend_30d_pct": trend_pct, "last30": v["last30"]})
+            # Outcomes groups (real statuses)
+            active_states = {"open","new","triaged","assigned","in_progress","reopened"}
+            mitigated_states = {"remediated","verified","closed","accepted_risk","false_positive","suppressed"}
+            def sev_breakdown(items):
+                b = {k:0 for k in ["critical","high","medium","low","info"]}
+                for f in items: b[f.severity] = b.get(f.severity,0)+1
+                return b
+            active = [f for f in findings if f.status in active_states]
+            needs_attention = [f for f in active if f.status in {"open","new","triaged","reopened"}]
+            in_progress = [f for f in active if f.status in {"assigned","in_progress"}]
+            mitigated = [f for f in findings if f.status in mitigated_states]
+            mitigated_controls = [f for f in findings if f.status in {"accepted_risk","suppressed","false_positive"}]
+            resolved = [f for f in findings if f.status in {"remediated","verified","closed"}]
+            # Assets
+            assets = {}
+            for f in findings:
+                key = (f.meta or {}).get("asset") or f.path.split("/")[0].split("\\")[0] or f.surface
+                assets.setdefault(key, {"findings":0})["findings"] += 1
+            vulnerable_assets = sum(1 for a in assets.values() if a["findings"] > 0)
+            total_assets = len(assets) if assets else len({f.surface for f in findings})
+            scans_30d = sum(1 for j in jobs if (_ts(j.get("started") or j.get("created_at")) or 0) >= now - 30*86400)
+            actionable = len([f for f in findings if f.status in active_states and f.severity in ("critical","high","medium")])
+            unresolved = len(active)
+            crit_high = stats["by_severity"].get("critical",0)+stats["by_severity"].get("high",0)
+            total = max(1, stats["total"])
+            # Security dimensions (honest, derived)
+            coverage = round(100 * len({f.surface for f in findings}) / max(1, len(SURFACES)), 1)
+            auto_pct = round(100 * stats["alerts_sent"] / max(1, stats["events_processed"]), 1) if stats["events_processed"] else 0
+            dimensions = [
+                {"label":"Automation Health","value": auto_pct, "unit":"%", "note":"alerts per ingested events (proxy)", "available": True},
+                {"label":"Open Severity Burden","value": round(100*crit_high/total,1), "unit":"%", "note":"critical+high share", "available": True},
+                {"label":"Exploit Pressure","value": round(100*stats["by_severity"].get("critical",0)/total,1), "unit":"%", "note":"critical share (proxy)", "available": True},
+                {"label":"Coverage Confidence","value": coverage, "unit":"%", "note":"surfaces with findings", "available": True},
+                {"label":"Security Posture","value": round(100*len(resolved)/total,1), "unit":"%", "note":"resolved/mitigated share", "available": True},
+            ]
+            return self._json({
+                "center": {"ingested": stats["events_processed"], "unique_findings": stats["total"], "actionable": actionable},
+                "top_sources": top_sources[:8],
+                "outcomes": {
+                    "active": {"total": len(active), "needs_attention": len(needs_attention), "in_progress": len(in_progress), "severity": sev_breakdown(active)},
+                    "mitigated": {"total": len(mitigated), "mitigated_with_controls": len(mitigated_controls), "resolved": len(resolved), "accepted_risk": stats["by_status"].get("accepted_risk",0), "severity": sev_breakdown(mitigated)},
+                },
+                "dimensions": dimensions,
+                "cards": {
+                    "vulnerable_assets": {"value": vulnerable_assets, "total_assets": total_assets, "trend_30d": None, "never_scanned": None},
+                    "active_findings": {"total": len(active), "severity": sev_breakdown(active), "trend_30d": None},
+                    "mttr": {"hours": mttr_hours, "previous": None, "trend": None, "available": mttr_hours is not None},
+                    "automation": {"percent": auto_pct, "auto_handled": stats["alerts_sent"], "note": "alerts/ingested proxy", "available": True},
+                    "scanned_30d": {"value": scans_30d, "total_assets": total_assets, "percent": round(100*scans_30d/max(1,total_assets),1) if total_assets else None, "trend_30d": None, "note": "scan jobs in last 30d (proxy)"},
+                },
+                "meta": {"demo": demo, "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
             })
         if path == "/api/pipeline":
             jobs = storage.list_jobs(limit=500)
@@ -853,7 +946,7 @@ class Handler(BaseHTTPRequestHandler):
                 "lifecycle": describe_lifecycle(),
             })
 
-        if path in ("/api/workers", "/api/agents"):
+        if path == "/api/workers":
             findings = storage.list_findings(limit=5000)
             jobs = storage.list_jobs(limit=500)
             by = {}
@@ -882,6 +975,40 @@ class Handler(BaseHTTPRequestHandler):
                                "status": i['status'], "runtime": "connector",
                                "capabilities": i.get('permissions', []), "last_sync": i.get('last_sync')})
             return self._json({"workers": agents, "agents": agents, "jobs_by_status": by, "capacity": {"job_slots": 2}})
+
+
+        if path == "/api/agents":
+            # AI/assistant agents (honest capabilities)
+            ai_enabled = bool(cfg_get(state.cfg, "ai.enabled", False))
+            has_key = bool(__import__("sentrix.config", fromlist=["env_secret"]).env_secret(state.cfg, "ai.api_key_env")) if ai_enabled else False
+            mode = "gpt-compatible" if ai_enabled and has_key else "heuristic"
+            agents = [
+                {"id": "triage-agent", "name": "Triage Agent", "kind": "analysis", "status": "available",
+                 "mode": mode, "capabilities": ["finding-triage", "confidence", "verdict", "recommendation"],
+                 "endpoint": "/api/triage", "details": "Heuristic triage runs locally; GPT-compatible mode requires ai.enabled and API key env."},
+                {"id": "lifecycle-agent", "name": "Lifecycle Advisor", "kind": "workflow", "status": "available",
+                 "mode": "deterministic", "capabilities": ["state-machine", "transitions", "labels"],
+                 "endpoint": "/api/lifecycle", "details": "Machine-readable workflow metadata for findings, jobs, alerts and integrations."},
+            ]
+            return self._json({"agents": agents, "ai": {"enabled": ai_enabled, "mode": mode, "configured": ai_enabled and has_key}})
+
+        if path == "/api/mcp":
+            return self._json({
+                "mcp": {
+                    "server_implemented": False,
+                    "status": "agent-ready-apis",
+                    "note": "SENTRIX does not claim a bundled MCP stdio server by default. It exposes authenticated HTTP APIs and machine-readable registries that MCP/tooling adapters can consume in a deployment-specific setup.",
+                    "agent_ready_endpoints": [
+                        {"path": "/api/lifecycle", "purpose": "State machines and workflow metadata"},
+                        {"path": "/api/tools", "purpose": "Detectors, adapters, integrations, playbooks"},
+                        {"path": "/api/workers", "purpose": "Local workers/connectors and job capacity"},
+                        {"path": "/api/architecture", "purpose": "Platform architecture and component status"},
+                        {"path": "/api/findings", "purpose": "Findings/exposures inventory and evidence"},
+                        {"path": "/api/triage", "purpose": "AI/heuristic finding triage (POST)"},
+                    ],
+                    "configuration": {"transport": "http-json", "auth": "session cookie or bearer token", "external_mcp_bridge": "deployment-specific"}
+                }
+            })
 
         if path == "/api/tools":
             detectors = []
@@ -935,7 +1062,6 @@ class Handler(BaseHTTPRequestHandler):
                     groups.append(g)
             return self._json({"groups": sorted(groups, key=lambda x: (x["dimension"], -x["findings"]))})
         if path == "/api/remediation":
-            from sentrix.remediation.playbooks import PLAYBOOKS
             sla = {"critical": 24, "high": 72, "medium": 168, "low": 336, "info": 720}
             tasks = []
             for f in findings:

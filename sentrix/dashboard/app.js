@@ -21,12 +21,12 @@ const SEV_COLOR = { critical: "var(--crit)", high: "var(--high)", medium: "var(-
 const STATUS_COLOR = { open: "var(--accent)", new: "var(--accent)", triaged: "var(--info)", assigned: "var(--info)", in_progress: "var(--info)", remediated: "var(--ok)", verified: "var(--ok)", closed: "var(--ok)", false_positive: "var(--warn)", accepted_risk: "var(--warn)", suppressed: "var(--warn)", reopened: "var(--accent)" };
 
 const NAV = [
-  ["Command Center", [["overview", "Overview"], ["posture", "Security Posture"], ["intelligence", "Intelligence Dashboard"]]],
-  ["Detection", [["findings", "Findings"], ["sources", "Detection Sources"], ["rules", "Detection Rules"], ["playground", "Detection Playground"], ["scans", "Scan Management"]]],
+  ["Command Center", [["home", "Home"], ["overview", "Overview"], ["posture", "Security Posture"], ["intelligence", "Intelligence Dashboard"]]],
+  ["Detection", [["findings", "Findings"], ["vulnerabilities", "Vulnerabilities / Exposures"], ["sources", "Detection Sources"], ["rules", "Detection Rules"], ["playground", "Detection Playground"], ["scans", "Scan Management"]]],
   ["Attack Surface", [["repositories", "Repository Security"], ["developer", "Developer Security"], ["cloud", "Cloud Security"], ["cicd", "CI/CD Security"], ["saas", "SaaS Security"], ["assets", "Asset Inventory"], ["technologies", "Technologies"], ["groups", "Groups"]]],
   ["Response", [["remediation", "Remediation Center"], ["alerts", "Security Alerts"], ["investigations", "Investigation Center"], ["exceptions", "Exception Management"]]],
   ["Collaboration", [["hubs", "Hubs"]]],
-  ["Operations", [["architecture", "Architecture"], ["workers", "Workers & Agents"], ["tools", "Tools & Connectors"], ["integrations", "Integrations"], ["jobs", "Background Jobs"], ["logs", "System Logs"], ["audit", "Activity & Audit"], ["health", "System Health"]]],
+  ["Operations", [["architecture", "Architecture"], ["workers", "Workers & Agents"], ["agents", "AI Agents"], ["mcp", "MCP"], ["tools", "Tools & Connectors"], ["integrations", "Integrations"], ["jobs", "Job Registry"], ["logs", "System Logs"], ["audit", "Activity & Audit"], ["health", "System Health"]]],
   ["Governance", [["reports", "Reports"], ["compliance", "Compliance"], ["access", "Access Management"], ["settings", "Settings"]]],
 ];
 
@@ -34,6 +34,7 @@ const HELP = {
   overview: ["Executive rollup of every detection layer plus the live processing pipeline.", "One screen must answer whether the organization is exposed right now.", "Metrics aggregate the findings store; the chain reads job, event and log telemetry; clicking a stage opens its operational detail.", "findings, scan_jobs, events, alerts, system_log tables via /api/overview and /api/pipeline.", "sentrix.server control plane over sentrix.core.extensions storage.", "findings, finding_extra, scan_jobs, events, alerts, system_log.", "Inspect stages, open findings, load or reset demo data.", "Demo installations show synthetic records marked DEMO; metrics are only as current as the last scan."],
   posture: ["Trends and distributions describing how exposure evolves.", "Point-in-time counts hide whether remediation keeps pace with detection.", "Time buckets group findings by creation date; MTTR averages recorded status transitions to remediated/verified/closed.", "findings.created_at and status_history timestamps.", "sentrix.server /api/posture aggregation.", "findings, status_history, finding_extra.", "Compare surfaces, categories, environments and age buckets.", "MTTD is reported as zero until event-to-finding latency instrumentation is added; see ROADMAP."],
   intelligence: ["Explainable risk scoring and exposure concentration.", "Severity alone ignores surface, confidence, duration and repetition.", "sentrix.core.risk scores each finding 0-100 from severity, category, surface, confidence, validation, environment, age and occurrences; every factor is listed.", "finding meta.risk computed at ingestion by the pipeline.", "sentrix.core.risk + sentrix.core.pipeline.", "findings.meta, finding_extra.occurrences.", "Work the priority queue; inspect concentration and coverage gaps.", "Scores are heuristic and explainable, not confirmed credential validity."],
+  vulnerabilities: ["Exposure/vulnerability view of detected secrets and risky findings.", "Same evidence as Findings, framed for vulnerability/exposure workflows.", "Reuses the findings queue with risk, lifecycle, ownership and remediation context.", "findings + finding_extra.", "sentrix.server /api/findings.", "findings, notes, status_history.", "Filter, investigate, assign and remediate exposures.", "Terminology alias: SENTRIX focuses on secret exposures; entries are evidence-backed findings."],
   findings: ["The exposure center: every detection with investigation tooling.", "Analysts need one queue with evidence, ownership and lifecycle.", "Server-side filtering, sorting and pagination; drawer loads evidence, risk, notes, history and checklist; transitions are recorded.", "findings plus finding_extra, notes, status_history, checklists.", "sentrix.server /api/findings + sentrix.core.extensions.", "findings, finding_extra, notes, status_history, checklists, remediations.", "Search, filter, save filters, customize columns, bulk act, export CSV, remediate.", "Raw secrets are never returned; evidence is masked and fingerprinted."],
   sources: ["Health and volume of each detection surface.", "Coverage gaps are invisible unless sources are enumerated.", "Counts findings and latest events per surface; idle means no telemetry yet.", "findings.surface and events.surface.", "sentrix.server /api/sources.", "findings, events, schedules.", "Trigger a scan job for any surface.", "Export-based surfaces report only what has been ingested."],
   rules: ["The detector registry and custom enterprise patterns.", "One pattern set must serve every layer and be tunable without code changes.", "Registry entries carry severity and enabled state; tuning applies to new scans; custom rules compile and register live.", "sentrix.detectors registry plus custom_rules table.", "sentrix.core.engine.configure + /api/detectors/tuning.", "custom_rules, config.toml detectors section.", "Enable/disable, override severity, add validated custom regex rules.", "Tuning affects future scans, not stored findings."],
@@ -58,6 +59,8 @@ const HELP = {
   compliance: ["Control-to-evidence mapping.", "Auditors ask which controls the platform supports.", "Static mapping of SOC 2, ISO 27001, PCI DSS and NIST CSF controls to implemented capabilities.", "Curated mapping served by /api/compliance.", "sentrix.server.", "None (curated), references audit/findings features.", "Review evidence per control; export audit reports.", "Mapping is not certification; partial means capability exists but coverage is limited."],
   access: ["Users, roles and API tokens.", "Least privilege across eight roles must be enforceable and auditable.", "PBKDF2-hashed passwords, expiring sessions, hashed bearer tokens; role changes audited.", "users, sessions, tokens tables.", "sentrix.auth.", "users, sessions, tokens, audit.", "Add users, change roles, disable, issue and revoke tokens.", "Token plaintext is shown once at creation."],
   architecture: ["Actual SENTRIX platform architecture and component status.", "Operators and agents need an honest map of how the product runs.", "Shows console/API/storage, in-process workers, schedulers and connectors with live status; no external Postgres/Redis/RustFS/gRPC fleet is implied.", "process state + jobs + integrations + config.", "sentrix.server /api/architecture.", "scan_jobs, integrations, config.", "Inspect tiers, worker state and lifecycle metadata.", "Local modular monolith: single process, stdlib runtime, SQLite storage."],
+  agents: ["AI and workflow agents available to SENTRIX.", "Assist analysts with triage and state-aware guidance.", "Exposes heuristic triage (local) and optional GPT-compatible mode when configured, plus lifecycle/workflow advisors.", "sentrix.ai + /api/triage + /api/agents.", "sentrix.server /api/agents, /api/triage.", "config, findings.meta.", "Run triage from finding workflows; review agent mode and capabilities.", "No fake external agent runtime is claimed; capabilities reflect real configuration."],
+  mcp: ["Model/tool integration surface for agents and automation.", "Agents need stable, machine-readable interfaces.", "Publishes honest MCP/agent-ready HTTP endpoints, registries and lifecycle metadata; no bundled MCP stdio server claimed by default.", "/api/mcp + lifecycle/tools/workers/architecture APIs.", "sentrix.server /api/mcp.", "config, runtime state.", "Use endpoints in deployment-specific MCP/tool bridges with proper auth.", "Status is explicit: agent-ready APIs, not a fake MCP server."],
   workers: ["Local workers and connector agents.", "Execution capacity and agent health must be visible.", "Derives worker/agent status from JobRunner, scheduler and connector/integration state.", "scan_jobs + runtime state + integrations.", "sentrix.server /api/workers + /api/agents.", "scan_jobs, integrations.", "Review queue/running jobs, connector status and capacity.", "Job execution uses bounded in-process concurrency; no external worker cluster."],
   tools: ["Registered detectors, surface adapters, integrations and playbooks.", "Teams need one inventory of what can scan, connect and remediate.", "Aggregates detectors, surfaces, SENTRIX Connect providers and remediation playbooks.", "detector registry + surfaces + integrations + playbooks.", "sentrix.server /api/tools.", "config, detectors, integrations.", "Review coverage and enable the right connectors/playbooks.", "Availability reflects configured state; some connectors require credentials."],
   technologies: ["Technologies and detection families derived from findings.", "Attack-surface prioritization improves when exposures are grouped by technology/family.", "Groups findings by detector family/category and affected assets/surfaces.", "findings.meta + detector_id.", "sentrix.server /api/technologies.", "findings.", "Pivot by family/category and focus on high-impact technologies.", "Derived inventory; enriches as scans and integrations produce findings."],
@@ -108,6 +111,7 @@ const isAdmin = () => state.user && ADMIN_ROLES.includes(state.user.role);
 
 function icon(name, size = 14) {
   const paths = {
+    home: '<path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.8V20h14V9.8"/><path d="M10 20v-6h4v6"/>',
     grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="13" y="3" width="7" height="7" rx="1"/><rect x="3" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/>',
     shield: '<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/>',
     search: '<circle cx="10" cy="10" r="6"/><path d="M14.5 14.5L20 20"/>',
@@ -206,6 +210,15 @@ function donut(series, colorOf, label) {
   }).join("");
   return `<div class="chartwrap"><div class="donutbox"><svg viewBox="0 0 100 100" width="124" height="124" role="img" aria-label="${esc(label)}"><circle cx="50" cy="50" r="${R}" fill="none" style="stroke:var(--raised)" stroke-width="12"/>${arcs}</svg><div class="donutcenter"><span class="n">${total}</span><span class="l">${esc(label)}</span></div></div><div class="legend">${series.map((s) => `<div class="lrow"><span class="sw" style="background:${colorOf(s.label)}"></span><span>${esc(s.label.replace(/_/g, " "))}</span><span class="lp">${total ? Math.round(100 * s.value / total) : 0}%</span><span class="lv">${s.value}</span></div>`).join("")}</div></div>`;
 }
+
+function ringGauge(value, max, color, label, sub, href) {
+  const pct = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+  const R = 28, C = 2 * Math.PI * R, len = pct * C;
+  const tag = href ? 'a' : 'div';
+  const h = href ? ` href="${esc(href)}"` : '';
+  return `<${tag} class="ring-kpi"${h}><svg viewBox="0 0 72 72" width="72" height="72" role="img" aria-label="${esc(label)} ${value}"><circle cx="36" cy="36" r="${R}" fill="none" style="stroke:var(--raised)" stroke-width="7"/><circle cx="36" cy="36" r="${R}" fill="none" style="stroke:${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" transform="rotate(-90 36 36)"/><text x="36" y="39" text-anchor="middle" style="fill:var(--text);font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">${esc(String(value))}</text></svg><div class="ring-meta"><div class="ring-label">${esc(label)}</div>${sub ? `<div class="ring-sub">${esc(sub)}</div>` : ''}</div></${tag}>`;
+}
+
 function area(points) {
   const W = 520, H = 150, P = { l: 26, r: 8, t: 10, b: 20 };
   const max = Math.max(1, ...points.map((p) => p.count));
@@ -220,6 +233,99 @@ function hbars(series, colorOf) {
 }
 
 /* ================= views ================= */
+
+
+
+function phTrend(v) {
+  if (v == null) return '<span class="trend-na">30d: N/A</span>';
+  const n = Number(v); const cls = n > 0 ? 'trend-up' : n < 0 ? 'trend-down' : 'trend-na';
+  const arrow = n > 0 ? '↑' : n < 0 ? '↓' : '→';
+  return `<span class="${cls}">30d ${arrow} ${Math.abs(n)}%</span>`;
+}
+function phSevBadges(b) {
+  b = b || {};
+  return [['critical','Critical','#ff454f'],['high','High','#ff791f'],['medium','Medium','#f5c542'],['low','Low','#548fea']]
+    .filter(([k]) => (b[k]||0) > 0).map(([k,l]) => `<span class="sev-b ${k}">${l} ${b[k]}</span>`).join('') || '<span class="sev-b">None</span>';
+}
+function phOrbitSVG(d) {
+  const c = d.center || {}, out = d.outcomes || {}, dims = d.dimensions || [];
+  const active = (out.active||{}).severity||{}, mitig = (out.mitigated||{}).severity||{};
+  const total = Math.max(1, c.unique_findings||1);
+  const seg = (v,col,r,w,off,cls) => { const C=2*Math.PI*r; const len=Math.max(0,(v/total)*C); return `<circle cx="200" cy="200" r="${r}" fill="none" stroke="${col}" stroke-width="${w}" stroke-dasharray="${len.toFixed(1)} ${(C-len).toFixed(1)}" stroke-dashoffset="${(-off).toFixed(1)}" class="${cls||''}" opacity=".9"/>`; };
+  let o1=0,o2=0; const s1 = [['critical','#ff454f'],['high','#ff791f'],['medium','#f5c542'],['low','#548fea']].map(([k,col])=>{ const el=seg(active[k]||0,col,150,10,o1,'orbit-rot'); o1+=( (active[k]||0)/total)*2*Math.PI*150; return el; }).join('');
+  const mTot = Math.max(1,(out.mitigated||{}).total||1);
+  const s2 = seg((out.mitigated||{}).resolved||0,'#66b84a',128,8,o2,'orbit-rot-rev') + (()=>{ o2+=((out.mitigated||{}).resolved||0)/mTot*2*Math.PI*128; return seg((out.mitigated||{}).mitigated_with_controls||0,'#548fea',128,8,o2,'orbit-rot-rev'); })();
+  const dimLabels = dims.map((dm,i)=>{ const a=(-90+i*72)*Math.PI/180; const r=178; const x=200+r*Math.cos(a), y=200+r*Math.sin(a); const anchor=Math.abs(Math.cos(a))<0.2?'middle':(Math.cos(a)>0?'start':'end'); const val=dm.available?`${dm.value}${dm.unit||''}`:'N/A'; return `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="var(--dim, #9aa4af)" font-size="7.5" font-family="ui-monospace,monospace">${esc((dm.label||'').toUpperCase())}</text><text x="${x}" y="${y+10}" text-anchor="${anchor}" fill="var(--text, #e8ebee)" font-size="8.5" font-weight="600">${esc(val)}</text>`; }).join('');
+  return `<svg class="ph-orbit" viewBox="0 0 400 400" role="img" aria-label="Security intelligence orbit">
+    <defs><filter id="phglow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    <circle cx="200" cy="200" r="165" fill="none" stroke="var(--border, #262b30)" stroke-width="1"/>
+    <circle cx="200" cy="200" r="150" fill="none" stroke="var(--border, #262b30)" stroke-width="10" opacity=".35"/>
+    <circle cx="200" cy="200" r="128" fill="none" stroke="var(--border, #262b30)" stroke-width="8" opacity=".35"/>
+    <circle cx="200" cy="200" r="106" fill="none" stroke="var(--border, #262b30)" stroke-width="1" stroke-dasharray="2 4" opacity=".6"/>
+    ${s1}${s2}
+    <circle cx="200" cy="200" r="82" fill="var(--panel, #14171a)" stroke="var(--border, #262b30)" stroke-width="1"/>
+    <text x="200" y="170" text-anchor="middle" fill="var(--dim, #9aa4af)" font-size="7" font-family="ui-monospace,monospace" letter-spacing="1">TOTAL INGESTED</text>
+    <text x="200" y="184" text-anchor="middle" fill="var(--text, #e8ebee)" font-size="16" font-weight="700">${esc(String(c.ingested??'N/A'))}</text>
+    <text x="200" y="202" text-anchor="middle" fill="var(--dim, #9aa4af)" font-size="7" font-family="ui-monospace,monospace" letter-spacing="1">UNIQUE FINDINGS</text>
+    <text x="200" y="216" text-anchor="middle" fill="var(--text, #e8ebee)" font-size="16" font-weight="700">${esc(String(c.unique_findings??'N/A'))}</text>
+    <text x="200" y="234" text-anchor="middle" fill="var(--dim, #9aa4af)" font-size="7" font-family="ui-monospace,monospace" letter-spacing="1">ACTIONABLE</text>
+    <text x="200" y="248" text-anchor="middle" fill="#ff791f" font-size="16" font-weight="700" filter="url(#phglow)">${esc(String(c.actionable??'N/A'))}</text>
+    ${dimLabels}
+    <path class="ph-conn" d="M 35 200 C 90 200, 110 200, 140 200" />
+    <path class="ph-conn" d="M 260 200 C 300 200, 330 200, 365 200" />
+  </svg>`;
+}
+
+
+async function renderHome(opts = {}) {
+  const main = $("#main");
+  main.classList.remove("home-pro");
+  if (!opts.soft) main.innerHTML = `<div class="home-pro"><div class="ph-wrap">${skeleton()}</div></div>`;
+  try {
+    const d = await api("/api/home");
+    const c = d.center || {}, out = d.outcomes || {}, cards = d.cards || {};
+    const srcs = d.top_sources || [];
+    const active = out.active || {}, mitig = out.mitigated || {};
+    const va = cards.vulnerable_assets || {}, af = cards.active_findings || {}, mttr = cards.mttr || {}, auto = cards.automation || {}, s30 = cards.scanned_30d || {};
+    main.innerHTML = `<div class="home-pro"><div class="ph-wrap">
+      <div class="ph-head"><div><div class="ph-title">Sentrix Security Intelligence</div><div class="ph-sub">Command Center / Home${d.meta&&d.meta.demo?' · demo data':''}</div></div><div class="ph-sub">${esc((d.meta&&d.meta.generated_at)||'')}</div></div>
+      <div class="ph-grid">
+        <section class="ph-panel"><h3 class="ph-panel-title">Top Sources</h3>
+          ${srcs.map(s => `<div class="src-row"><div class="src-name">${esc((s.surface||'').replace(/_/g,' '))}</div><div class="src-meta"><span class="src-val">${esc(String(s.findings??0))}</span><span>findings</span>${phTrend(s.trend_30d_pct)}</div></div>`).join('') || '<div class="src-meta">No source data.</div>'}
+          <div class="ph-sub" style="margin-top:10px">Connectors indicate ingestion flow. 30d trend derived from finding timestamps when available.</div>
+        </section>
+        <section class="ph-panel ph-center">${phOrbitSVG(d)}</section>
+        <section class="ph-panel"><h3 class="ph-panel-title">Outcomes</h3>
+          <div class="ph-out-sec"><div class="ph-out-head">ACTIVE</div>
+            <div class="ph-kv"><span>Active findings</span><strong>${active.total??0}</strong></div>
+            <div class="ph-kv"><span>Needs attention</span><strong>${active.needs_attention??0}</strong></div>
+            <div class="ph-kv"><span>In progress</span><strong>${active.in_progress??0}</strong></div>
+            <div class="sev-badges">${phSevBadges(active.severity)}</div>
+          </div>
+          <div class="ph-out-sec" style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(35,71,74,.45)"><div class="ph-out-head">MITIGATED</div>
+            <div class="ph-kv"><span>Mitigated</span><strong>${mitig.total??0}</strong></div>
+            <div class="ph-kv"><span>Mitigated with controls</span><strong>${mitig.mitigated_with_controls??0}</strong></div>
+            <div class="ph-kv"><span>Resolved</span><strong>${mitig.resolved??0}</strong></div>
+            <div class="ph-kv"><span>Accepted risk</span><strong>${mitig.accepted_risk??0}</strong></div>
+            <div class="sev-badges">${phSevBadges(mitig.severity)}</div>
+          </div>
+        </section>
+      </div>
+      <div class="ph-cards">
+        <div class="ph-card"><div class="clabel">Vulnerable Assets</div><div class="cval">${va.value ?? 'N/A'}</div><div class="csub">Total assets: ${va.total_assets ?? 'N/A'}<br>${phTrend(va.trend_30d)}<br>Never scanned: ${va.never_scanned ?? 'N/A'}</div></div>
+        <div class="ph-card"><div class="clabel">Active Findings</div><div class="cval">${af.total ?? 'N/A'}</div><div class="csub">Critical ${af.severity?.critical||0} · High ${af.severity?.high||0} · Med ${af.severity?.medium||0} · Low ${af.severity?.low||0}<br>${phTrend(af.trend_30d)}</div></div>
+        <div class="ph-card"><div class="clabel">MTTR</div><div class="cval">${mttr.available ? (mttr.hours + 'h') : 'N/A'}</div><div class="csub">${mttr.available ? `Mean time to remediate<br>Previous: ${mttr.previous ?? 'N/A'} · Trend: ${mttr.trend ?? 'N/A'}` : 'Not available from current remediation history.'}</div></div>
+        <div class="ph-card"><div class="clabel">Automation</div><div class="cval">${auto.available ? (auto.percent + '%') : 'N/A'}</div><div class="csub">Auto-handled: ${auto.auto_handled ?? 'N/A'}${auto.note ? `<br><span title="${esc(auto.note)}">Proxy metric</span>` : ''}</div><div class="cbar"><span style="width:${Math.max(0,Math.min(100,Number(auto.percent)||0))}%"></span></div></div>
+        <div class="ph-card"><div class="clabel">Scanned Within 30D</div><div class="cval">${s30.value ?? 'N/A'}</div><div class="csub">Assets/jobs context: ${s30.total_assets ?? 'N/A'}<br>Coverage: ${s30.percent != null ? (s30.percent + '%') : 'N/A'}<br>${phTrend(s30.trend_30d)}${s30.note ? `<br><span title="${esc(s30.note)}">Proxy metric</span>` : ''}</div></div>
+      </div>
+    </div></div>`;
+  } catch (e) {
+    main.innerHTML = `<div class="home-pro"><div class="ph-wrap">${banner('Failed to load Home: ' + esc(e.message) + '. Showing fallback.', 'error')}</div></div>`;
+  } finally {
+    if (opts.soft) window.scrollTo(0, scrollY);
+  }
+}
+
 
 async function renderOverview(opts = {}) {
   const scrollY = window.scrollY;
@@ -560,7 +666,7 @@ async function renderAssets() {
   const critical = d.assets.filter((a) => a.critical > 0).length;
   $("#main").innerHTML = pagehead("Asset Inventory", "Detection-derived inventory with risk concentration.") +
     `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric"><div class="mlabel">Assets</div><div class="mvalue">${d.assets.length}</div><div class="msub">monitored</div></div><div class="metric t-crit"><div class="mlabel">With critical findings</div><div class="mvalue">${critical}</div><div class="msub">prioritize</div></div><div class="metric t-ok"><div class="mlabel">Monitored</div><div class="mvalue">${d.assets.filter((a) => a.monitored).length}</div><div class="msub">active coverage</div></div></div>` +
-    panel("Assets", `<div class="twrap"><table class="tbl"><thead><tr><th>Asset</th><th>Type</th><th>Owner</th><th>Environment</th><th class="num">Findings</th><th class="num">Critical</th><th>Risk</th><th>Last scan</th></tr></thead><tbody>${d.assets.map((a) => `<tr><td>${esc(a.name)}<span class="cellsub mono">${esc(a.id)}</span></td><td>${esc(SLABEL[a.type] || a.type)}</td><td>${esc(a.owner || "-")}</td><td>${esc(a.environment)}</td><td class="num">${a.findings}</td><td class="num">${a.critical}</td><td>${riskbar({ score: a.risk, band: a.risk >= 80 ? "critical" : a.risk >= 60 ? "high" : "medium" })}</td><td>${utc(a.last_scan)}</td></tr>`).join("") || '<tr><td colspan="8">No assets derived yet.</td></tr>'}</tbody></table></div>`, "", true);
+    panel("Assets", `<div class="twrap"><table class="tbl"><thead><tr><th>Asset</th><th>Type</th><th>Owner</th><th>Environment</th><th class="num">Findings</th><th class="num">Critical</th><th>Technologies</th><th>Risk</th><th>Last scan</th></tr></thead><tbody>${d.assets.map((a) => `<tr><td>${esc(a.name)}<span class="cellsub mono">${esc(a.id)}</span></td><td>${esc(SLABEL[a.type] || a.type)}</td><td>${esc(a.owner || "-")}</td><td>${esc(a.environment)}</td><td class="num">${a.findings}</td><td class="num">${a.critical}</td><td>${esc((a.technologies||[]).slice(0,3).join(", ")||"-")}</td><td>${riskbar({ score: a.risk, band: a.risk >= 80 ? "critical" : a.risk >= 60 ? "high" : "medium" })}</td><td>${utc(a.last_scan)}</td></tr>`).join("") || '<tr><td colspan="9">No assets derived yet.</td></tr>'}</tbody></table></div>`, "", true);
 }
 
 async function renderRemediation() {
@@ -618,7 +724,7 @@ async function renderIntegrations() {
 async function renderJobs() {
   const d = await api("/api/jobs");
   $("#main").innerHTML = pagehead("Background Jobs", "Execution history, cancellation and failure diagnostics.") +
-    panel("Executions", `<div class="twrap"><table class="tbl"><thead><tr><th>Job</th><th>Path</th><th>Initiator</th><th>Status</th><th>Started</th><th>Finished</th><th class="num">Files</th><th class="num">New</th><th></th></tr></thead><tbody>${d.jobs.map((j) => `<tr class="clickable" data-job="${esc(j.id)}"><td class="mono">${esc(j.id)}</td><td class="truncate">${esc(j.path)}</td><td>${esc(j.triggered_by)}</td><td><span class="chip ${j.status === "done" ? "st-remediated" : j.status === "failed" ? "st-false_positive" : j.status === "cancelled" ? "neutral" : "st-open"}" title="Job status">${esc(j.status)}</span></td><td>${utc(j.started)}</td><td>${utc(j.finished)}</td><td class="num">${j.files}</td><td class="num">${j.findings}</td><td>${canWrite() && ["queued", "running"].includes(j.status) ? `<button class="btn sm ghost" data-cancel="${esc(j.id)}">Cancel</button>` : ""}</td></tr>${j.error ? `<tr class="detailrow"><td colspan="9"><div class="errbox">${esc(j.error)}</div></td></tr>` : ""}`).join("") || '<tr><td colspan="9">No jobs yet.</td></tr>'}</tbody></table></div>`, "", true);
+    panel("Executions", `<div class="searchbar" style="margin-bottom:8px"><span class="chip neutral">Total ${d.jobs.length}</span> <span class="chip st-remediated">Done ${d.jobs.filter(j=>j.status==="done").length}</span> <span class="chip st-false_positive">Failed ${d.jobs.filter(j=>j.status==="failed").length}</span> <span class="chip st-triaged">Active ${d.jobs.filter(j=>["queued","running"].includes(j.status)).length}</span> <a class="btn sm ghost" href="#/workers">Workers & Agents</a></div><div class="twrap"><table class="tbl"><thead><tr><th>Job</th><th>Path</th><th>Initiator</th><th>Status</th><th>Started</th><th>Finished</th><th class="num">Files</th><th class="num">New</th><th></th></tr></thead><tbody>${d.jobs.map((j) => `<tr class="clickable" data-job="${esc(j.id)}"><td class="mono">${esc(j.id)}</td><td class="truncate">${esc(j.path)}</td><td>${esc(j.triggered_by)}</td><td><span class="chip ${j.status === "done" ? "st-remediated" : j.status === "failed" ? "st-false_positive" : j.status === "cancelled" ? "neutral" : "st-open"}" title="Job status">${esc(j.status)}</span></td><td>${utc(j.started)}</td><td>${utc(j.finished)}</td><td class="num">${j.files}</td><td class="num">${j.findings}</td><td>${canWrite() && ["queued", "running"].includes(j.status) ? `<button class="btn sm ghost" data-cancel="${esc(j.id)}">Cancel</button>` : ""}</td></tr>${j.error ? `<tr class="detailrow"><td colspan="9"><div class="errbox">${esc(j.error)}</div></td></tr>` : ""}`).join("") || '<tr><td colspan="9">No jobs yet.</td></tr>'}</tbody></table></div>`, "", true);
   $$("[data-cancel]").forEach((b) => (b.onclick = async (e) => { e.stopPropagation(); await api(`/api/jobs/${b.dataset.cancel}/cancel`, { method: "POST", body: {} }); toast("Cancellation requested", "warn"); renderJobs(); }));
 }
 
@@ -1101,21 +1207,44 @@ async function renderArchitecture() {
 }
 
 async function renderWorkers() {
-  const d = await api("/api/workers");
+  const [d, jobs, sched] = await Promise.all([api("/api/workers"), api("/api/jobs").catch(()=>({jobs:[]})), api("/api/schedules").catch(()=>({schedules:[]}))]);
   const agents = d.workers || d.agents || [];
   const running = (d.jobs_by_status && d.jobs_by_status.running) || 0;
   const queued = (d.jobs_by_status && d.jobs_by_status.queued) || 0;
-  $("#main").innerHTML = pagehead("Workers & Agents", "Local execution agents, job workers and connector status.", "", icon("pulse")) +
-    `<div class="mgrid" style="grid-template-columns:repeat(4,1fr)"><div class="metric"><div class="mlabel">Agents</div><div class="mvalue">${agents.length}</div><div class="msub">registered</div></div><div class="metric t-accent"><div class="mlabel">Running jobs</div><div class="mvalue">${running}</div><div class="msub">active</div></div><div class="metric"><div class="mlabel">Queued jobs</div><div class="mvalue">${queued}</div><div class="msub">waiting</div></div><div class="metric"><div class="mlabel">Job capacity</div><div class="mvalue">${(d.capacity&&d.capacity.job_slots)||2}</div><div class="msub">slots</div></div></div>` +
-    panel("Agent registry", `<div class="twrap"><table class="tbl"><thead><tr><th>Agent</th><th>Kind</th><th>Status</th><th>Runtime</th><th>Capabilities</th><th>Details</th></tr></thead><tbody>${agents.map(a => `<tr><td>${esc(a.name)}<span class="cellsub mono">${esc(a.id)}</span></td><td>${esc(a.kind)}</td><td><span class="chip ${['running','active','monitored','connected','demo'].includes(a.status)?'st-remediated':'st-triaged'}">${esc(a.status)}</span></td><td>${esc(a.runtime||"-")}</td><td>${esc((a.capabilities||[]).slice(0,4).join(", ") || "-")}</td><td class="mono">${a.running!=null?`running ${a.running} / queued ${a.queued}`:a.findings!=null?`${a.findings} findings`:a.last_sync?utc(a.last_sync):"-"}</td></tr>`).join("") || '<tr><td colspan="6">No agents.</td></tr>'}</tbody></table></div>`, "", true);
+  $("#main").innerHTML = pagehead("Workers & Agents", "Local execution agents, job registry and schedules.", "", icon("pulse")) +
+    `<div class="mgrid" style="grid-template-columns:repeat(4,1fr)"><div class="metric"><div class="mlabel">Agents</div><div class="mvalue">${agents.length}</div><div class="msub">registered</div></div><div class="metric t-accent"><div class="mlabel">Running jobs</div><div class="mvalue">${running}</div><div class="msub">active</div></div><div class="metric"><div class="mlabel">Queued jobs</div><div class="mvalue">${queued}</div><div class="msub">waiting</div></div><div class="metric"><div class="mlabel">Schedules</div><div class="mvalue">${(sched.schedules||[]).length}</div><div class="msub">configured</div></div></div>` +
+    panel("Agent registry", `<div class="twrap"><table class="tbl"><thead><tr><th>Agent</th><th>Kind</th><th>Status</th><th>Runtime</th><th>Capabilities</th><th>Details</th></tr></thead><tbody>${agents.map(a => `<tr><td>${esc(a.name)}<span class="cellsub mono">${esc(a.id)}</span></td><td>${esc(a.kind)}</td><td><span class="chip ${['running','active','monitored','connected','demo'].includes(a.status)?'st-remediated':'st-triaged'}">${esc(a.status)}</span></td><td>${esc(a.runtime||"-")}</td><td>${esc((a.capabilities||[]).slice(0,4).join(", ") || "-")}</td><td class="mono">${a.running!=null?`running ${a.running} / queued ${a.queued}`:a.findings!=null?`${a.findings} findings`:a.last_sync?utc(a.last_sync):"-"}</td></tr>`).join("") || '<tr><td colspan="6">No agents.</td></tr>'}</tbody></table></div>`, "", true) +
+    panel("Recent jobs (registry)", `<div class="twrap"><table class="tbl"><thead><tr><th>Job</th><th>Target</th><th>Status</th><th>By</th><th>Started</th></tr></thead><tbody>${(jobs.jobs||[]).slice(0,12).map(j => `<tr><td class="mono">${esc(j.id)}</td><td class="mono truncate">${esc(j.path||j.target||"-")}</td><td><span class="chip ${j.status==='done'?'st-remediated':j.status==='failed'?'st-false_positive':'st-triaged'}">${esc(j.status)}</span></td><td>${esc(j.triggered_by||"-")}</td><td>${utc(j.started||j.created_at||j.finished)}</td></tr>`).join("") || '<tr><td colspan="5">No jobs.</td></tr>'}</tbody></table></div><div style="margin-top:8px"><a class="btn sm ghost" href="#/jobs">Open full job registry</a></div>`, "", true);
+}
+
+
+async function renderAIAgents() {
+  const d = await api("/api/agents");
+  const agents = d.agents || [];
+  $("#main").innerHTML = pagehead("AI Agents", "Triage and workflow agents with honest capability status.", "", icon("pulse")) +
+    `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric"><div class="mlabel">Agents</div><div class="mvalue">${agents.length}</div><div class="msub">available</div></div><div class="metric t-accent"><div class="mlabel">Triage mode</div><div class="mvalue">${esc((d.ai&&d.ai.mode)||"heuristic")}</div><div class="msub">active</div></div><div class="metric"><div class="mlabel">AI configured</div><div class="mvalue">${d.ai&&d.ai.configured?"yes":"local"}</div><div class="msub">external model</div></div></div>` +
+    `<div class="cardgrid">${agents.map(a => `<div class="icard"><div class="ihead"><span class="iname">${esc(a.name)}</span><span class="chip st-remediated">${esc(a.status)}</span></div><div class="irow"><span class="k">Kind</span><span class="v">${esc(a.kind)}</span></div><div class="irow"><span class="k">Mode</span><span class="v">${esc(a.mode||"-")}</span></div><div class="irow"><span class="k">Endpoint</span><span class="v mono">${esc(a.endpoint||"-")}</span></div><div>${(a.capabilities||[]).map(c=>`<span class="perm">${esc(c)}</span>`).join("")}</div><p style="margin:8px 0 0;color:var(--dim);font-size:12px">${esc(a.details||"")}</p></div>`).join("")}</div>`;
+}
+
+async function renderMcp() {
+  const d = await api("/api/mcp");
+  const m = d.mcp || {};
+  $("#main").innerHTML = pagehead("MCP", "Agent/tool integration status and machine-readable endpoints.", "", icon("plug")) +
+    `<div class="banner"><span class="chip ${m.server_implemented?'st-remediated':'st-triaged'}">${m.server_implemented?'IMPLEMENTED':'AGENT-READY APIs'}</span> ${esc(m.note||"")}</div>` +
+    panel("Agent-ready endpoints", `<div class="twrap"><table class="tbl"><thead><tr><th>Endpoint</th><th>Purpose</th><th>Auth</th></tr></thead><tbody>${(m.agent_ready_endpoints||[]).map(e => `<tr><td class="mono">${esc(e.path)}</td><td>${esc(e.purpose)}</td><td>${esc((m.configuration&&m.configuration.auth)||"session/bearer")}</td></tr>`).join("") || '<tr><td colspan="3">None.</td></tr>'}</tbody></table></div>`, "", true) +
+    panel("Configuration (honest)", `<dl class="kv"><dt>Transport</dt><dd>${esc((m.configuration&&m.configuration.transport)||"-")}</dd><dt>Auth</dt><dd>${esc((m.configuration&&m.configuration.auth)||"-")}</dd><dt>External MCP bridge</dt><dd>${esc((m.configuration&&m.configuration.external_mcp_bridge)||"deployment-specific")}</dd><dt>Status</dt><dd>${esc(m.status||"-")}</dd></dl>`, "", true);
 }
 
 async function renderTools() {
   const d = await api("/api/tools");
   const tools = d.tools || [];
-  $("#main").innerHTML = pagehead("Tools & Connectors", "Detectors, adapters, integrations and remediation playbooks.", "", icon("wrench")) +
-    `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric"><div class="mlabel">Tools</div><div class="mvalue">${(d.counts&&d.counts.tools)||tools.length}</div><div class="msub">registry items</div></div><div class="metric t-accent"><div class="mlabel">Detectors</div><div class="mvalue">${(d.counts&&d.counts.detectors)||(d.detectors||[]).length}</div><div class="msub">rules loaded</div></div><div class="metric"><div class="mlabel">Playbooks</div><div class="mvalue">${tools.filter(t=>t.kind==='playbook').length}</div><div class="msub">remediation guides</div></div></div>` +
-    panel("Tool registry", `<div class="twrap"><table class="tbl"><thead><tr><th>Tool</th><th>Kind</th><th>Status</th><th>Capabilities</th></tr></thead><tbody>${tools.map(t => `<tr><td>${esc(t.name)}</td><td>${esc(t.kind)}</td><td><span class="chip ${['available','enabled','connected','demo'].includes(t.status)?'st-remediated':'st-false_positive'}">${esc(t.status)}</span></td><td>${esc((t.capabilities||[]).join(", ") || (t.steps!=null?`${t.steps} steps`:"-"))}</td></tr>`).join("") || '<tr><td colspan="4">No tools.</td></tr>'}</tbody></table></div>`, "", true);
+  const q = (state.toolsQ || "").toLowerCase();
+  const rows = q ? tools.filter(t => (t.name+" "+t.kind+" "+t.status+" "+(t.capabilities||[]).join(" ")).toLowerCase().includes(q)) : tools;
+  $("#main").innerHTML = pagehead("Tools & Connectors", "Detectors, adapters, integrations, playbooks and tool/MCP-ready registry.", "", icon("wrench")) +
+    `<div class="mgrid" style="grid-template-columns:repeat(4,1fr)"><div class="metric"><div class="mlabel">Tools</div><div class="mvalue">${(d.counts&&d.counts.tools)||tools.length}</div><div class="msub">registry items</div></div><div class="metric t-accent"><div class="mlabel">Detectors</div><div class="mvalue">${(d.counts&&d.counts.detectors)||(d.detectors||[]).length}</div><div class="msub">rules loaded</div></div><div class="metric"><div class="mlabel">Playbooks</div><div class="mvalue">${tools.filter(t=>t.kind==='playbook').length}</div><div class="msub">remediation guides</div></div><div class="metric"><div class="mlabel">MCP / AX</div><div class="mvalue">API</div><div class="msub">lifecycle + registry</div></div></div>` +
+    panel("Tool registry", `<div class="searchbar"><input class="input" id="tools-q" placeholder="Search tools, kinds, capabilities…" value="${esc(state.toolsQ||"")}"></div><div class="twrap"><table class="tbl"><thead><tr><th>Tool</th><th>Kind</th><th>Status</th><th>Capabilities</th></tr></thead><tbody>${rows.map(t => `<tr><td>${esc(t.name)}</td><td>${esc(t.kind)}</td><td><span class="chip ${['available','enabled','connected','demo'].includes(t.status)?'st-remediated':'st-false_positive'}">${esc(t.status)}</span></td><td>${esc((t.capabilities||[]).join(", ") || (t.steps!=null?`${t.steps} steps`:"-"))}</td></tr>`).join("") || '<tr><td colspan="4">No matching tools.</td></tr>'}</tbody></table></div>`, "", true) +
+    panel("MCP & agent tooling", `<div class="banner"><span class="chip st-triaged">HONEST STATUS</span> SENTRIX exposes machine-readable workflow metadata (<code>/api/lifecycle</code>) and registries (<code>/api/tools</code>, <code>/api/workers</code>, <code>/api/architecture</code>). External MCP server wiring is deployment-specific; no fake MCP server is claimed by default.</div>`, "", true);
+  const qEl = $("#tools-q"); if (qEl) qEl.oninput = () => { state.toolsQ = qEl.value; renderTools(); };
 }
 
 async function renderTechnologies() {
@@ -1134,16 +1263,16 @@ async function renderGroups() {
 }
 
 const VIEWS = {
-  overview: renderOverview, posture: renderPosture, intelligence: renderIntelligence,
-  findings: renderFindings, sources: renderSources, rules: renderRules, playground: renderPlayground,
+  home: renderHome, overview: renderOverview, posture: renderPosture, intelligence: renderIntelligence,
+  findings: renderFindings, vulnerabilities: renderFindings, sources: renderSources, rules: renderRules, playground: renderPlayground,
   scans: renderScans, repositories: renderSurfaceView, developer: renderSurfaceView, cloud: renderSurfaceView,
   cicd: renderSurfaceView, saas: renderSurfaceView, assets: renderAssets, technologies: renderTechnologies, groups: renderGroups, remediation: renderRemediation,
   alerts: renderAlerts, investigations: renderInvestigations, exceptions: renderExceptions, hubs: renderHubs,
-  architecture: renderArchitecture, workers: renderWorkers, tools: renderTools, integrations: renderIntegrations, jobs: renderJobs, logs: renderLogs, audit: renderAudit,
+  architecture: renderArchitecture, workers: renderWorkers, agents: renderAIAgents, mcp: renderMcp, tools: renderTools, integrations: renderIntegrations, jobs: renderJobs, logs: renderLogs, audit: renderAudit,
   health: renderHealth, reports: renderReports, compliance: renderCompliance, access: renderAccess,
   settings: renderSettings,
 };
-const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", technologies: "layers", groups: "grid", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", hubs: "pulse", architecture: "layers", workers: "pulse", tools: "wrench", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
+const VIEW_ICON = { home: "home", overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", vulnerabilities: "warn", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", technologies: "layers", groups: "grid", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", hubs: "pulse", architecture: "layers", workers: "pulse", agents: "pulse", mcp: "plug", tools: "wrench", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
 
 function refresh() {
   const fn = VIEWS[state.view];
@@ -1153,11 +1282,14 @@ function refresh() {
 function route() {
   if (state.scanTimer) { clearInterval(state.scanTimer); state.scanTimer = null; }
   if (state.hubs.timer) { clearTimeout(state.hubs.timer); state.hubs.timer = null; }
-  const hash = location.hash.replace("#/", "") || "overview";
-  state.view = VIEWS[hash] ? hash : "overview";
+  const hash = location.hash.replace("#/", "") || "home";
+  state.view = VIEWS[hash] ? hash : "home";
   state.selection.clear();
   $$(".navitem").forEach((a) => a.classList.toggle("active", a.dataset.nav === state.view));
-  $("#main").innerHTML = skeleton();
+  const fav = $("#app-favicon"); if (fav) { fav.href = state.view === "home" ? "/home-favicon.png" : "/favicon.svg"; fav.type = state.view === "home" ? "image/png" : "image/svg+xml"; }
+  const mainEl = $("#main");
+  if (mainEl) { mainEl.classList.remove("home-pro"); mainEl.classList.toggle("home-fit", state.view === "home"); }
+  mainEl.innerHTML = skeleton();
   Promise.resolve(VIEWS[state.view]()).catch((e) => {
     $("#main").innerHTML = `<div class="errbox">${esc(e.message)}</div>`;
   });
@@ -1181,7 +1313,7 @@ function openHubsNotification(n) {
   location.hash = "#/hubs";
 }
 function buildShell() {
-  $("#topbar").innerHTML = `<a class="brand" href="#/overview"><img src="/logo.svg" alt=""><span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence</span></span></a>
+  $("#topbar").innerHTML = `<a class="brand" href="#/home"><img src="/logo.svg" alt=""><span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence</span></span></a>
     <span class="topspacer" style="flex:1"></span>
     <span class="livedot" id="livedot"><span class="dot"></span><span id="livetxt">Live</span></span>
     <button class="iconbtn" id="hubs-messages-btn" aria-label="Open Hubs messages" title="Messages">${icon("message")}<b class="notif-badge" id="hubs-notif-count" hidden></b></button>

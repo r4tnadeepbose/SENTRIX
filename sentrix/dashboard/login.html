@@ -24,14 +24,14 @@
       <span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence Console</span></span>
     </div>
     <p class="login-tag">One Intelligence. Every Exposure. Total Control.</p>
-    <div class="field">
-      <label class="check" style="margin-bottom:5px" for="username">Email or username</label>
-      <input class="input" id="username" name="username" autocomplete="username" required autofocus>
+    <div class="field" style="margin-bottom:8px">
+      <label class="check" style="margin-bottom:3px;font-size:12px" for="username">Email or username</label>
+      <input class="input" id="username" name="username" autocomplete="username" required autofocus style="padding:7px 10px;font-size:13px">
     </div>
-    <div class="field">
-      <label class="check" style="margin-bottom:5px" for="password">Password</label>
+    <div class="field" style="margin-bottom:8px">
+      <label class="check" style="margin-bottom:3px;font-size:12px" for="password">Password</label>
       <div class="pwwrap">
-        <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+        <input class="input" id="password" name="password" type="password" autocomplete="current-password" required style="padding:7px 10px;font-size:13px">
         <button class="iconbtn eye" id="eye" type="button" aria-label="Show password">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
@@ -41,15 +41,12 @@
       <label class="check"><input type="checkbox" id="remember"> Remember me for 30 days</label>
     </div>
     <button class="btn primary login-submit" id="submit" type="submit">Sign in</button>
-    <div class="errbox" id="error" role="alert" hidden style="margin-top:12px"></div>
+    <div class="errbox" id="error" role="alert" hidden style="margin-top:8px"></div>
     <div class="demo-card" id="roster" hidden>
       <div class="demo-head"><span class="chip st-triaged">DEMO</span> Company roster - demonstration only</div>
       <div id="roster-rows"></div>
     </div>
-    <p class="login-foot" style="margin-top:14px;color:var(--faint);font-size:11px">
-      Demo credentials appear only on local demonstration installations and disappear
-      when production mode is enabled or passwords are changed.
-    </p>
+    <p class="login-foot">Demo credentials appear only on local demonstration installs.</p>
   </form>
 </div>
 <script>
