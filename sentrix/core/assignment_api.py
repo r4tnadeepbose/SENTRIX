@@ -2,46 +2,17 @@
 from __future__ import annotations
 
 import json, time
-from typing import Any, Dict, List, Optional, Tuple
 
-from sentrix.auth import ADMIN_ROLES, ROLES, WRITE_ROLES
 from sentrix.core.assignment import (
-    ASSIGNMENT_METHODS, ASSIGNMENT_STATES, compute_due_dates, default_sla_config,
-    explain_assignment, pick_secondary, select_assignee, workload_points, compute_workflow,
+    compute_due_dates, explain_assignment, pick_secondary, select_assignee, compute_workflow,
 )
-from sentrix.core.models import SEVERITIES, now_iso
+from sentrix.core.models import now_iso
 
-
-def _is_admin(user): return (user or {}).get("role") in ADMIN_ROLES
-def _can_write(user): return (user or {}).get("role") in WRITE_ROLES
-def _can_manage_assignments(user):
-    # admins + security/appsec/devsecops can manage; read-only cannot
-    return (user or {}).get("role") in ("super_admin","security_admin","security_analyst","appsec_engineer","devsecops_engineer")
 
 def ensure_profiles(storage):
     users = storage.list_users()
     storage.ensure_employee_profiles(users)
     return users
-
-def _active_assignment_map(storage, findings):
-    # get assignments for findings (limit to relevant)
-    amap = {}
-    for f in findings:
-        a = storage.get_assignment(f.id)
-        if a.get("status") and a["status"] != "unassigned":
-            amap[f.id] = a
-        elif a.get("primary_owner"):
-            amap[f.id] = a
-    return amap
-
-def _finding_workload_items(storage, username, findings):
-    items = []
-    for f in findings:
-        a = storage.get_assignment(f.id)
-        if a.get("primary_owner") == username and a.get("status") not in ("completed","verified","unassigned",""):
-            items.append({"id": f.id, "severity": f.severity, "status": f.status, "assignment_status": a.get("status"),
-                          "sla_breached": _sla_breached(a), "ack_due_at": a.get("ack_due_at"), "due_at": a.get("due_at")})
-    return items
 
 def _sla_breached(a):
     try:

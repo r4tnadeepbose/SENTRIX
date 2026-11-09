@@ -1151,3 +1151,5 @@ a.ring-kpi:hover { border-color:var(--accent); transform:translateY(-1px); }
 .helpbtn:hover { color:var(--accent); border-color:var(--accent); }
 
 .stagecell { display:inline-flex; align-items:center; gap:10px; white-space:nowrap; } .stagecell .chip { text-transform:none; font-size:11px; padding:2px 10px; } .stage-sub { font-size:11px; color:var(--dim); display:inline-flex; align-items:center; white-space:nowrap; }
+
+.tbl.compact th, .tbl.compact td { padding: 4px 8px; font-size: 12px; } .tbl.compact thead th { padding: 5px 8px; } .group-row td { vertical-align: middle; }

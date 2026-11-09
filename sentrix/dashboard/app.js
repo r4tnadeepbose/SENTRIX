@@ -258,14 +258,6 @@ function donut(series, colorOf, label) {
   return `<div class="chartwrap"><div class="donutbox"><svg viewBox="0 0 100 100" width="124" height="124" role="img" aria-label="${esc(label)}"><circle cx="50" cy="50" r="${R}" fill="none" style="stroke:var(--raised)" stroke-width="12"/>${arcs}</svg><div class="donutcenter"><span class="n">${total}</span><span class="l">${esc(label)}</span></div></div><div class="legend">${series.map((s) => `<div class="lrow"><span class="sw" style="background:${colorOf(s.label)}"></span><span>${esc(s.label.replace(/_/g, " "))}</span><span class="lp">${total ? Math.round(100 * s.value / total) : 0}%</span><span class="lv">${s.value}</span></div>`).join("")}</div></div>`;
 }
 
-function ringGauge(value, max, color, label, sub, href) {
-  const pct = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
-  const R = 28, C = 2 * Math.PI * R, len = pct * C;
-  const tag = href ? 'a' : 'div';
-  const h = href ? ` href="${esc(href)}"` : '';
-  return `<${tag} class="ring-kpi"${h}><svg viewBox="0 0 72 72" width="72" height="72" role="img" aria-label="${esc(label)} ${value}"><circle cx="36" cy="36" r="${R}" fill="none" style="stroke:var(--raised)" stroke-width="7"/><circle cx="36" cy="36" r="${R}" fill="none" style="stroke:${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" transform="rotate(-90 36 36)"/><text x="36" y="39" text-anchor="middle" style="fill:var(--text);font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">${esc(String(value))}</text></svg><div class="ring-meta"><div class="ring-label">${esc(label)}</div>${sub ? `<div class="ring-sub">${esc(sub)}</div>` : ''}</div></${tag}>`;
-}
-
 function area(points) {
   const W = 520, H = 150, P = { l: 26, r: 8, t: 10, b: 20 };
   const max = Math.max(1, ...points.map((p) => p.count));
@@ -1422,6 +1414,37 @@ async function renderAssignments() {
     const rows=q[key]||[]; const bulk = opts.bulk && canManageAssignments();
     return panel(`${name} (${rows.length}) ${opts.help?helpBtnSmall(opts.help):''}`, `<div class="twrap"><table class="tbl"><thead><tr>${bulk?'<th><input type="checkbox" data-bulk-all="'+key+'"></th>':''}<th>Finding</th><th>Severity</th><th>Primary owner</th><th>Reviewer</th><th>Status</th><th>SLA</th><th></th></tr></thead><tbody>${rows.map(r=>`<tr>${bulk?`<td><input type="checkbox" class="bulk-sel" data-q="${key}" value="${esc(r.finding_id)}"></td>`:''}<td>${esc(r.title)}<div class="cellsub mono">${esc(r.finding_id)}</div></td><td>${typeof sevChip==='function'?sevChip(r.severity):esc(r.severity)}</td><td>${esc(r.primary_owner||'-')}</td><td>${esc(r.secondary_reviewer||'-')}</td><td><span class="chip neutral">${esc((r.assignment_status||'').replace(/_/g,' '))}</span></td><td>${r.sla_breached?'<span class="chip st-false_positive">Breached</span>':'<span class="chip st-remediated">OK</span>'}</td><td><button class="btn sm ghost" data-open="${esc(r.finding_id)}">Open</button> ${canManageAssignments() && key==='unassigned'?`<button class="btn sm" data-as-auto="${esc(r.finding_id)}">Auto</button>`:''}</td></tr>`).join('') || `<tr><td colspan="${bulk?8:7}">None.</td></tr>`}</tbody></table></div>${bulk?`<div style="margin-top:8px">${assignmentPersonPicker(`bulk-owner-${key}`, team, {label:'Assign selected to (click name)'})}<div class="formrow"><div class="field"><input class="input" id="bulk-owner-${key}" placeholder="Primary owner"></div><div class="field grow"><input class="input" id="bulk-reason-${key}" placeholder="Reason"></div><button class="btn sm primary" data-bulk-assign="${key}">Bulk assign selected</button></div></div>`:''}`, '', true);
   }
+  // Current assignments by employee — compact live table showing every active task
+  let allTasksHtml = '';
+  try {
+    const all = await api('/api/findings?page_size=400');
+    const active = (all.findings || []).filter(r => (r.workflow_stage || 'New') !== 'Closed' && (r.primary_assignee || r.secondary_assignee || r.remediation_owner));
+    const by = {};
+    active.forEach(f => {
+      const sev = (f.severity_override || f.severity || 'medium').toLowerCase();
+      const sla = f.sla_status === 'breached' ? '<span class="chip st-false_positive">Breached</span>' : (f.sla_status === 'ok' ? '<span class="chip st-remediated">OK</span>' : '<span class="cellsub">-</span>');
+      const roleRow = (who, role) => ({
+        who, role, fid: f.finding_id || f.id, title: f.title, severity: sev,
+        stage: f.workflow_stage || 'New', sla, due: f.due_at || '',
+      });
+      if (f.primary_assignee) (by[f.primary_assignee] = by[f.primary_assignee] || []).push(roleRow(f.primary_assignee, 'Primary'));
+      if (f.secondary_assignee) (by[f.secondary_assignee] = by[f.secondary_assignee] || []).push(roleRow(f.secondary_assignee, 'Secondary'));
+      if (f.remediation_owner) (by[f.remediation_owner] = by[f.remediation_owner] || []).push(roleRow(f.remediation_owner, 'Remediation'));
+    });
+    const sevOrder = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+    Object.values(by).forEach(arr => arr.sort((a, b) => (sevOrder[a.severity] ?? 99) - (sevOrder[b.severity] ?? 99) || String(a.stage || '').localeCompare(String(b.stage || ''))));
+    const groupRow = (u, items) => `<tr class="group-row"><td colspan="7" style="padding:8px 10px;background:var(--raised);border-top:1px solid var(--border)"><div style="display:flex;align-items:center;gap:8px">${typeof personAvatar==='function'?personAvatar(u.username,{size:'sm'}):''}<div><strong>${esc(u.username)}</strong><div class="cellsub">${esc((u.role||'').replace(/_/g,' '))} · ${esc(u.title||'')} · <span class="chip ${u.availability_status==='available'?'st-remediated':'st-false_positive'}">${esc(u.availability_status||'available')}</span></div></div><span class="mono" style="margin-left:auto;color:var(--faint)">${items.length} active</span></div></td></tr>`;
+    const taskRow = (t) => `<tr><td>${esc(t.role)}</td><td>${esc(t.title)}<div class="cellsub mono">${esc(t.fid)}</div></td><td>${sevChip?sevChip(t.severity):esc(t.severity)}</td><td><span class="chip neutral">${esc(t.stage)}</span></td><td>${esc(t.who||'-')}</td><td>${t.sla}</td><td><button class="btn sm ghost" data-open="${esc(t.fid)}">Open</button></td></tr>`;
+    const sortedTeam = [...team].sort((a, b) => a.username.localeCompare(b.username));
+    allTasksHtml = sortedTeam.map(u => {
+      const items = by[u.username] || [];
+      return groupRow(u, items) + (items.length ? items.map(taskRow).join('') : `<tr><td colspan="7"><span class="cellsub">No active tasks.</span></td></tr>`);
+    }).join('') || '<tr><td colspan="7">No assignments found.</td></tr>';
+  } catch (e) {
+    allTasksHtml = `<tr><td colspan="7"><span class="cellsub">Could not load live assignments: ${esc(e.message || e)}</span></td></tr>`;
+  }
+  const allTasksPanel = `<div class="twrap"><table class="tbl compact"><thead><tr><th>Role</th><th>Finding</th><th>Severity</th><th>Stage</th><th>Assigned to</th><th>SLA</th><th></th></tr></thead><tbody>${allTasksHtml}</tbody></table></div>`;
+
   const adminControls = isAssignmentAdmin() ? panel('Administrator controls '+helpBtnSmall('override'), `
     <div class="grid c2">
       <div><h4 style="margin:0 0 8px">Assignment policy & SLA ${helpBtnSmall('sla')}</h4>
@@ -1437,10 +1460,11 @@ async function renderAssignments() {
         <p class="cellsub" style="margin-top:8px">Profile changes affect eligibility and workload capacity. RBAC permissions remain unchanged.</p>
       </div>
     </div>`) : '';
-  $("#main").innerHTML = pagehead("Employee Operations","Admin command centre: who is working on what, acknowledgements, workload, availability and SLA accountability.", `<button class="btn sm" id="as-refresh">Refresh</button>`) +
+  $("#main").innerHTML = pagehead("Employee Operations","Compact view of every active task across the team.", `<button class="btn sm" id="as-refresh">Refresh</button>`) +
     (state.user && typeof canWrite==='function' && !canWrite() ? banner('Read-only role: you can view assignment data but cannot perform mutations. '+helpBtnSmall('read_only'), 'warn') : '') +
     kpis +
-    panel("Employee workload overview "+helpBtnSmall('workload'), teamTbl, '', true) +
+    panel("Current assignments — every active task", allTasksPanel, 'Click any row to open the finding.', true) +
+    panel("Team workload overview "+helpBtnSmall('workload'), teamTbl, '', true) +
     adminControls +
     `<div class="grid c2" style="margin-top:12px">` + queuePanel('Unassigned','unassigned',{help:'auto_assignment',bulk:true}) + queuePanel('Awaiting acknowledgement','awaiting_ack',{help:'acknowledgement'}) + `</div>` +
     `<div class="grid c2" style="margin-top:12px">` + queuePanel('In progress / Acknowledged','in_progress') + queuePanel('Overdue / SLA risk','overdue',{help:'sla'}) + `</div>` +
@@ -1456,15 +1480,6 @@ async function renderAssignments() {
   on('#prof-save', async()=>{ try{ const u=$('#prof-user').value.trim(); if(!u) return toast('Username required','error'); await api('/api/assignment/profiles/'+encodeURIComponent(u),{method:'POST',body:{max_capacity:+($('#prof-cap').value)||20,availability_status:$('#prof-avail').value,assignment_eligible:$('#prof-elig').value==='1'}}); toast('Profile updated','ok'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
   $$('[data-bulk-all]').forEach(cb=>cb.onchange=()=>{ $$('.bulk-sel[data-q="'+cb.dataset.bulkAll+'"]').forEach(x=>x.checked=cb.checked); });
   $$('[data-bulk-assign]').forEach(b=>b.onclick=async()=>{ const key=b.dataset.bulkAssign; const ids=$$('.bulk-sel[data-q="'+key+'"]:checked').map(x=>x.value); if(!ids.length) return toast('Select findings first','error'); const owner=$('#bulk-owner-'+key).value.trim(); const reason=$('#bulk-reason-'+key).value.trim(); if(!owner) return toast('Primary owner required','error'); if(!confirm(`Bulk assign ${ids.length} findings to ${owner}? Each finding gets an individual audit record.`)) return; try{ await api('/api/assignment/bulk',{method:'POST',body:{action:'assign',finding_ids:ids,primary_owner:owner,reason}}); toast('Bulk assignment processed','ok'); renderAssignments(); }catch(e){ toast(e.message,'error'); } });
-  // Who is working on what (workflow-stage aware, admin view)
-  try {
-    const all = await api('/api/findings?page_size=200');
-    const active = (all.findings||[]).filter(r=> (r.workflow_stage||'New')!=='Closed' && (r.primary_assignee||r.secondary_assignee));
-    const by = {};
-    active.forEach(r=>{ const p=r.primary_assignee||'(unassigned)'; (by[p]=by[p]||[]).push({who:p,role:'Primary',stage:r.workflow_stage,title:r.title,id:r.id,sev:r.severity}); if(r.secondary_assignee){ (by[r.secondary_assignee]=by[r.secondary_assignee]||[]).push({who:r.secondary_assignee,role:'Secondary',stage:r.workflow_stage,title:r.title,id:r.id,sev:r.severity}); } });
-    const html = Object.keys(by).sort().map(name=>`<div class="panel" style="padding:10px;margin-bottom:8px"><strong>${esc(name)}</strong>${by[name].map(x=>`<div class="listrow clickable" data-open="${esc(x.id)}" style="margin-top:6px"><span class="grow">${esc(x.role)} · ${esc(x.stage)}<span class="cellsub">${esc(x.title)}</span></span>${sevChip?sevChip(x.sev):''}</div>`).join('')}</div>`).join('') || '<p style="color:var(--faint);font-size:12px">No active assignments.</p>';
-    $('#main').insertAdjacentHTML('beforeend', panel('Who Is Working on What?', `<p class="cellsub" style="margin-bottom:8px">Live workflow activity by employee (admin only). Click any item to open the finding.</p>${html}`, '', true));
-  } catch(e){}
   if (typeof bindOpeners==='function') bindOpeners();
 }
 
