@@ -23,10 +23,10 @@ const STATUS_COLOR = { open: "var(--accent)", new: "var(--accent)", triaged: "va
 const NAV = [
   ["Command Center", [["overview", "Overview"], ["posture", "Security Posture"], ["intelligence", "Intelligence Dashboard"]]],
   ["Detection", [["findings", "Findings"], ["sources", "Detection Sources"], ["rules", "Detection Rules"], ["playground", "Detection Playground"], ["scans", "Scan Management"]]],
-  ["Attack Surface", [["repositories", "Repository Security"], ["developer", "Developer Security"], ["cloud", "Cloud Security"], ["cicd", "CI/CD Security"], ["saas", "SaaS Security"], ["assets", "Asset Inventory"]]],
+  ["Attack Surface", [["repositories", "Repository Security"], ["developer", "Developer Security"], ["cloud", "Cloud Security"], ["cicd", "CI/CD Security"], ["saas", "SaaS Security"], ["assets", "Asset Inventory"], ["technologies", "Technologies"], ["groups", "Groups"]]],
   ["Response", [["remediation", "Remediation Center"], ["alerts", "Security Alerts"], ["investigations", "Investigation Center"], ["exceptions", "Exception Management"]]],
   ["Collaboration", [["hubs", "Hubs"]]],
-  ["Operations", [["integrations", "Integrations"], ["jobs", "Background Jobs"], ["logs", "System Logs"], ["audit", "Activity & Audit"], ["health", "System Health"]]],
+  ["Operations", [["architecture", "Architecture"], ["workers", "Workers & Agents"], ["tools", "Tools & Connectors"], ["integrations", "Integrations"], ["jobs", "Background Jobs"], ["logs", "System Logs"], ["audit", "Activity & Audit"], ["health", "System Health"]]],
   ["Governance", [["reports", "Reports"], ["compliance", "Compliance"], ["access", "Access Management"], ["settings", "Settings"]]],
 ];
 
@@ -57,6 +57,11 @@ const HELP = {
   reports: ["Generated governance and posture reports.", "Evidence packs must come from live records, not screenshots.", "Generates CSV/JSON from the findings store per type and keeps export history with downloadable bodies.", "report_history + findings.", "sentrix.core.reports.", "report_history, findings, audit.", "Generate, download, review history.", "Reports are evidence, not certification."],
   compliance: ["Control-to-evidence mapping.", "Auditors ask which controls the platform supports.", "Static mapping of SOC 2, ISO 27001, PCI DSS and NIST CSF controls to implemented capabilities.", "Curated mapping served by /api/compliance.", "sentrix.server.", "None (curated), references audit/findings features.", "Review evidence per control; export audit reports.", "Mapping is not certification; partial means capability exists but coverage is limited."],
   access: ["Users, roles and API tokens.", "Least privilege across eight roles must be enforceable and auditable.", "PBKDF2-hashed passwords, expiring sessions, hashed bearer tokens; role changes audited.", "users, sessions, tokens tables.", "sentrix.auth.", "users, sessions, tokens, audit.", "Add users, change roles, disable, issue and revoke tokens.", "Token plaintext is shown once at creation."],
+  architecture: ["Actual SENTRIX platform architecture and component status.", "Operators and agents need an honest map of how the product runs.", "Shows console/API/storage, in-process workers, schedulers and connectors with live status; no external Postgres/Redis/RustFS/gRPC fleet is implied.", "process state + jobs + integrations + config.", "sentrix.server /api/architecture.", "scan_jobs, integrations, config.", "Inspect tiers, worker state and lifecycle metadata.", "Local modular monolith: single process, stdlib runtime, SQLite storage."],
+  workers: ["Local workers and connector agents.", "Execution capacity and agent health must be visible.", "Derives worker/agent status from JobRunner, scheduler and connector/integration state.", "scan_jobs + runtime state + integrations.", "sentrix.server /api/workers + /api/agents.", "scan_jobs, integrations.", "Review queue/running jobs, connector status and capacity.", "Job execution uses bounded in-process concurrency; no external worker cluster."],
+  tools: ["Registered detectors, surface adapters, integrations and playbooks.", "Teams need one inventory of what can scan, connect and remediate.", "Aggregates detectors, surfaces, SENTRIX Connect providers and remediation playbooks.", "detector registry + surfaces + integrations + playbooks.", "sentrix.server /api/tools.", "config, detectors, integrations.", "Review coverage and enable the right connectors/playbooks.", "Availability reflects configured state; some connectors require credentials."],
+  technologies: ["Technologies and detection families derived from findings.", "Attack-surface prioritization improves when exposures are grouped by technology/family.", "Groups findings by detector family/category and affected assets/surfaces.", "findings.meta + detector_id.", "sentrix.server /api/technologies.", "findings.", "Pivot by family/category and focus on high-impact technologies.", "Derived inventory; enriches as scans and integrations produce findings."],
+  groups: ["Asset and exposure groups by key dimensions.", "Grouping reduces noise and highlights concentration.", "Groups findings by surface, environment, owner and severity with asset counts.", "findings + metadata.", "sentrix.server /api/groups.", "findings, finding_extra.", "Use groups to assign owners and prioritize remediation.", "Derived from recorded findings and metadata."],
   settings: ["Profile, alerting policy and data operations.", "Administrators need one governed place for platform policy.", "Password change, channel rules, retention purge, vacuum, backup, exports and demo reset.", "config + users + alert_rules + storage.", "sentrix.auth + sentrix.alerting.router + sentrix.core.extensions.", "users, alert_rules, migrations, report_history.", "Change password, tune rules, purge, backup, reset demo.", "Destructive operations require confirmation and are audited."],
 };
 
@@ -1087,17 +1092,58 @@ async function renderHubs() {
 
 /* ================= shell ================= */
 
+
+async function renderArchitecture() {
+  const d = await api("/api/architecture");
+  $("#main").innerHTML = pagehead("Architecture", "SENTRIX-native platform tiers, components and live status.", "", icon("layers")) +
+    `<div class="banner"><span class="chip st-triaged">HONEST MAP</span> ${esc(d.note || "")}</div>` +
+    (d.tiers || []).map(t => panel(`Tier ${t.tier} — ${esc(t.name)}`, `<div class="cardgrid">${(t.components||[]).map(c => `<div class="icard"><div class="ihead"><span class="iname">${esc(c.name)}</span><span class="chip ${c.status==='active'||c.status==='running'?'st-remediated':'st-triaged'}">${esc(c.status)}</span></div><div class="isub">${esc(c.type)}</div><p style="margin:8px 0 0;color:var(--dim);font-size:12px">${esc(c.details||"")}</p></div>`).join("")}</div>`, "", true)).join("");
+}
+
+async function renderWorkers() {
+  const d = await api("/api/workers");
+  const agents = d.workers || d.agents || [];
+  const running = (d.jobs_by_status && d.jobs_by_status.running) || 0;
+  const queued = (d.jobs_by_status && d.jobs_by_status.queued) || 0;
+  $("#main").innerHTML = pagehead("Workers & Agents", "Local execution agents, job workers and connector status.", "", icon("pulse")) +
+    `<div class="mgrid" style="grid-template-columns:repeat(4,1fr)"><div class="metric"><div class="mlabel">Agents</div><div class="mvalue">${agents.length}</div><div class="msub">registered</div></div><div class="metric t-accent"><div class="mlabel">Running jobs</div><div class="mvalue">${running}</div><div class="msub">active</div></div><div class="metric"><div class="mlabel">Queued jobs</div><div class="mvalue">${queued}</div><div class="msub">waiting</div></div><div class="metric"><div class="mlabel">Job capacity</div><div class="mvalue">${(d.capacity&&d.capacity.job_slots)||2}</div><div class="msub">slots</div></div></div>` +
+    panel("Agent registry", `<div class="twrap"><table class="tbl"><thead><tr><th>Agent</th><th>Kind</th><th>Status</th><th>Runtime</th><th>Capabilities</th><th>Details</th></tr></thead><tbody>${agents.map(a => `<tr><td>${esc(a.name)}<span class="cellsub mono">${esc(a.id)}</span></td><td>${esc(a.kind)}</td><td><span class="chip ${['running','active','monitored','connected','demo'].includes(a.status)?'st-remediated':'st-triaged'}">${esc(a.status)}</span></td><td>${esc(a.runtime||"-")}</td><td>${esc((a.capabilities||[]).slice(0,4).join(", ") || "-")}</td><td class="mono">${a.running!=null?`running ${a.running} / queued ${a.queued}`:a.findings!=null?`${a.findings} findings`:a.last_sync?utc(a.last_sync):"-"}</td></tr>`).join("") || '<tr><td colspan="6">No agents.</td></tr>'}</tbody></table></div>`, "", true);
+}
+
+async function renderTools() {
+  const d = await api("/api/tools");
+  const tools = d.tools || [];
+  $("#main").innerHTML = pagehead("Tools & Connectors", "Detectors, adapters, integrations and remediation playbooks.", "", icon("wrench")) +
+    `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric"><div class="mlabel">Tools</div><div class="mvalue">${(d.counts&&d.counts.tools)||tools.length}</div><div class="msub">registry items</div></div><div class="metric t-accent"><div class="mlabel">Detectors</div><div class="mvalue">${(d.counts&&d.counts.detectors)||(d.detectors||[]).length}</div><div class="msub">rules loaded</div></div><div class="metric"><div class="mlabel">Playbooks</div><div class="mvalue">${tools.filter(t=>t.kind==='playbook').length}</div><div class="msub">remediation guides</div></div></div>` +
+    panel("Tool registry", `<div class="twrap"><table class="tbl"><thead><tr><th>Tool</th><th>Kind</th><th>Status</th><th>Capabilities</th></tr></thead><tbody>${tools.map(t => `<tr><td>${esc(t.name)}</td><td>${esc(t.kind)}</td><td><span class="chip ${['available','enabled','connected','demo'].includes(t.status)?'st-remediated':'st-false_positive'}">${esc(t.status)}</span></td><td>${esc((t.capabilities||[]).join(", ") || (t.steps!=null?`${t.steps} steps`:"-"))}</td></tr>`).join("") || '<tr><td colspan="4">No tools.</td></tr>'}</tbody></table></div>`, "", true);
+}
+
+async function renderTechnologies() {
+  const d = await api("/api/technologies");
+  const rows = d.technologies || [];
+  $("#main").innerHTML = pagehead("Technologies", "Detection families and technology categories derived from findings.") +
+    `<div class="mgrid" style="grid-template-columns:repeat(3,1fr)"><div class="metric"><div class="mlabel">Technologies</div><div class="mvalue">${rows.length}</div><div class="msub">derived</div></div><div class="metric t-crit"><div class="mlabel">With critical findings</div><div class="mvalue">${rows.filter(r=>r.critical>0).length}</div><div class="msub">prioritize</div></div><div class="metric"><div class="mlabel">Findings mapped</div><div class="mvalue">${rows.reduce((s,r)=>s+(r.findings||0),0)}</div><div class="msub">total</div></div></div>` +
+    panel("Technology inventory", `<div class="twrap"><table class="tbl"><thead><tr><th>Technology</th><th>Family</th><th class="num">Assets</th><th class="num">Findings</th><th class="num">Critical</th><th>Surfaces</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.name)}<span class="cellsub mono">${esc(r.category||"")}</span></td><td>${esc(r.family||"-")}</td><td class="num">${r.assets||0}</td><td class="num">${r.findings||0}</td><td class="num">${r.critical||0}</td><td>${esc((r.surfaces||[]).join(", ")||"-")}</td></tr>`).join("") || '<tr><td colspan="6">No technologies derived yet.</td></tr>'}</tbody></table></div>`, "", true);
+}
+
+async function renderGroups() {
+  const d = await api("/api/groups");
+  const rows = d.groups || [];
+  $("#main").innerHTML = pagehead("Groups", "Exposure groups by surface, environment, owner and severity.") +
+    panel("Group inventory", `<div class="twrap"><table class="tbl"><thead><tr><th>Group</th><th>Dimension</th><th class="num">Assets</th><th class="num">Findings</th><th class="num">Critical</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.dimension)}</td><td class="num">${r.assets||0}</td><td class="num">${r.findings||0}</td><td class="num">${r.critical||0}</td></tr>`).join("") || '<tr><td colspan="5">No groups derived yet.</td></tr>'}</tbody></table></div>`, "", true);
+}
+
 const VIEWS = {
   overview: renderOverview, posture: renderPosture, intelligence: renderIntelligence,
   findings: renderFindings, sources: renderSources, rules: renderRules, playground: renderPlayground,
   scans: renderScans, repositories: renderSurfaceView, developer: renderSurfaceView, cloud: renderSurfaceView,
-  cicd: renderSurfaceView, saas: renderSurfaceView, assets: renderAssets, remediation: renderRemediation,
+  cicd: renderSurfaceView, saas: renderSurfaceView, assets: renderAssets, technologies: renderTechnologies, groups: renderGroups, remediation: renderRemediation,
   alerts: renderAlerts, investigations: renderInvestigations, exceptions: renderExceptions, hubs: renderHubs,
-  integrations: renderIntegrations, jobs: renderJobs, logs: renderLogs, audit: renderAudit,
+  architecture: renderArchitecture, workers: renderWorkers, tools: renderTools, integrations: renderIntegrations, jobs: renderJobs, logs: renderLogs, audit: renderAudit,
   health: renderHealth, reports: renderReports, compliance: renderCompliance, access: renderAccess,
   settings: renderSettings,
 };
-const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", hubs: "pulse", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
+const VIEW_ICON = { overview: "grid", posture: "chart", intelligence: "pulse", findings: "search", sources: "layers", rules: "shield", playground: "box", scans: "clock", repositories: "repo", developer: "doc", cloud: "cloud", cicd: "layers", saas: "plug", assets: "box", technologies: "layers", groups: "grid", remediation: "wrench", alerts: "bell", investigations: "search", exceptions: "warn", hubs: "pulse", architecture: "layers", workers: "pulse", tools: "wrench", integrations: "plug", jobs: "clock", logs: "list", audit: "doc", health: "pulse", reports: "doc", compliance: "shield", access: "lock", settings: "gear" };
 
 function refresh() {
   const fn = VIEWS[state.view];

@@ -20,7 +20,7 @@ from sentrix.core import engine
 from sentrix.core.extensions import ExtStorage
 from sentrix.core.jobs import JobRunner, start_scheduler
 from sentrix.core.lifecycle import describe as describe_lifecycle
-from sentrix.core.models import STATUSES, SEVERITIES
+from sentrix.core.models import STATUSES, SEVERITIES, SURFACES
 from sentrix.core.pipeline import Pipeline
 from sentrix.core.util import at_least
 from sentrix.alerting.router import AlertRouter
@@ -636,7 +636,8 @@ class Handler(BaseHTTPRequestHandler):
             jobs = storage.list_jobs(limit=500)
             unresolved = sum(1 for f in findings if f.status in
                              ("open", "new", "triaged", "assigned", "in_progress", "reopened"))
-            inv = integrations.inventory(state.cfg, storage, demo)
+            demo = bool(cfg_get(state.cfg, "auth.demo_mode", False))
+            inv = __import__("sentrix.core.integrations", fromlist=["inventory"]).inventory(state.cfg, storage, demo)
             return self._json({
                 "total": stats["total"],
                 "critical": stats["by_severity"].get("critical", 0),
@@ -725,7 +726,8 @@ class Handler(BaseHTTPRequestHandler):
                     days = 0
                 key = "<1d" if days < 1 else "1-7d" if days < 7 else "7-30d" if days < 30 else ">30d"
                 ages[key] += 1
-            inv = integrations.inventory(state.cfg, storage, demo)
+            demo = bool(cfg_get(state.cfg, "auth.demo_mode", False))
+            inv = __import__("sentrix.core.integrations", fromlist=["inventory"]).inventory(state.cfg, storage, demo)
             return self._json({
                 "trend": d["timeline"], "severity": d["severity"], "sources": d["surfaces"],
                 "categories": [{"label": fam, "value": sum(1 for f in findings if f.meta.get("family", "generic") == fam)}
@@ -782,19 +784,156 @@ class Handler(BaseHTTPRequestHandler):
             assets = {}
             for f in findings:
                 key = f.path.split(":")[0].split("/")[0]
+                fam = (f.meta or {}).get("family") or "unknown"
+                det = f.detector_id.split(".")[0] if f.detector_id else "unknown"
                 a = assets.setdefault(key, {"id": "asset-" + key, "name": key,
-                                            "type": f.surface, "owner": f.owner,
-                                            "environment": f.meta.get("environment", "unknown"),
+                                            "type": f.surface, "owner": f.owner or "unowned",
+                                            "environment": (f.meta or {}).get("environment", "unknown"),
                                             "integration": f.surface, "monitored": True,
                                             "last_scan": f.updated_at, "findings": 0,
-                                            "critical": 0, "risk": 0})
+                                            "critical": 0, "risk": 0, "technologies": set(), "groups": set()})
                 a["findings"] += 1
                 if f.severity == "critical":
                     a["critical"] += 1
-                a["risk"] = max(a["risk"], (f.meta.get("risk") or {}).get("score", 0))
-            return self._json({"assets": sorted(assets.values(), key=lambda a: -a["risk"])})
+                a["risk"] = max(a["risk"], ((f.meta or {}).get("risk") or {}).get("score", 0))
+                a["technologies"].add(det)
+                a["groups"].add(fam)
+            rows = []
+            for a in assets.values():
+                a["technologies"] = sorted(a["technologies"])
+                a["groups"] = sorted(a["groups"])
+                rows.append(a)
+            return self._json({"assets": sorted(rows, key=lambda a: -a["risk"])})
         if path == "/api/integrations":
             return self._json({"integrations": integrations.inventory(state.cfg, storage, demo)})
+
+        if path == "/api/architecture":
+            demo = bool(cfg_get(state.cfg, "auth.demo_mode", False))
+            jobs = storage.list_jobs(limit=500)
+            by = {}
+            for j in jobs:
+                by[j["status"]] = by.get(j["status"], 0) + 1
+            return self._json({
+                "product": "SENTRIX",
+                "version": __version__,
+                "mode": "local modular monolith (single process, stdlib-only runtime)",
+                "note": "Tier mapping is SENTRIX-native: no external Postgres/Redis/RustFS/gRPC worker fleet is required or added.",
+                "tiers": [
+                    {"tier": 1, "name": "Web console", "components": [
+                        {"id": "dashboard", "name": "SENTRIX Command Center", "type": "spa", "status": "active",
+                         "details": "Hash-routed SPA served by the core API; per-tab sessions, RBAC-aware UI."}
+                    ]},
+                    {"tier": 2, "name": "Core API", "components": [
+                        {"id": "api", "name": "Core HTTP API", "type": "service", "status": "active",
+                         "details": "Stdlib ThreadingHTTPServer; JSON API, auth, lifecycle metadata, audit/logging."}
+                    ]},
+                    {"tier": 3, "name": "Infrastructure", "components": [
+                        {"id": "sqlite", "name": "SQLite storage", "type": "database", "status": "active",
+                         "details": f"Local DB at {cfg_get(state.cfg, 'storage.path', 'data/sentrix.db')}; migrations, WAL-friendly access."},
+                        {"id": "queue", "name": "In-process job coordination", "type": "queue", "status": "active",
+                         "details": "Thread-safe JobRunner with bounded concurrency (2 slots) and cancellation; no Redis/BullMQ dependency."},
+                        {"id": "artifacts", "name": "Local artifacts", "type": "object-store", "status": "active",
+                         "details": "Reports/exports/quarantine stored on local filesystem; no external object store required."},
+                        {"id": "enrichment", "name": "Risk/intelligence enrichment", "type": "enrichment", "status": "active",
+                         "details": "Deterministic risk scoring, fingerprinting, dedupe and metadata enrichment in-process."}
+                    ]},
+                    {"tier": 4, "name": "Workers / agents", "components": [
+                        {"id": "jobrunner", "name": "JobRunner", "type": "worker", "status": "active",
+                         "details": f"Background scan worker pool; job states: {by}."},
+                        {"id": "scheduler", "name": "Scheduler", "type": "worker", "status": "active",
+                         "details": "Background schedule/remediation loop thread."}
+                    ]},
+                    {"tier": 5, "name": "Connectors / surfaces", "components": [
+                        {"id": "surfaces", "name": "Surface adapters", "type": "connector", "status": "active",
+                         "details": f"Monitored surfaces: {', '.join(SURFACES)}."},
+                        {"id": "integrations", "name": "SENTRIX Connect integrations", "type": "connector", "status": "active",
+                         "details": f"{len(__import__('sentrix.core.integrations', fromlist=['inventory']).inventory(state.cfg, storage, demo))} providers with honest connection states."}
+                    ]},
+                ],
+                "lifecycle": describe_lifecycle(),
+            })
+
+        if path in ("/api/workers", "/api/agents"):
+            findings = storage.list_findings(limit=5000)
+            jobs = storage.list_jobs(limit=500)
+            by = {}
+            for j in jobs:
+                by[j["status"]] = by.get(j["status"], 0) + 1
+            running = [j for j in jobs if j.get("status") == "running"]
+            queued = [j for j in jobs if j.get("status") == "queued"]
+            demo = bool(cfg_get(state.cfg, "auth.demo_mode", False))
+            inv = __import__("sentrix.core.integrations", fromlist=["inventory"]).inventory(state.cfg, storage, demo)
+            agents = [
+                {"id": "agent-api", "name": "Core API", "kind": "service", "status": "running",
+                 "runtime": "python/stdlib", "capabilities": ["http", "auth", "rbac", "api"], "queue": None},
+                {"id": "agent-jobrunner", "name": "JobRunner", "kind": "worker-pool", "status": "running",
+                 "runtime": "python/threading", "capabilities": ["scan", "incremental-cache", "cancel"],
+                 "capacity": 2, "running": len(running), "queued": len(queued), "jobs_by_status": by},
+                {"id": "agent-scheduler", "name": "Scheduler", "kind": "worker", "status": "running",
+                 "runtime": "python/thread", "capabilities": ["schedules", "remediation-checks", "alert-checks"], "queue": None},
+            ]
+            for s in SURFACES:
+                rel = [f for f in findings if f.surface == s]
+                agents.append({"id": f"connector-{s}", "name": s.replace('_', ' ').title(), "kind": "connector",
+                               "status": "monitored" if rel else "idle", "runtime": "in-process adapter",
+                               "capabilities": ["ingest", "scan"], "findings": len(rel)})
+            for i in inv:
+                agents.append({"id": f"integration-{i['id']}", "name": i['name'], "kind": "integration-agent",
+                               "status": i['status'], "runtime": "connector",
+                               "capabilities": i.get('permissions', []), "last_sync": i.get('last_sync')})
+            return self._json({"workers": agents, "agents": agents, "jobs_by_status": by, "capacity": {"job_slots": 2}})
+
+        if path == "/api/tools":
+            detectors = []
+            try:
+                for d in all_detectors():
+                    detectors.append({"id": d.id, "name": getattr(d, "name", d.id), "category": getattr(d, "category", "general"),
+                                      "severity": getattr(d, "severity", "medium"), "kind": "detector", "status": "enabled"})
+            except Exception:
+                pass
+            demo = bool(cfg_get(state.cfg, "auth.demo_mode", False))
+            inv = __import__("sentrix.core.integrations", fromlist=["inventory"]).inventory(state.cfg, storage, demo)
+            tools = [{"id": f"surface-{s}", "name": s, "kind": "surface-adapter", "status": "available", "capabilities": ["scan","ingest"]} for s in SURFACES]
+            tools += [{"id": f"integration-{i['id']}", "name": i['name'], "kind": "integration", "status": i['status'], "capabilities": i.get('permissions', [])} for i in inv]
+            tools += [{"id": f"playbook-{k}", "name": k.replace('-', ' '), "kind": "playbook", "status": "available", "capabilities": ["remediation","guidance"], "steps": len(v)} for k, v in PLAYBOOKS.items()]
+            return self._json({"tools": tools, "detectors": detectors, "counts": {"tools": len(tools), "detectors": len(detectors)}})
+
+        if path == "/api/technologies":
+            findings = storage.list_findings(limit=5000)
+            tech = {}
+            for f in findings:
+                fam = (f.meta or {}).get("family") or (f.meta or {}).get("technology") or "unknown"
+                det = f.detector_id.split(".")[0] if f.detector_id else "unknown"
+                key = f"{fam}:{det}"
+                t = tech.setdefault(key, {"id": key, "name": det.replace('_',' ').title(), "family": fam, "category": det,
+                                          "findings": 0, "critical": 0, "assets": set(), "surfaces": set()})
+                t["findings"] += 1
+                if f.severity == "critical":
+                    t["critical"] += 1
+                t["assets"].add(f.path.split(":")[0].split("/")[0])
+                t["surfaces"].add(f.surface)
+            rows = []
+            for v in tech.values():
+                v["assets"] = len(v["assets"])
+                v["surfaces"] = sorted(v["surfaces"])
+                rows.append(v)
+            return self._json({"technologies": sorted(rows, key=lambda x: (-x["critical"], -x["findings"], x["name"]))})
+
+        if path == "/api/groups":
+            findings = storage.list_findings(limit=5000)
+            by = {"surface": {}, "environment": {}, "owner": {}, "severity": {}}
+            for f in findings:
+                for dim, val in (("surface", f.surface), ("environment", (f.meta or {}).get("environment","unknown")), ("owner", f.owner or "unowned"), ("severity", f.severity)):
+                    g = by[dim].setdefault(val, {"name": val, "dimension": dim, "findings": 0, "assets": set(), "critical": 0})
+                    g["findings"] += 1
+                    if f.severity == "critical": g["critical"] += 1
+                    g["assets"].add(f.path.split(":")[0].split("/")[0])
+            groups = []
+            for dim, items in by.items():
+                for g in items.values():
+                    g["assets"] = len(g["assets"])
+                    groups.append(g)
+            return self._json({"groups": sorted(groups, key=lambda x: (x["dimension"], -x["findings"]))})
         if path == "/api/remediation":
             from sentrix.remediation.playbooks import PLAYBOOKS
             sla = {"critical": 24, "high": 72, "medium": 168, "low": 336, "info": 720}
