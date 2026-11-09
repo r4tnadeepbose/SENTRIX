@@ -126,6 +126,14 @@ class AssignmentStorageTests(unittest.TestCase):
         self.db.upsert_employee_profile("r.sharma","admin", availability_status="unavailable")
         self.assertEqual(self.db.get_employee_profile("r.sharma")["availability_status"], "unavailable")
 
+    def test_closed_finding_cannot_be_assigned(self):
+        f = self._seed_finding(fid="FX-CLOSED", severity="high")
+        self.db.set_status(f.id, "closed", "admin")
+        f.status = "closed"
+        r = manual_assign(self.db, f, "admin", "r.sharma", reason="test")
+        self.assertFalse(r.get("ok"))
+        self.assertIn("closed", (r.get("error") or "").lower())
+
     def test_assignment_history_and_audit_fields(self):
         f = self._seed_finding()
         a = self.db.upsert_assignment(f.id, "admin", reason="test", action="manual_assigned", primary_owner="r.sharma", status="assigned", method="manual")

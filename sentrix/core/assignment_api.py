@@ -239,6 +239,7 @@ def do_auto_assign(storage, finding, actor, router=None, force_reason=None, fina
     """Run engine. finalize=True assigns; finalize=False creates recommendation/awaiting approval.
     If finalize is None, uses assignment policy mode (automatic=>assign, admin_approval/manual/recommended=>recommend when system-driven).
     """
+    if getattr(finding, "status", "") == "closed": return {"ok": False, "error": "finding is closed and cannot be assigned"}
     sla_cfg = storage.get_assignment_sla_config() or {}
     mode = (sla_cfg.get("assignment_mode") or "admin_approval").lower()
     if finalize is None:
@@ -303,6 +304,7 @@ def approve_recommendation(storage, finding, actor, primary_owner=None, secondar
     return manual_assign(storage, finding, actor, owner, reviewer, reason=reason or "Approved assignment recommendation", method="manual", router=router, admin_override=False)
 
 def manual_assign(storage, finding, actor, primary_owner, secondary_reviewer="", reason="", due_at="", instructions="", method="manual", router=None, admin_override=False, priority=""):
+    if getattr(finding, "status", "") == "closed": return {"ok": False, "error": "finding is closed and cannot be assigned"}
     if not primary_owner:
         return {"ok": False, "error": "primary_owner required"}
     if primary_owner == secondary_reviewer:
