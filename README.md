@@ -25,7 +25,8 @@
 - [The problem it solves](#the-problem-it-solves)
 - [The full-screen Command Center](#the-full-screen-command-center)
 - [Features](#features)
-- [Screenshots — every page](#screenshots--every-page)
+- [Screenshots - key views](#screenshots--key-views)
+- [Accessing SENTRIX from a Kali Linux VMware VM](#accessing-sentrix-from-a-kali-linux-vmware-vm-windows-host)
 - [Installation](#installation)
 - [First run and the demo roster](#first-run-and-the-demo-roster)
 - [Production mode](#production-mode)
@@ -82,29 +83,11 @@ The result: a small team gets enterprise-grade exposure detection, response and 
 
 ## The full-screen Command Center
 
-The console is designed to use the whole screen with no dead chrome: a compact top bar, a grouped sidebar, and a dense content area that scales from a 1600 px desktop down to a 390 px phone. Everything below is a real screenshot of the shipped UI — no mockups.
+The console is designed to use the whole screen with no dead chrome: a compact top bar, a grouped sidebar, and a dense content area that scales from desktop to mobile. The default Home view is a pro-style command center with live security posture, orbit intelligence visualization, top sources, outcomes, and operational metrics.
 
-**Dark theme (default)**
+![SENTRIX Command Center](docs/screenshots/dashboard-dark.png)
 
-![SENTRIX Command Center — dark theme](docs/screenshots/dashboard-dark.png)
-
-**Light theme**
-
-![SENTRIX Command Center — light theme](docs/screenshots/dashboard-light.png)
-
-**Sign-in**
-
-![SENTRIX sign-in with the local demo roster](docs/screenshots/login.png)
-
-The top bar carries the live status indicator, Hubs messages, theme switch and the signed-in user's face avatar. The sidebar groups all 28 views into Command Center, Detection, Attack Surface, Response, and Governance. The overview shows KPI cards, the **eleven-stage detection pipeline in a single row**, recent activity and the team workload with face avatars.
-
-**Mobile**
-
-| Overview | Findings |
-| --- | --- |
-| ![Mobile overview](docs/screenshots/mobile-overview.png) | ![Mobile findings](docs/screenshots/mobile-findings.png) |
-
-On phones the sidebar becomes a bottom tab bar, tables become cards, and all views remain usable.
+The top bar carries live status, Hubs messages, theme switch and the signed-in user's avatar. The sidebar groups views into Command Center, Detection, Attack Surface, Response, and Governance.
 
 ---
 
@@ -155,81 +138,22 @@ On phones the sidebar becomes a bottom tab bar, tables become cards, and all vie
 
 ---
 
-## Screenshots — every page
+## Screenshots - key views
 
-All images are captured from the running application at 1600 × 1000 (full page) and live in [`docs/screenshots/`](docs/screenshots/).
+Only the 5 most important product screenshots are included.
 
-### Command Center
-
-| Overview | Security Posture |
+| Command Center | Findings / Exposures |
 | --- | --- |
-| ![Overview](docs/screenshots/dashboard-dark.png) | ![Security Posture](docs/screenshots/posture.png) |
+| ![Command Center](docs/screenshots/dashboard-dark.png) | ![Findings](docs/screenshots/findings.png) |
 
-| Intelligence Dashboard | Detection Pipeline (overview, light theme) |
+| Detection Sources | Integrations |
 | --- | --- |
-| ![Intelligence Dashboard](docs/screenshots/intelligence.png) | ![Light theme overview](docs/screenshots/dashboard-light.png) |
+| ![Detection Sources](docs/screenshots/sources.png) | ![Integrations](docs/screenshots/integrations.png) |
 
-### Detection
+| SENTRIX Hubs |
+| --- |
+| ![SENTRIX Hubs](docs/screenshots/hubs.png) |
 
-| Findings | Detection Sources |
-| --- | --- |
-| ![Findings](docs/screenshots/findings.png) | ![Detection Sources](docs/screenshots/sources.png) |
-
-| Detection Rules | Detection Playground |
-| --- | --- |
-| ![Detection Rules](docs/screenshots/rules.png) | ![Detection Playground](docs/screenshots/playground.png) |
-
-| Scan Management | Finding detail drawer |
-| --- | --- |
-| ![Scan Management](docs/screenshots/scans.png) | ![Finding detail drawer](docs/screenshots/findings-drawer.png) |
-
-### Attack Surface
-
-| Repository Security | Developer Security |
-| --- | --- |
-| ![Repository Security](docs/screenshots/repositories.png) | ![Developer Security](docs/screenshots/developer.png) |
-
-| Cloud Security | CI/CD Security |
-| --- | --- |
-| ![Cloud Security](docs/screenshots/cloud.png) | ![CI/CD Security](docs/screenshots/cicd.png) |
-
-| SaaS Security | Asset Inventory |
-| --- | --- |
-| ![SaaS Security](docs/screenshots/saas.png) | ![Asset Inventory](docs/screenshots/assets.png) |
-
-### Response
-
-| Remediation | Alerts |
-| --- | --- |
-| ![Remediation](docs/screenshots/remediation.png) | ![Alerts](docs/screenshots/alerts.png) |
-
-| Investigations | Exceptions |
-| --- | --- |
-| ![Investigations](docs/screenshots/investigations.png) | ![Exceptions](docs/screenshots/exceptions.png) |
-
-| SENTRIX Hubs | Integrations |
-| --- | --- |
-| ![SENTRIX Hubs](docs/screenshots/hubs.png) | ![Integrations](docs/screenshots/integrations.png) |
-
-### Operations and governance
-
-| Scan Jobs | System Logs |
-| --- | --- |
-| ![Scan Jobs](docs/screenshots/jobs.png) | ![System Logs](docs/screenshots/logs.png) |
-
-| Audit Trail | System Health |
-| --- | --- |
-| ![Audit Trail](docs/screenshots/audit.png) | ![System Health](docs/screenshots/health.png) |
-
-| Reports | Compliance |
-| --- | --- |
-| ![Reports](docs/screenshots/reports.png) | ![Compliance](docs/screenshots/compliance.png) |
-
-| Access Management | Settings |
-| --- | --- |
-| ![Access Management](docs/screenshots/access.png) | ![Settings](docs/screenshots/settings.png) |
-
----
 
 ## Installation
 
@@ -403,6 +327,85 @@ python -m unittest discover -s tests -v
 ```
 
 ---
+
+## Accessing SENTRIX from a Kali Linux VMware VM (Windows host)
+
+If you run SENTRIX on a **Windows host** and want to open it from a **Kali Linux virtual machine in VMware**, follow this process. It preserves the existing VMware network configuration, does **not** modify SENTRIX source code, and does **not** expose the service to public networks.
+
+> Use this only on a trusted local/VMware network. Restrict firewall rules to the VMware virtual network and the required TCP port.
+
+### 1. Identify IP addresses
+
+On **Kali Linux (guest)**, find the VM IP:
+
+```bash
+ifconfig
+```
+
+On **Windows (host)**, find the VMware **VMnet8** adapter IP:
+
+```powershell
+ipconfig
+```
+
+Note the IPv4 address for **VMware Network Adapter VMnet8** (example: `192.168.x.x`). This is `WINDOWS_VMNET8_IP`.
+
+### 2. Confirm SENTRIX is listening on Windows
+
+Check whether the target application is listening on its localhost port (default `8710`):
+
+```powershell
+netstat -ano | findstr :8710
+```
+
+If the app is bound only to `127.0.0.1:8710`, Kali cannot reach it on the VMnet8 address until port forwarding is configured.
+
+### 3. Configure Windows TCP port forwarding
+
+Forward traffic from `WINDOWS_VMNET8_IP:8710` to `127.0.0.1:8710` (run **as Administrator**):
+
+```powershell
+netsh interface portproxy add v4tov4 listenaddress=WINDOWS_VMNET8_IP listenport=8710 connectaddress=127.0.0.1 connectport=8710
+```
+
+Verify:
+
+```powershell
+netsh interface portproxy show v4tov4
+```
+
+Remove later if needed:
+
+```powershell
+netsh interface portproxy delete v4tov4 listenaddress=WINDOWS_VMNET8_IP listenport=8710
+```
+
+### 4. Create a scoped Windows Firewall inbound rule
+
+Allow TCP `8710` **only** from the VMware virtual network (Administrator). Adjust the subnet to your VMnet8 range (use the narrowest scope):
+
+```powershell
+New-NetFirewallRule -DisplayName "SENTRIX VMnet8 8710" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8710 -RemoteAddress 192.168.0.0/16
+```
+
+Do **not** use `Any` or expose the service to public networks.
+
+### 5. Access and verify from Kali
+
+Open in Kali:
+
+```text
+http://WINDOWS_VMNET8_IP:8710
+```
+
+Verify:
+
+```bash
+curl -v http://WINDOWS_VMNET8_IP:8710
+```
+
+If it fails, recheck VMnet8 IP, `netstat` binding, `portproxy`, firewall scope, and VMware network settings.
+
 
 ## Configuration
 
