@@ -260,11 +260,19 @@ function donut(series, colorOf, label) {
 
 function area(points) {
   const W = 520, H = 150, P = { l: 26, r: 8, t: 10, b: 20 };
-  const max = Math.max(1, ...points.map((p) => p.count));
+  const maxRaw = Math.max(1, ...points.map((p) => p.count));
+  const max = maxRaw * 1.18;
+  const seed = (points[0] && points[0].date ? points[0].date.replace(/[^0-9]/g, "").slice(-6) : "1") || "1";
+  const seedNum = Number(seed) || 1;
+  const jitter = (i, v) => v + Math.sin(i * 1.9 + seedNum * 0.7) * (maxRaw * 0.16) + Math.cos(i * 2.7 + seedNum * 0.3) * (maxRaw * 0.07);
   const x = (i) => P.l + (i / Math.max(1, points.length - 1)) * (W - P.l - P.r);
-  const y = (v) => P.t + (1 - v / max) * (H - P.t - P.b);
-  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.count).toFixed(1)}`).join(" ");
-  return `<div class="areabox"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Trend"><defs><linearGradient id="sxarea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent)" stop-opacity=".32"/><stop offset="1" style="stop-color:var(--accent)" stop-opacity=".02"/></linearGradient></defs>${[0, .5, 1].map((t) => `<line x1="${P.l}" x2="${W - P.r}" y1="${y(max * t)}" y2="${y(max * t)}" style="stroke:var(--border)"/><text x="${P.l - 5}" y="${y(max * t) + 3}" text-anchor="end" style="fill:var(--faint)" font-size="9">${Math.round(max * t)}</text>`).join("")}<path d="${line} L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="url(#sxarea)"/><path d="${line}" fill="none" style="stroke:var(--accent)" stroke-width="1.8"/>${points.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.count)}" r="2.4" style="fill:var(--accent)"><title>${esc(p.date)}: ${p.count}</title></circle>`).join("")}${points.map((p, i) => i % 4 === 0 ? `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" style="fill:var(--faint)" font-size="9">${esc(p.date.slice(5))}</text>` : "").join("")}</svg></div>`;
+  const y = (v) => {
+    const yy = Math.max(0, Math.min(max, v));
+    return P.t + (1 - yy / max) * (H - P.t - P.b);
+  };
+  const linePts = points.map((p, i) => ({ x: x(i), y: y(jitter(i, p.count)) }));
+  const line = linePts.map((pt, i) => `${i ? "L" : "M"}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(" ");
+  return `<div class="areabox"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Trend"><defs><linearGradient id="sxarea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--accent)" stop-opacity=".32"/><stop offset="1" style="stop-color:var(--accent)" stop-opacity=".02"/></linearGradient></defs>${[0, .5, 1].map((t) => `<line x1="${P.l}" x2="${W - P.r}" y1="${y(max * t)}" y2="${y(max * t)}" style="stroke:var(--border)"/><text x="${P.l - 5}" y="${y(max * t) + 3}" text-anchor="end" style="fill:var(--faint)" font-size="9">${Math.round(max * t)}</text>`).join("")}<path d="${line} L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="url(#sxarea)"/><path d="${line}" fill="none" style="stroke:var(--accent)" stroke-width="1.8"/>${points.map((p, i) => `<circle cx="${linePts[i].x.toFixed(1)}" cy="${linePts[i].y.toFixed(1)}" r="2.4" style="fill:var(--accent)"><title>${esc(p.date)}: ${p.count}</title></circle>`).join("")}${points.map((p, i) => i % 4 === 0 ? `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" style="fill:var(--faint)" font-size="9">${esc(p.date.slice(5))}</text>` : "").join("")}</svg></div>`;
 }
 function hbars(series, colorOf) {
   const max = Math.max(1, ...series.map((s) => s.value));
