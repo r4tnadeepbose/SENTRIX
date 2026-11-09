@@ -305,6 +305,22 @@ class AssignmentAPITests(unittest.TestCase):
         self.assertEqual(d["assignment"]["primary_owner"], "p.patel")
         self.assertTrue(any(h.get("action") in ("manual_assigned","assigned","reassigned") for h in d["history"]))
 
+    def test_reopen_closed_finding_resets_assignment_and_can_reassign(self):
+        findings = self._seed(); fid = findings[0]["id"]
+        self._req(f"/api/assignment/finding/{fid}/assign", {"primary_owner":"r.sharma","reason":"initial"})
+        store = self.server.state.storage
+        store.set_status(fid, "closed", "admin")
+        code, _, body = self._http(f"/api/findings/{fid}/reopen", {}, method="POST", headers={"Cookie": f"sx_session={self.cookie}"})
+        self.assertEqual(code, 200)
+        d = self._req(f"/api/findings/{fid}")
+        self.assertEqual(d["assignment"]["primary_owner"], "")
+        self.assertEqual(d["assignment"]["status"], "unassigned")
+        r = self._req(f"/api/assignment/finding/{fid}/assign", {"primary_owner":"p.patel","reason":"reassigned after reopen"})
+        self.assertTrue(r.get("ok"))
+        d2 = self._req(f"/api/findings/{fid}")
+        self.assertEqual(d2["assignment"]["primary_owner"], "p.patel")
+
+
 
 if __name__ == "__main__":
     unittest.main()

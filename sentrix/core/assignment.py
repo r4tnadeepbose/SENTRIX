@@ -404,7 +404,7 @@ def compute_workflow(finding: Any, assignment: Optional[Dict[str, Any]] = None) 
         if ver_req and ver_dec != "rejected":
             return _wf("Verification", "Verification", ["Verification Pending"], p_class, s_out, admin)
         if rem_sub or rem_status in ("submitted", "completed") or fstatus == "remediated":
-            return _wf("Verification", "Verification", ["Awaiting Verification Request" if not ver_req else "Verification Pending"], p_class, s_out, admin)
+            return _wf("Verification", "Verification", ["Verification Pending"], p_class, s_out, admin)
         return _wf("Remediation", "Remediation", ["Remediation Pending"] if not rem_owner else ["In Progress"], p_class, s_out, admin)
 
     return _wf("Admin Review", "Admin Review", [], p_class, s_out, admin)

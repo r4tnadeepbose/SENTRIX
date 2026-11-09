@@ -537,11 +537,12 @@ async function renderFindings() {
   const stageChip = (wf) => {
     const st = wf && wf.stage ? wf.stage : 'New';
     const cls = {New:'neutral',Assigned:'st-triaged','Primary Review':'st-in_progress','Secondary Review':'st-in_progress','Admin Review':'st-triaged',Remediation:'st-in_progress',Verification:'st-remediated',Closed:'st-remediated'}[st]||'neutral';
-    return `<span class="chip ${cls}">${esc(st)}</span>`;
+    const label = (wf && wf.status_labels && wf.status_labels[0]) || '';
+    return `<span class="stagecell"><span class="chip ${cls}">${esc(st)}</span><span class="stage-sub">${label ? esc(label) : '&nbsp;'}</span></span>`;
   };
+  const labels = () => ''; // kept for compatibility with older code paths
   const rows = (data.findings||[]).map(r=>{
     const wf = r.workflow || {};
-    const labels = (r.status_labels||wf.status_labels||[]).map(x=>`<span class="chip neutral" style="margin-left:4px;font-size:10px">${esc(x)}</span>`).join('');
     return `<tr class="clickable" data-open="${esc(r.id)}">
       <td class="mono">${esc(r.id)}</td>
       <td>${esc(r.title)}<div class="cellsub">${esc(r.category||r.detector_id||'')}</div></td>
@@ -549,7 +550,7 @@ async function renderFindings() {
       <td>${esc(r.category||'-')}</td>
       <td>${esc(SLABEL[r.detection_source||r.surface]||r.detection_source||r.surface||'-')}</td>
       <td class="mono truncate" title="${esc(r.path||'')}">${esc(r.path||'-')}${r.line?':'+r.line:''}</td>
-      <td>${stageChip(wf)}<div class="cellsub">${labels||'&nbsp;'}</div></td>
+      <td>${stageChip(wf)}</td>
       <td>${esc(r.primary_assignee||'-')}</td>
       <td>${esc(r.secondary_assignee||'-')}</td>
       <td><span title="${utc(r.created_at)}">${rel(r.created_at)}</span></td>
@@ -975,7 +976,7 @@ async function loadDrawer() {
     if ((isPrimary || isAdmin || me===asn.remediation_owner) && !asn.verification_requested_at) primaryAction += `<div class="formrow"><button class="btn primary" id="wf-req-ver">Request Verification</button></div>`;
     if (isAdmin && asn.verification_requested_at && !asn.verification_decision) primaryAction += `<div class="dsect"><div class="field"><input class="input" id="as-vreason" placeholder="Approval/rejection reason"></div><div class="formrow" style="margin-top:8px"><button class="btn primary" id="as-vapprove-btn">Approve Verification</button><button class="btn ghost" id="as-vreject-btn">Reject</button></div></div>`;
   } else if (curStage === 'Closed') {
-    primaryAction = `<div class="okbox">Workflow closed. ${wf.admin_decision==='confirm_false_positive'?'False Positive confirmed by admin.':'Finding verified/closed.'} ${asn.admin_decision_reason?`<br>Reason: ${esc(asn.admin_decision_reason)}`:''}</div>`;
+    primaryAction = `<div class="okbox">Workflow closed. ${wf.admin_decision==='confirm_false_positive'?'False Positive confirmed by admin.':'Finding verified/closed.'} ${asn.admin_decision_reason?`<br>Reason: ${esc(asn.admin_decision_reason)}`:''}${isAdmin?`<div class="formrow" style="margin-top:12px"><button class="btn ghost" id="wf-reopen">Reopen finding</button></div>`:''}</div>`;
   }
 
   const tabs = [['workflow','Workflow'],['evidence','Evidence'],['notes_history','Notes & History'],['checklist','Checklist']];
@@ -1005,6 +1006,7 @@ async function loadDrawer() {
   on('#wf-secondary-submit', async()=>{ try{ const classification=(document.querySelector('input[name="sclass"]:checked')||{}).value; const disagrees=!!($('#wf-s-disagree')&&$('#wf-s-disagree').checked); const reasoning=$('#wf-secondary-reason')?.value.trim(); const r=await api(`/api/assignment/finding/${id}/secondary-submit-assessment`,{method:'POST',body:{classification,disagrees,reasoning}}); if(r.ok){ toast('Review submitted to admin','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
   on('#wf-adec-tp-btn', async()=>{ try{ const tp=$('#adec-tp'); const fp=$('#adec-fp'); if (!tp || !tp.checked) { toast('Select the True Positive checkbox first','error'); return; } if (fp && fp.checked) { toast('Only one decision can be selected','error'); return; } const reason=$('#wf-admin-reason')?.value.trim(); if (!reason) { toast('Justification required','error'); return; } const r=await api(`/api/assignment/finding/${id}/admin-final-decision`,{method:'POST',body:{decision:'confirm_true_positive',reason}}); if(r.ok){ toast('Finding sent to Remediation Center','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
   on('#wf-adec-fp-btn', async()=>{ try{ const tp=$('#adec-tp'); const fp=$('#adec-fp'); if (!fp || !fp.checked) { toast('Select the False Positive checkbox first','error'); return; } if (tp && tp.checked) { toast('Only one decision can be selected','error'); return; } const reason=$('#wf-admin-reason')?.value.trim(); if (!reason) { toast('Justification required','error'); return; } const r=await api(`/api/assignment/finding/${id}/admin-final-decision`,{method:'POST',body:{decision:'confirm_false_positive',reason}}); if(r.ok){ toast('Finding closed as False Positive','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
+  on('#wf-reopen', async()=>{ if(!confirm('Reopen this finding? This will clear the review state and make it available for reassignment.')) return; try{ await api(`/api/findings/${id}/reopen`,{method:'POST',body:{}}); toast('Finding reopened','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
   on('#wf-assign-rem', async()=>{ try{ await api(`/api/assignment/finding/${id}/assign-remediation`,{method:'POST',body:{remediation_owner:$('#wf-rem-owner2')?.value.trim()}}); toast('Remediation assigned','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
   on('#wf-submit-rem', async()=>{ try{ const note=$('#wf-rem-note')?.value.trim(); const r=await api(`/api/assignment/finding/${id}/submit-remediation`,{method:'POST',body:{note,reason:note}}); if(r.ok){ toast('Remediation submitted','ok'); } else toast(r.error||'Failed','error'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
   on('#wf-req-ver', async()=>{ try{ await api(`/api/assignment/finding/${id}/request-verification`,{method:'POST',body:{note:'Verification requested after remediation'}}); toast('Verification requested','ok'); loadDrawer(); refresh(); }catch(e){ toast(e.message,'error'); } });
@@ -1519,11 +1521,16 @@ async function renderClosedReports() {
     const f=d.finding||{}, a=d.assignment||{}, wf=d.workflow||{};
     const final = a.admin_decision==='confirm_false_positive'?'False Positive':(a.admin_decision==='confirm_true_positive'?'True Positive (closed)':(wf.stage||'Closed'));
     const closedAt = a.verified_at || a.completed_at || a.admin_decision_at || f.updated_at || f.created_at;
-    return `<tr class="clickable" data-open="${esc(f.id)}"><td class="mono">${esc(f.id)}</td><td>${esc(f.title)}</td><td>${sevChip?sevChip(f.severity):esc(f.severity)}</td><td>${esc(a.primary_owner||'-')}</td><td>${esc(a.secondary_reviewer||'-')}</td><td>${esc((a.primary_classification||'-').replace(/_/g,' '))}</td><td>${esc((a.secondary_outcome||a.secondary_classification||'-').replace(/_/g,' '))}</td><td>${esc(final)}</td><td>${utc(closedAt)}</td><td>${esc((a.admin_decision_reason||a.verification_rejection_reason||'').slice(0,120))}</td></tr>`;
-  }).join('') || `<tr><td colspan="10">${empty('No closed findings yet','Closed findings will appear here automatically.')}</td></tr>`;
+    return `<tr class="clickable" data-open="${esc(f.id)}"><td class="mono">${esc(f.id)}</td><td>${esc(f.title)}</td><td>${sevChip?sevChip(f.severity):esc(f.severity)}</td><td>${esc(a.primary_owner||'-')}</td><td>${esc(a.secondary_reviewer||'-')}</td><td>${esc((a.primary_classification||'-').replace(/_/g,' '))}</td><td>${esc((a.secondary_outcome||a.secondary_classification||'-').replace(/_/g,' '))}</td><td>${esc(final)}</td><td>${utc(closedAt)}</td><td>${esc((a.admin_decision_reason||a.verification_rejection_reason||'').slice(0,120))}</td><td><button class="btn sm ghost" data-reopen="${esc(f.id)}">Reopen</button></td></tr>`;
+  }).join('') || `<tr><td colspan="11">${empty('No closed findings yet','Closed findings will appear here automatically.')}</td></tr>`;
   $("#main").innerHTML = pagehead("Closed Findings","Admin Command Centre — all closed findings (retained).") +
-    panel("Closed Findings", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding ID</th><th>Title</th><th>Severity</th><th>Primary</th><th>Secondary</th><th>Primary assessment</th><th>Secondary assessment</th><th>Final Admin decision</th><th>Closure date</th><th>Closure reason</th></tr></thead><tbody>${rows}</tbody></table></div>`, 'Open any finding to inspect full investigation history, assessments, evidence and final decision.', true);
+    panel("Closed Findings", `<div class="twrap"><table class="tbl"><thead><tr><th>Finding ID</th><th>Title</th><th>Severity</th><th>Primary</th><th>Secondary</th><th>Primary assessment</th><th>Secondary assessment</th><th>Final Admin decision</th><th>Closure date</th><th>Closure reason</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`, 'Open any finding to inspect full investigation history, assessments, evidence and final decision. Use Reopen to send a closed finding back for triage/assignment.', true);
   bindOpeners();
+  $$('[data-reopen]').forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    if (!confirm('Reopen this closed finding? This will clear the current review state and you can reassign primary/secondary.')) return;
+    api(`/api/findings/${b.dataset.reopen}/reopen`, { method:'POST', body:{} }).then(() => { toast('Finding reopened','ok'); renderClosedReports(); }).catch(e => toast(e.message,'error'));
+  });
 }
 
 

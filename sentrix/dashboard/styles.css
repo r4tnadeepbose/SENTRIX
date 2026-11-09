@@ -1149,3 +1149,5 @@ a.ring-kpi:hover { border-color:var(--accent); transform:translateY(-1px); }
 .help-pop .popbody strong { color:var(--text); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
 .helpbtn { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:999px; border:1px solid var(--border); background:var(--raised); color:var(--dim); font-size:10px; font-weight:700; cursor:pointer; vertical-align:middle; padding:0; line-height:1; }
 .helpbtn:hover { color:var(--accent); border-color:var(--accent); }
+
+.stagecell { display:inline-flex; align-items:center; gap:10px; white-space:nowrap; } .stagecell .chip { text-transform:none; font-size:11px; padding:2px 10px; } .stage-sub { font-size:11px; color:var(--dim); display:inline-flex; align-items:center; white-space:nowrap; }

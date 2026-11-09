@@ -1302,7 +1302,36 @@ class Handler(BaseHTTPRequestHandler):
         from sentrix.core import reports
         state = self.state
         storage = state.storage
-
+        user = self._user() or {}
+        uname = (user.get("username") or "anonymous")
+        role = user.get("role") or "viewer"
+        # -- Reopen closed finding (admin only) ---------------------------------
+        m_reopen = re.match(r"^/api/findings/([A-Za-z0-9\-]+)/reopen$", path)
+        if m_reopen:
+            if role not in ("super_admin", "security_admin"):
+                return self._json({"error":"security administrator role required"}, 403)
+            fid = m_reopen.group(1)
+            finding = storage.get_finding(fid)
+            if not finding:
+                return self._json({"error":"finding not found"}, 404)
+            storage.set_status(fid, "reopened", uname)
+            storage.upsert_assignment(fid, uname, reason="Reopened by admin", action="reopened",
+                                      primary_owner="", secondary_reviewer="", status="unassigned",
+                                      assigned_by="", assigned_at="", acknowledged_at="", secondary_acknowledged_at="",
+                                      primary_investigation_started_at="", primary_classification="", primary_reasoning="",
+                                      primary_evidence="", primary_submitted_at="",
+                                      secondary_review_started_at="", secondary_outcome="", secondary_reasoning="",
+                                      secondary_evidence="", secondary_submitted_at="",
+                                      admin_decision="", admin_decision_reason="", admin_decision_by="", admin_decision_at="",
+                                      reassessment_target="", remediation_owner="", remediation_status="",
+                                      remediation_submitted_at="", remediation_note="",
+                                      verification_requested_at="", verification_note="", verification_evidence="",
+                                      verification_decision="", verification_decided_by="", verification_decided_at="",
+                                      verification_rejection_reason="", blocked_reason="", reassignment_requested_by="",
+                                      reassignment_reason="", completed_at="", verified_at="")
+            storage.add_note(fid, uname, "Finding reopened by admin")
+            state.auth.audit("finding.reopened", uname, fid)
+            return self._json({"ok": True, "id": fid, "status": "reopened"})
         # -- Assignment / workload POST ----------------------------------------
         if path.startswith("/api/assignment"):
             from sentrix.core import assignment_api
