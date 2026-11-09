@@ -371,7 +371,8 @@ def compute_workflow(finding: Any, assignment: Optional[Dict[str, Any]] = None) 
     if fstatus == "closed":
         return _wf("Closed", "Closed", [], p_class, s_out, admin)
     if fstatus == "false_positive" and not admin:
-        return _wf("Admin Review", "Admin Review", ["False Positive disposition pending"], p_class, s_out, admin)
+        # A finding already classified as false positive (by disposition or stale demo state) is closed.
+        return _wf("Closed", "Closed", ["False Positive"], p_class, s_out, admin)
 
     if not primary:
         return _wf("New", "New", ["Awaiting Assignment"] if not reassess else ["Reassessment Requested"], p_class, s_out, admin)
