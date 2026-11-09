@@ -35,6 +35,9 @@ class ServerTests(unittest.TestCase):
         cfg["storage"]["path"] = str(Path(self._tmp.name) / "server.db")
         cfg["server"]["port"] = 0
         cfg["alerting"]["channels"] = ["outbox"]
+        # Server tests create their own throwaway accounts; production locks
+        # the workspace to the six-person roster.
+        cfg["auth"]["fixed_roster"] = False
         # make_server creates the admin account from this env var; restore it
         # right after so the rest of the suite sees the original environment.
         previous = os.environ.get("SENTRIX_ADMIN_PASSWORD")
@@ -258,17 +261,51 @@ class ServerTests(unittest.TestCase):
 
     # -- Hubs collaboration security
 
-    def test_hubs_team_channel_requires_membership(self):
+    def test_per_tab_session_tokens_keep_accounts_isolated(self):
         self._request("/api/users", {
-            "username": "analyst2", "password": "analyst-pass-456", "role": "security_analyst"})
-        analyst_cookie = self._login("analyst2", "analyst-pass-456")
-        created = self._request("/api/hubs/channels", {
-            "name": "Private response", "description": "Restricted incident room"})
-        cid = created["id"]
-        self._request(f"/api/hubs/channels/{cid}/messages", cookie=analyst_cookie, expect=403)
-        self._request(f"/api/hubs/channels/{cid}/join", {}, cookie=analyst_cookie)
-        messages = self._request(f"/api/hubs/channels/{cid}/messages", cookie=analyst_cookie)["messages"]
-        self.assertEqual(messages, [])
+            "username": "analyst16", "password": "analyst16-pass-161",
+            "role": "security_analyst"})
+        analyst_token = self._login("analyst16", "analyst16-pass-161")
+        # The shared cookie still points at the admin session, but an explicit
+        # per-tab token always wins.
+        me = self._request("/api/auth/me",
+                           headers={"X-Session-Token": analyst_token})
+        self.assertEqual(me["user"]["username"], "analyst16")
+        # Signing one tab out must not affect another tab's account.
+        self._request("/api/auth/logout", {},
+                      headers={"X-Session-Token": analyst_token})
+        admin = self._request("/api/auth/me",
+                              headers={"X-Session-Token": self.cookie})
+        self.assertEqual(admin["user"]["username"], "admin")
+        # A revoked token does not silently fall back to the shared cookie.
+        self._request("/api/auth/me",
+                      headers={"X-Session-Token": analyst_token}, expect=401)
+
+    def test_hubs_workspace_has_only_open_chat(self):
+        channels = self._request("/api/hubs/channels")["channels"]
+        self.assertEqual([c["id"] for c in channels], ["open-chat"])
+        self._request("/api/hubs/channels", {
+            "name": "Private response", "description": "Not allowed"}, expect=403)
+        members = {m["username"] for m in self._request(
+            "/api/hubs/channels/open-chat/messages")["members"]}
+        self.assertTrue({"admin", "r.sharma", "p.patel", "a.kumar",
+                         "n.singh", "v.iyer"} <= members)
+
+    def test_hubs_direct_messages_are_private_from_admins(self):
+        for username in ("analyst13", "analyst14"):
+            self._request("/api/users", {
+                "username": username, "password": f"{username}-pass-131",
+                "role": "security_analyst"})
+        analyst_cookie = self._login("analyst13", "analyst13-pass-131")
+        self._request("/api/hubs/dm/analyst14/messages",
+                      {"body": "private-dm"}, cookie=analyst_cookie)
+        expected = ":".join(sorted(("analyst13", "analyst14")))
+        admin_view = self._request("/api/hubs/channels")
+        # There is no workspace-wide DM listing and no admin DM route.
+        self.assertNotIn("all_dms", admin_view)
+        self.assertNotIn(expected, {d["dm_key"] for d in admin_view["dms"]})
+        self.assertNotIn("private-dm", json.dumps(admin_view))
+        self._request(f"/api/hubs/admin/dm/{expected}/messages", expect=404)
 
     def test_hubs_direct_messages_are_private_and_notify_recipient(self):
         for username in ("analyst3", "analyst4"):
@@ -283,14 +320,14 @@ class ServerTests(unittest.TestCase):
         notifications = self._request("/api/hubs/notifications", cookie=recipient)["notifications"]
         self.assertEqual(notifications[0]["type"], "direct_message")
 
-    def test_hubs_ping_is_rate_limited_and_never_targets_sender(self):
+    def test_hubs_pings_are_unlimited_and_never_target_self(self):
         self._request("/api/users", {
-            "username": "analyst5", "password": "analyst-pass-567", "role": "security_analyst"})
-        analyst_cookie = self._login("analyst5", "analyst-pass-567")
+            "username": "analyst5", "password": "analyst5-pass-567", "role": "security_analyst"})
+        analyst_cookie = self._login("analyst5", "analyst5-pass-567")
         self._request("/api/hubs/ping", {"to_user": "analyst5"}, cookie=analyst_cookie, expect=400)
-        for _ in range(3):
-            self.assertTrue(self._request("/api/hubs/ping", {"to_user": "admin"}, cookie=analyst_cookie)["ok"])
-        self._request("/api/hubs/ping", {"to_user": "admin"}, cookie=analyst_cookie, expect=429)
+        for _ in range(10):
+            self.assertTrue(self._request(
+                "/api/hubs/ping", {"to_user": "admin"}, cookie=analyst_cookie)["ok"])
 
     def test_hubs_open_chat_notifies_eligible_participants(self):
         self._request("/api/users", {
@@ -311,16 +348,84 @@ class ServerTests(unittest.TestCase):
         self.assertIn("admin", {u["username"] for u in users})
         self.assertTrue(all("password_hash" not in u for u in users))
 
-    def test_hubs_ping_everyone_is_admin_only(self):
+    def test_hubs_anyone_can_ping_a_colleague(self):
         self._request("/api/users", {
-            "username": "analyst7", "password": "analyst-pass-789", "role": "security_analyst"})
-        analyst_cookie = self._login("analyst7", "analyst-pass-789")
-        self._request("/api/hubs/ping-all", {"message": "Please check in."},
-                      cookie=analyst_cookie, expect=403)
-        result = self._request("/api/hubs/ping-all", {"message": "Please check in."})
-        self.assertGreaterEqual(result["delivered"], 1)
+            "username": "analyst7", "password": "analyst7-pass-789", "role": "security_analyst"})
+        analyst_cookie = self._login("analyst7", "analyst7-pass-789")
+        # A regular member can ping another member.
+        self.assertTrue(self._request(
+            "/api/hubs/ping", {"to_user": "admin"}, cookie=analyst_cookie)["ok"])
+        events = self._request("/api/hubs/events")
+        self.assertIn("analyst7", [p["from_user"] for p in events["pings"]])
+        # The old admin broadcast endpoint is gone; pings are person-to-person.
+        self._request("/api/hubs/ping-all", {"message": "Please check in."}, expect=404)
+        # And the recipient receives the ping plus a notification.
+        self.assertTrue(self._request("/api/hubs/ping", {"to_user": "analyst7"})["ok"])
         notifications = self._request("/api/hubs/notifications", cookie=analyst_cookie)["notifications"]
         self.assertEqual(notifications[0]["type"], "ping")
+
+    def test_hubs_messages_are_returned_in_chronological_order(self):
+        self._request("/api/users", {
+            "username": "analyst9", "password": "analyst-pass-901", "role": "security_analyst"})
+        cookie = self._login("analyst9", "analyst-pass-901")
+        for i in range(6):
+            self._request("/api/hubs/channels/open-chat/messages", {"body": f"ordered-{i}"}, cookie=cookie)
+        messages = self._request("/api/hubs/channels/open-chat/messages", cookie=cookie)["messages"]
+        self.assertEqual([m["body"] for m in messages], [f"ordered-{i}" for i in range(6)])
+        self.assertLess(messages[0]["seq"], messages[-1]["seq"])
+
+    def test_hubs_mark_read_clears_unread_and_advances_event_cursor(self):
+        self._request("/api/users", {
+            "username": "analyst10", "password": "analyst-pass-101", "role": "security_analyst"})
+        cookie = self._login("analyst10", "analyst-pass-101")
+        # Opening Open Chat joins the default channel.
+        self._request("/api/hubs/channels/open-chat/messages", cookie=cookie)
+        self._request("/api/hubs/channels/open-chat/messages", {"body": "Read me."})
+        messages = self._request("/api/hubs/channels/open-chat/messages", cookie=cookie)["messages"]
+        last = messages[-1]
+        channels = {c["id"]: c for c in self._request("/api/hubs/channels", cookie=cookie)["channels"]}
+        self.assertEqual(channels["open-chat"]["unread"], 1)
+        self._request("/api/hubs/mark-read", {"channel_id": "open-chat", "last_id": last["id"]}, cookie=cookie)
+        channels = {c["id"]: c for c in self._request("/api/hubs/channels", cookie=cookie)["channels"]}
+        self.assertEqual(channels["open-chat"]["unread"], 0)
+        events = self._request(f"/api/hubs/events?last_msg={last['seq']}", cookie=cookie)
+        self.assertEqual(events["messages"], [])
+        self.assertEqual(events["cursor"]["last_msg"], last["seq"])
+
+    def test_hubs_dm_exposes_canonical_key_and_clears_unread(self):
+        # Dotted usernames are valid accounts in SENTRIX; the DM route must
+        # accept them rather than 404 on the URL pattern.
+        for username in ("analyst.11", "analyst.12"):
+            self._request("/api/users", {
+                "username": username, "password": f"{username}-pass-123", "role": "security_analyst"})
+        sender = self._login("analyst.11", "analyst.11-pass-123")
+        recipient = self._login("analyst.12", "analyst.12-pass-123")
+        self._request("/api/hubs/dm/analyst.12/messages", {"body": "Check this."}, cookie=sender)
+        thread = self._request("/api/hubs/dm/analyst.11/messages", cookie=recipient)
+        expected_key = ":".join(sorted(("analyst.11", "analyst.12")))
+        self.assertEqual(thread["dm_key"], expected_key)
+        self.assertEqual(thread["messages"][-1]["body"], "Check this.")
+        dm = self._request("/api/hubs/channels", cookie=recipient)["dms"][0]
+        self.assertEqual(dm["dm_key"], expected_key)
+        self.assertEqual(dm["unread"], 1)
+        self._request("/api/hubs/mark-read", {
+            "dm_key": expected_key, "last_id": thread["messages"][-1]["id"]}, cookie=recipient)
+        dm = self._request("/api/hubs/channels", cookie=recipient)["dms"][0]
+        self.assertEqual(dm["unread"], 0)
+
+    def test_hubs_dm_like_lookup_does_not_leak_across_wildcards(self):
+        # "_" is a SQL LIKE wildcard; a DM to "wild_user" must never appear
+        # in "wildxuser"'s inbox or event feed.
+        for username in ("wild_user", "wildxuser"):
+            self._request("/api/users", {
+                "username": username, "password": f"{username}-pass-123",
+                "role": "security_analyst"})
+        sender = self._login("wild_user", "wild_user-pass-123")
+        other = self._login("wildxuser", "wildxuser-pass-123")
+        self._request("/api/hubs/dm/admin/messages", {"body": "private"}, cookie=sender)
+        self.assertEqual(self._request("/api/hubs/channels", cookie=other)["dms"], [])
+        events = self._request("/api/hubs/events?last_msg=0", cookie=other)
+        self.assertEqual(events["messages"], [])
 
     def test_saved_filters_add_list_delete(self):
         params = {"severity": "high", "status": "open"}

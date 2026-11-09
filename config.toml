@@ -8,6 +8,9 @@ port = 8710
 [auth]
 session_hours = 12
 login_rate_limit = 5
+# Lock the workspace to the six-person company roster. Disable only for tests
+# or bespoke deployments that manage their own account list.
+fixed_roster = true
 # Demo mode shows sign-in credentials on the login page (loopback only).
 # The card disappears as soon as the admin password is changed.
 demo_mode = true

@@ -1,4 +1,10 @@
-"""Hubs persistence layer — channels, messages, DMs, pings, notifications."""
+"""SQLite persistence for Hubs: Open Chat, private DMs, pings and notifications.
+
+Only one shared channel exists — ``open-chat``. Everything else is a private
+conversation keyed by two usernames in a canonical, order-independent form.
+The schema is unchanged from earlier releases so existing Open Chat history is
+preserved when the workspace is upgraded.
+"""
 from __future__ import annotations
 
 import json
@@ -7,7 +13,10 @@ from typing import Optional
 
 from sentrix.core.models import now_iso
 
-HUBS_SCHEMA = """
+OPEN_CHAT = "open-chat"
+ONLINE_WINDOW_SECONDS = 120
+
+SCHEMA = """
 CREATE TABLE IF NOT EXISTS hubs_channels (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -83,99 +92,140 @@ CREATE INDEX IF NOT EXISTS idx_hubs_notif_user ON hubs_notifications(username, r
 CREATE INDEX IF NOT EXISTS idx_hubs_pings_to ON hubs_pings(to_user, delivered);
 """
 
-# Per-user ping rate limit: max 3 pings to same target per 5 minutes
-_PING_WINDOW = 300
-_PING_MAX = 3
+
+def dm_key(a: str, b: str) -> str:
+    """Canonical private-conversation key: the smaller username comes first."""
+    return f"{min(a, b)}:{max(a, b)}"
+
+
+def _dm_patterns(username: str) -> tuple[str, str]:
+    """LIKE patterns that match only this user's DM keys.
+
+    Usernames may contain ``_``, ``%`` or ``\\``; escaping keeps a conversation
+    from leaking into another account whose name merely looks similar.
+    """
+    escaped = username.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{escaped}:%", f"%:{escaped}"
+
+
+def _cutoff(seconds: int) -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - seconds))
 
 
 class HubsStorage:
-    """Mixin — attached to ExtStorage; expects self._db and self._lock."""
+    """Mixin attached to ``ExtStorage``; expects ``self._db`` and ``self._lock``."""
 
-    def hubs_init(self):
-        self._db.executescript(HUBS_SCHEMA)
+    # ── lifecycle ─────────────────────────────────────────────────────────
+
+    def hubs_init(self) -> None:
+        self._db.executescript(SCHEMA)
         self._db.commit()
-        self._ensure_default_channels()
+        self._reset_workspace()
 
-    def _ensure_default_channels(self):
-        defaults = [
-            ("open-chat", "Open Chat", "Organization-wide conversation for all SENTRIX users.", 1),
-            ("soc-team", "SOC Team", "Security Operations Center team channel.", 0),
-            ("red-team", "Red Team", "Offensive security operations.", 0),
-            ("blue-team", "Blue Team", "Defensive security operations.", 0),
-            ("vapt-team", "VAPT Team", "Vulnerability assessment and penetration testing.", 0),
-            ("incident-response", "Incident Response", "Active incident coordination.", 0),
-            ("devsecops", "DevSecOps", "Development security operations.", 0),
-            ("security-engineering", "Security Engineering", "Platform and tooling security.", 0),
-        ]
-        for cid, name, desc, is_default in defaults:
+    def _reset_workspace(self) -> None:
+        """Keep exactly one shared channel and discard legacy team rooms."""
+        with self._lock:
             self._db.execute(
-                "INSERT OR IGNORE INTO hubs_channels (id, name, description, created_by, created_at, is_default) "
-                "VALUES (?,?,?,'system',?,?)",
-                (cid, name, desc, now_iso(), is_default),
+                "DELETE FROM hubs_channel_members WHERE channel_id NOT IN ('', ?)",
+                (OPEN_CHAT,),
             )
-        self._db.commit()
+            self._db.execute(
+                "DELETE FROM hubs_messages WHERE channel_id NOT IN ('', ?) "
+                "AND channel_id IS NOT NULL",
+                (OPEN_CHAT,),
+            )
+            self._db.execute(
+                "DELETE FROM hubs_message_reads WHERE channel_id NOT IN ('', ?) "
+                "AND channel_id IS NOT NULL",
+                (OPEN_CHAT,),
+            )
+            self._db.execute(
+                "DELETE FROM hubs_notifications WHERE channel_id NOT IN ('', ?) "
+                "AND channel_id IS NOT NULL",
+                (OPEN_CHAT,),
+            )
+            self._db.execute("DELETE FROM hubs_channels WHERE id!=?", (OPEN_CHAT,))
+            self._db.execute(
+                "INSERT OR IGNORE INTO hubs_channels "
+                "(id, name, description, created_by, created_at, is_default) "
+                "VALUES (?,?,?,'system',?,1)",
+                (OPEN_CHAT, "Open Chat",
+                 "Organization-wide conversation for the whole company.", now_iso()),
+            )
+            self._db.execute(
+                "UPDATE hubs_channels SET name='Open Chat', "
+                "description='Organization-wide conversation for the whole company.', "
+                "is_default=1, archived=0 WHERE id=?",
+                (OPEN_CHAT,),
+            )
+            self._db.commit()
+
+    def hubs_ensure_open_chat(self, usernames) -> None:
+        """Guarantee that every roster member can read Open Chat."""
+        with self._lock:
+            for username in usernames:
+                self._db.execute(
+                    "INSERT OR IGNORE INTO hubs_channel_members "
+                    "(channel_id, username, joined_at, role) VALUES (?,?,?,'member')",
+                    (OPEN_CHAT, username, now_iso()),
+                )
+            self._db.commit()
+
+    def hubs_purge_user(self, username: str) -> None:
+        """Remove every Hubs record owned by, sent by or addressed to a user."""
+        threads = self._db.execute(
+            "SELECT DISTINCT dm_key FROM hubs_messages "
+            "WHERE dm_key LIKE ? ESCAPE '\\' OR dm_key LIKE ? ESCAPE '\\'",
+            _dm_patterns(username),
+        ).fetchall()
+        with self._lock:
+            for row in threads:
+                key = row["dm_key"]
+                self._db.execute("DELETE FROM hubs_messages WHERE dm_key=?", (key,))
+                self._db.execute("DELETE FROM hubs_message_reads WHERE dm_key=?", (key,))
+                self._db.execute("DELETE FROM hubs_notifications WHERE dm_key=?", (key,))
+            self._db.execute("DELETE FROM hubs_messages WHERE sender=?", (username,))
+            self._db.execute("DELETE FROM hubs_channel_members WHERE username=?", (username,))
+            self._db.execute("DELETE FROM hubs_message_reads WHERE username=?", (username,))
+            self._db.execute(
+                "DELETE FROM hubs_notifications WHERE username=? OR sender=?",
+                (username, username),
+            )
+            self._db.execute(
+                "DELETE FROM hubs_pings WHERE from_user=? OR to_user=?",
+                (username, username),
+            )
+            self._db.execute("DELETE FROM hubs_presence WHERE username=?", (username,))
+            self._db.execute("DELETE FROM hubs_user_prefs WHERE username=?", (username,))
+            self._db.commit()
 
     # ── channels ──────────────────────────────────────────────────────────
 
     def hubs_list_channels(self, username: str) -> list[dict]:
         rows = self._db.execute(
             "SELECT c.*, "
-            "(SELECT COUNT(*) FROM hubs_channel_members m WHERE m.channel_id=c.id AND m.username=?) AS joined "
-            "FROM hubs_channels c WHERE c.archived=0 ORDER BY c.is_default DESC, c.name",
+            "(SELECT COUNT(*) FROM hubs_channel_members m "
+            " WHERE m.channel_id=c.id AND m.username=?) AS joined "
+            "FROM hubs_channels c WHERE c.archived=0 "
+            "ORDER BY c.is_default DESC, c.name",
             (username,),
         ).fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            d["joined"] = bool(d["joined"])
-            d["unread"] = self._channel_unread(r["id"], username)
-            result.append(d)
-        return result
+        channels = []
+        for row in rows:
+            item = dict(row)
+            item["joined"] = bool(item["joined"])
+            item["unread"] = self._channel_unread(row["id"], username)
+            channels.append(item)
+        return channels
 
-    def hubs_create_channel(self, cid: str, name: str, description: str, creator: str) -> dict:
+    def hubs_join_channel(self, channel_id: str, username: str) -> None:
         with self._lock:
             self._db.execute(
-                "INSERT INTO hubs_channels (id, name, description, created_by, created_at) VALUES (?,?,?,?,?)",
-                (cid, name, description, creator, now_iso()),
-            )
-            self._db.execute(
-                "INSERT OR IGNORE INTO hubs_channel_members (channel_id, username, joined_at, role) VALUES (?,?,?,?)",
-                (cid, creator, now_iso(), "owner"),
-            )
-            self._db.commit()
-        return self._db.execute("SELECT * FROM hubs_channels WHERE id=?", (cid,)).fetchone()
-
-    def hubs_join_channel(self, channel_id: str, username: str):
-        with self._lock:
-            self._db.execute(
-                "INSERT OR IGNORE INTO hubs_channel_members (channel_id, username, joined_at) VALUES (?,?,?)",
+                "INSERT OR IGNORE INTO hubs_channel_members "
+                "(channel_id, username, joined_at) VALUES (?,?,?)",
                 (channel_id, username, now_iso()),
             )
             self._db.commit()
-
-    def hubs_leave_channel(self, channel_id: str, username: str):
-        with self._lock:
-            row = self._db.execute(
-                "SELECT role FROM hubs_channel_members WHERE channel_id=? AND username=?",
-                (channel_id, username),
-            ).fetchone()
-            if row and row["role"] == "owner":
-                return False  # owners can't leave
-            self._db.execute(
-                "DELETE FROM hubs_channel_members WHERE channel_id=? AND username=?",
-                (channel_id, username),
-            )
-            self._db.commit()
-            return True
-
-    def hubs_channel_members(self, channel_id: str) -> list[dict]:
-        return [dict(r) for r in self._db.execute(
-            "SELECT hcm.username, hcm.role, hcm.joined_at, u.title, u.role AS user_role "
-            "FROM hubs_channel_members hcm "
-            "LEFT JOIN users u ON u.username=hcm.username "
-            "WHERE hcm.channel_id=? ORDER BY hcm.joined_at",
-            (channel_id,),
-        )]
 
     def hubs_is_channel_member(self, channel_id: str, username: str) -> bool:
         row = self._db.execute(
@@ -184,23 +234,42 @@ class HubsStorage:
         ).fetchone()
         return row is not None
 
+    def hubs_channel(self, channel_id: str) -> Optional[dict]:
+        row = self._db.execute(
+            "SELECT * FROM hubs_channels WHERE id=?", (channel_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def hubs_channel_members(self, channel_id: str) -> list[dict]:
+        return [dict(row) for row in self._db.execute(
+            "SELECT m.username, m.role, m.joined_at, u.title, u.role AS user_role "
+            "FROM hubs_channel_members m "
+            "LEFT JOIN users u ON u.username=m.username "
+            "WHERE m.channel_id=? ORDER BY m.joined_at, m.username",
+            (channel_id,),
+        )]
+
     # ── messages ──────────────────────────────────────────────────────────
 
     def hubs_post_message(self, msg_id: str, channel_id: Optional[str],
-                          dm_key: Optional[str], sender: str, body: str,
-                          msg_type: str = "message", reply_to: Optional[str] = None) -> dict:
-        ts = now_iso()
+                          dm_key_value: Optional[str], sender: str, body: str,
+                          reply_to: Optional[str] = None) -> dict:
+        created = now_iso()
         with self._lock:
             self._db.execute(
-                "INSERT INTO hubs_messages (id, channel_id, dm_key, sender, body, msg_type, reply_to, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (msg_id, channel_id, dm_key, sender, body, msg_type, reply_to, ts),
+                "INSERT INTO hubs_messages "
+                "(id, channel_id, dm_key, sender, body, reply_to, created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (msg_id, channel_id, dm_key_value, sender, body, reply_to, created),
             )
             self._db.commit()
+            seq = self._db.execute(
+                "SELECT rowid FROM hubs_messages WHERE id=?", (msg_id,)
+            ).fetchone()[0]
         return {
-            "id": msg_id, "channel_id": channel_id, "dm_key": dm_key,
-            "sender": sender, "body": body, "msg_type": msg_type,
-            "reply_to": reply_to, "edited": 0, "created_at": ts,
+            "id": msg_id, "seq": seq, "channel_id": channel_id,
+            "dm_key": dm_key_value, "sender": sender, "body": body,
+            "reply_to": reply_to, "edited": 0, "created_at": created,
         }
 
     def hubs_edit_message(self, msg_id: str, username: str, body: str) -> bool:
@@ -217,13 +286,12 @@ class HubsStorage:
             self._db.commit()
         return True
 
-    def hubs_delete_message(self, msg_id: str, username: str, is_admin: bool = False) -> bool:
+    def hubs_delete_message(self, msg_id: str, username: str) -> bool:
+        """Only the author can remove a message, in Open Chat or a DM."""
         row = self._db.execute(
             "SELECT sender FROM hubs_messages WHERE id=? AND deleted=0", (msg_id,)
         ).fetchone()
-        if not row:
-            return False
-        if not is_admin and row["sender"] != username:
+        if not row or row["sender"] != username:
             return False
         with self._lock:
             self._db.execute(
@@ -232,139 +300,148 @@ class HubsStorage:
             self._db.commit()
         return True
 
-    def hubs_get_messages(self, channel_id: Optional[str], dm_key: Optional[str],
+    def hubs_get_messages(self, channel_id: Optional[str], dm_key_value: Optional[str],
                           before_id: Optional[str] = None, limit: int = 50) -> list[dict]:
         if channel_id:
-            clause = "channel_id=?"
-            param = channel_id
-        elif dm_key:
-            clause = "dm_key=?"
-            param = dm_key
+            column, value = "channel_id", channel_id
+        elif dm_key_value:
+            column, value = "dm_key", dm_key_value
         else:
             return []
 
+        before_seq = None
         if before_id:
-            rows = self._db.execute(
-                f"SELECT * FROM hubs_messages WHERE {clause} AND deleted=0 AND id<? "
-                f"ORDER BY id DESC LIMIT ?",
-                (param, before_id, limit),
-            ).fetchall()
-        else:
-            rows = self._db.execute(
-                f"SELECT * FROM hubs_messages WHERE {clause} AND deleted=0 "
-                f"ORDER BY id DESC LIMIT ?",
-                (param, limit),
-            ).fetchall()
-        return list(reversed([dict(r) for r in rows]))
-
-    def hubs_get_message(self, msg_id: str) -> Optional[dict]:
-        row = self._db.execute("SELECT * FROM hubs_messages WHERE id=?", (msg_id,)).fetchone()
-        return dict(row) if row else None
-
-    def hubs_latest_message_id(self, channel_id: Optional[str], dm_key: Optional[str]) -> Optional[str]:
-        if channel_id:
             row = self._db.execute(
-                "SELECT id FROM hubs_messages WHERE channel_id=? AND deleted=0 ORDER BY id DESC LIMIT 1",
-                (channel_id,),
+                "SELECT rowid FROM hubs_messages WHERE id=?", (before_id,)
             ).fetchone()
-        elif dm_key:
-            row = self._db.execute(
-                "SELECT id FROM hubs_messages WHERE dm_key=? AND deleted=0 ORDER BY id DESC LIMIT 1",
-                (dm_key,),
-            ).fetchone()
-        else:
-            return None
-        return row["id"] if row else None
+            if not row:
+                return []
+            before_seq = row[0]
 
-    # ── unread tracking ───────────────────────────────────────────────────
+        sql = (f"SELECT rowid AS seq, * FROM hubs_messages "
+               f"WHERE {column}=? AND deleted=0")
+        params: list = [value]
+        if before_seq is not None:
+            sql += " AND rowid<?"
+            params.append(before_seq)
+        sql += " ORDER BY rowid DESC LIMIT ?"
+        params.append(limit)
+        rows = self._db.execute(sql, params).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
+    # ── read markers ──────────────────────────────────────────────────────
 
     def hubs_mark_read(self, username: str, channel_id: Optional[str],
-                       dm_key: Optional[str], last_read_id: str):
+                       dm_key_value: Optional[str], last_read_id: str) -> None:
         with self._lock:
-            # Use COALESCE key for unique constraint
-            ck = channel_id or ""
-            dk = dm_key or ""
             self._db.execute(
                 "INSERT OR REPLACE INTO hubs_message_reads "
-                "(username, channel_id, dm_key, last_read_id, updated_at) VALUES (?,?,?,?,?)",
-                (username, ck, dk, last_read_id, now_iso()),
+                "(username, channel_id, dm_key, last_read_id, updated_at) "
+                "VALUES (?,?,?,?,?)",
+                (username, channel_id or "", dm_key_value or "", last_read_id, now_iso()),
             )
             self._db.commit()
 
-    def _channel_unread(self, channel_id: str, username: str) -> int:
-        row = self._db.execute(
-            "SELECT last_read_id FROM hubs_message_reads WHERE username=? AND channel_id=? AND dm_key=''",
-            (username, channel_id),
+    def _last_read_seq(self, username: str, channel_id: Optional[str],
+                       dm_key_value: Optional[str]) -> int:
+        if channel_id:
+            row = self._db.execute(
+                "SELECT last_read_id FROM hubs_message_reads "
+                "WHERE username=? AND channel_id=? AND dm_key=''",
+                (username, channel_id),
+            ).fetchone()
+        else:
+            row = self._db.execute(
+                "SELECT last_read_id FROM hubs_message_reads "
+                "WHERE username=? AND dm_key=? AND channel_id=''",
+                (username, dm_key_value or ""),
+            ).fetchone()
+        if not row:
+            return 0
+        seq = self._db.execute(
+            "SELECT rowid FROM hubs_messages WHERE id=?", (row["last_read_id"],)
         ).fetchone()
-        last = row["last_read_id"] if row else "0"
-        count = self._db.execute(
-            "SELECT COUNT(*) FROM hubs_messages WHERE channel_id=? AND deleted=0 AND sender!=? AND id>?",
-            (channel_id, username, last),
-        ).fetchone()[0]
-        return count
+        return seq[0] if seq else 0
 
-    def hubs_dm_unread(self, dm_key: str, username: str) -> int:
-        row = self._db.execute(
-            "SELECT last_read_id FROM hubs_message_reads WHERE username=? AND dm_key=? AND channel_id=''",
-            (username, dm_key),
-        ).fetchone()
-        last = row["last_read_id"] if row else "0"
-        count = self._db.execute(
-            "SELECT COUNT(*) FROM hubs_messages WHERE dm_key=? AND deleted=0 AND sender!=? AND id>?",
-            (dm_key, username, last),
+    def _channel_unread(self, channel_id: str, username: str) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) FROM hubs_messages WHERE channel_id=? AND deleted=0 "
+            "AND sender!=? AND rowid>?",
+            (channel_id, username,
+             self._last_read_seq(username, channel_id, None)),
         ).fetchone()[0]
-        return count
+
+    def hubs_dm_unread(self, key: str, username: str) -> int:
+        return self._db.execute(
+            "SELECT COUNT(*) FROM hubs_messages WHERE dm_key=? AND deleted=0 "
+            "AND sender!=? AND rowid>?",
+            (key, username, self._last_read_seq(username, None, key)),
+        ).fetchone()[0]
+
+    # ── direct messages ───────────────────────────────────────────────────
 
     def hubs_dm_list(self, username: str) -> list[dict]:
-        """All DM conversations involving username."""
+        """This user's private conversations, most recently active first."""
         rows = self._db.execute(
-            "SELECT DISTINCT dm_key FROM hubs_messages WHERE (dm_key LIKE ? OR dm_key LIKE ?) AND deleted=0",
-            (f"{username}:%", f"%:{username}"),
+            "SELECT DISTINCT dm_key FROM hubs_messages "
+            "WHERE (dm_key LIKE ? ESCAPE '\\' OR dm_key LIKE ? ESCAPE '\\') "
+            "AND deleted=0",
+            _dm_patterns(username),
         ).fetchall()
-        result = []
-        for r in rows:
-            dk = r["dm_key"]
-            parts = dk.split(":", 1)
+        conversations = []
+        for row in rows:
+            key = row["dm_key"]
+            parts = key.split(":", 1)
             peer = parts[1] if parts[0] == username else parts[0]
-            last_row = self._db.execute(
-                "SELECT body, sender, created_at FROM hubs_messages "
-                "WHERE dm_key=? AND deleted=0 ORDER BY id DESC LIMIT 1", (dk,)
+            last = self._db.execute(
+                "SELECT rowid AS seq, body, sender, created_at FROM hubs_messages "
+                "WHERE dm_key=? AND deleted=0 ORDER BY rowid DESC LIMIT 1", (key,)
             ).fetchone()
-            unread = self.hubs_dm_unread(dk, username)
-            result.append({
-                "dm_key": dk, "peer": peer,
-                "last_message": dict(last_row) if last_row else None,
-                "unread": unread,
-            })
-        return sorted(result, key=lambda x: x["last_message"]["created_at"] if x["last_message"] else "", reverse=True)
+            conversations.append((
+                last["seq"] if last else 0,
+                {
+                    "dm_key": key,
+                    "peer": peer,
+                    "last_message": dict(last) if last else None,
+                    "unread": self.hubs_dm_unread(key, username),
+                },
+            ))
+        conversations.sort(key=lambda item: item[0], reverse=True)
+        return [item for _, item in conversations]
 
     # ── notifications ─────────────────────────────────────────────────────
 
     def hubs_add_notification(self, username: str, ntype: str, sender: str,
-                              channel_id: Optional[str] = None, dm_key: Optional[str] = None,
-                              message_id: Optional[str] = None, body: str = "") -> int:
+                              channel_id: Optional[str] = None,
+                              dm_key_value: Optional[str] = None,
+                              message_id: Optional[str] = None,
+                              body: str = "") -> int:
         with self._lock:
-            cur = self._db.execute(
-                "INSERT INTO hubs_notifications (username, type, sender, channel_id, dm_key, message_id, body, created_at) "
+            cursor = self._db.execute(
+                "INSERT INTO hubs_notifications "
+                "(username, type, sender, channel_id, dm_key, message_id, body, created_at) "
                 "VALUES (?,?,?,?,?,?,?,?)",
-                (username, ntype, sender, channel_id, dm_key, message_id, body[:200], now_iso()),
+                (username, ntype, sender, channel_id, dm_key_value,
+                 message_id, body[:200], now_iso()),
             )
             self._db.commit()
-            return cur.lastrowid
+            return cursor.lastrowid
 
     def hubs_list_notifications(self, username: str, limit: int = 50) -> list[dict]:
-        return [dict(r) for r in self._db.execute(
+        return [dict(row) for row in self._db.execute(
             "SELECT * FROM hubs_notifications WHERE username=? ORDER BY id DESC LIMIT ?",
             (username, limit),
         )]
 
-    def hubs_mark_notifications_read(self, username: str, notif_ids: Optional[list] = None):
+    def hubs_mark_notifications_read(self, username: str,
+                                     notif_ids: Optional[list] = None) -> None:
         with self._lock:
             if notif_ids:
                 placeholders = ",".join("?" for _ in notif_ids)
                 self._db.execute(
-                    f"UPDATE hubs_notifications SET read=1 WHERE username=? AND id IN ({placeholders})",
-                    [username] + list(notif_ids),
+                    f"UPDATE hubs_notifications SET read=1 "
+                    f"WHERE username=? AND id IN ({placeholders})",
+                    [username, *notif_ids],
                 )
             else:
                 self._db.execute(
@@ -373,87 +450,84 @@ class HubsStorage:
             self._db.commit()
 
     def hubs_unread_notification_count(self, username: str) -> int:
-        row = self._db.execute(
-            "SELECT COUNT(*) FROM hubs_notifications WHERE username=? AND read=0", (username,)
-        ).fetchone()
-        return row[0]
+        return self._db.execute(
+            "SELECT COUNT(*) FROM hubs_notifications WHERE username=? AND read=0",
+            (username,),
+        ).fetchone()[0]
 
     # ── pings ─────────────────────────────────────────────────────────────
 
-    def hubs_send_ping(self, from_user: str, to_user: str, message: str = "") -> tuple[bool, str]:
-        """Rate-limited ping. Returns (ok, error_reason)."""
-        now = time.time()
-        cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now - _PING_WINDOW))
-        count = self._db.execute(
-            "SELECT COUNT(*) FROM hubs_pings WHERE from_user=? AND to_user=? AND created_at>?",
-            (from_user, to_user, cutoff),
-        ).fetchone()[0]
-        if count >= _PING_MAX:
-            return False, f"Ping rate limit: max {_PING_MAX} per {_PING_WINDOW // 60} minutes."
+    def hubs_send_ping(self, from_user: str, to_user: str, message: str = "") -> None:
+        """Record a ping. Pings are unlimited person-to-person signals."""
         with self._lock:
             self._db.execute(
-                "INSERT INTO hubs_pings (from_user, to_user, message, created_at) VALUES (?,?,?,?)",
+                "INSERT INTO hubs_pings (from_user, to_user, message, created_at) "
+                "VALUES (?,?,?,?)",
                 (from_user, to_user, message[:200], now_iso()),
             )
             self._db.commit()
-        return True, ""
 
     def hubs_pending_pings(self, username: str) -> list[dict]:
-        rows = [dict(r) for r in self._db.execute(
-            "SELECT * FROM hubs_pings WHERE to_user=? AND delivered=0 ORDER BY id", (username,)
+        rows = [dict(row) for row in self._db.execute(
+            "SELECT * FROM hubs_pings WHERE to_user=? AND delivered=0 ORDER BY id",
+            (username,),
         )]
         if rows:
-            ids = [r["id"] for r in rows]
+            ids = [row["id"] for row in rows]
             with self._lock:
                 self._db.execute(
-                    f"UPDATE hubs_pings SET delivered=1 WHERE id IN ({','.join('?'*len(ids))})",
+                    f"UPDATE hubs_pings SET delivered=1 "
+                    f"WHERE id IN ({','.join('?' * len(ids))})",
                     ids,
                 )
                 self._db.commit()
         return rows
 
-    # ── presence ─────────────────────────────────────────────────────────
+    # ── presence ──────────────────────────────────────────────────────────
 
-    def hubs_heartbeat(self, username: str):
+    def hubs_heartbeat(self, username: str) -> None:
         with self._lock:
             self._db.execute(
-                "INSERT OR REPLACE INTO hubs_presence (username, last_seen, status) VALUES (?,?,?)",
-                (username, now_iso(), "online"),
+                "INSERT OR REPLACE INTO hubs_presence (username, last_seen, status) "
+                "VALUES (?,?,'online')",
+                (username, now_iso()),
             )
             self._db.commit()
 
-    def hubs_online_users(self, window_seconds: int = 90) -> list[dict]:
-        cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - window_seconds))
-        return [dict(r) for r in self._db.execute(
-            "SELECT hp.username, hp.last_seen, hp.status, u.title, u.role "
-            "FROM hubs_presence hp LEFT JOIN users u ON u.username=hp.username "
-            "WHERE hp.last_seen>? ORDER BY hp.username",
-            (cutoff,),
+    def hubs_online_users(self, window_seconds: int = ONLINE_WINDOW_SECONDS) -> list[dict]:
+        return [dict(row) for row in self._db.execute(
+            "SELECT p.username, p.last_seen, p.status, u.title, u.role "
+            "FROM hubs_presence p LEFT JOIN users u ON u.username=p.username "
+            "WHERE p.last_seen>? ORDER BY p.username",
+            (_cutoff(window_seconds),),
         )]
 
-    # ── user prefs ────────────────────────────────────────────────────────
+    # ── preferences ───────────────────────────────────────────────────────
 
     def hubs_get_prefs(self, username: str) -> dict:
         row = self._db.execute(
             "SELECT * FROM hubs_user_prefs WHERE username=?", (username,)
         ).fetchone()
         if not row:
-            return {"username": username, "muted_channels": [], "muted_dms": [],
-                    "sound_enabled": True, "notif_desktop": True}
-        d = dict(row)
-        d["muted_channels"] = json.loads(d["muted_channels"] or "[]")
-        d["muted_dms"] = json.loads(d["muted_dms"] or "[]")
-        d["sound_enabled"] = bool(d["sound_enabled"])
-        d["notif_desktop"] = bool(d["notif_desktop"])
-        return d
+            return {
+                "username": username, "muted_channels": [], "muted_dms": [],
+                "sound_enabled": True, "notif_desktop": True,
+            }
+        prefs = dict(row)
+        prefs["muted_channels"] = json.loads(prefs["muted_channels"] or "[]")
+        prefs["muted_dms"] = json.loads(prefs["muted_dms"] or "[]")
+        prefs["sound_enabled"] = bool(prefs["sound_enabled"])
+        prefs["notif_desktop"] = bool(prefs["notif_desktop"])
+        return prefs
 
-    def hubs_set_prefs(self, username: str, **fields):
+    def hubs_set_prefs(self, username: str, **fields) -> None:
         prefs = self.hubs_get_prefs(username)
         prefs.update(fields)
         with self._lock:
             self._db.execute(
                 "INSERT OR REPLACE INTO hubs_user_prefs "
-                "(username, muted_channels, muted_dms, sound_enabled, notif_desktop) VALUES (?,?,?,?,?)",
+                "(username, muted_channels, muted_dms, sound_enabled, notif_desktop) "
+                "VALUES (?,?,?,?,?)",
                 (username,
                  json.dumps(prefs["muted_channels"]),
                  json.dumps(prefs["muted_dms"]),
@@ -462,43 +536,45 @@ class HubsStorage:
             )
             self._db.commit()
 
-    # ── SSE event stream ─────────────────────────────────────────────────
+    # ── event polling ─────────────────────────────────────────────────────
 
-    def hubs_events_since(self, username: str, last_msg_id: int,
-                          last_ping_id: int, last_notif_id: int) -> dict:
-        """Poll for new events since client's last known IDs."""
-        # New messages in channels the user is a member of
-        channel_ids = [r["channel_id"] for r in self._db.execute(
-            "SELECT channel_id FROM hubs_channel_members WHERE username=?", (username,)
+    def hubs_events_since(self, username: str, last_msg_seq: int,
+                          last_ping_id: int = 0, last_notif_id: int = 0) -> dict:
+        """Return activity after the client's cursors.
+
+        ``seq`` is SQLite's insertion sequence, which is monotonic even though
+        message ids are random.
+        """
+        channel_ids = [row["channel_id"] for row in self._db.execute(
+            "SELECT channel_id FROM hubs_channel_members WHERE username=?",
+            (username,),
         )]
-        new_messages = []
+        conditions = ["(dm_key LIKE ? ESCAPE '\\' OR dm_key LIKE ? ESCAPE '\\')"]
+        params: list = [last_msg_seq]
         if channel_ids:
-            placeholders = ",".join("?" for _ in channel_ids)
-            rows = self._db.execute(
-                f"SELECT * FROM hubs_messages WHERE channel_id IN ({placeholders}) "
-                f"AND deleted=0 AND id>? ORDER BY id LIMIT 30",
-                [*channel_ids, str(last_msg_id)],
-            ).fetchall()
-            new_messages.extend(dict(r) for r in rows)
-        # New DMs
-        dm_rows = self._db.execute(
-            "SELECT * FROM hubs_messages WHERE (dm_key LIKE ? OR dm_key LIKE ?) "
-            "AND deleted=0 AND id>? ORDER BY id LIMIT 20",
-            (f"{username}:%", f"%:{username}", str(last_msg_id)),
+            conditions.insert(
+                0, f"channel_id IN ({','.join('?' for _ in channel_ids)})")
+            params.extend(channel_ids)
+        params.extend(_dm_patterns(username))
+        rows = self._db.execute(
+            f"SELECT rowid AS seq, * FROM hubs_messages "
+            f"WHERE deleted=0 AND rowid>? AND ({' OR '.join(conditions)}) "
+            f"ORDER BY rowid LIMIT 50",
+            params,
         ).fetchall()
-        new_messages.extend(dict(r) for r in dm_rows)
-
-        # Pending pings
-        new_pings = self.hubs_pending_pings(username)
-
-        # New notifications
-        new_notifs = [dict(r) for r in self._db.execute(
+        messages = [dict(row) for row in rows]
+        pings = self.hubs_pending_pings(username)
+        notifications = [dict(row) for row in self._db.execute(
             "SELECT * FROM hubs_notifications WHERE username=? AND id>? ORDER BY id LIMIT 20",
             (username, last_notif_id),
         )]
-
         return {
-            "messages": new_messages,
-            "pings": new_pings,
-            "notifications": new_notifs,
+            "messages": messages,
+            "pings": pings,
+            "notifications": notifications,
+            "cursor": {
+                "last_msg": max((m["seq"] for m in messages), default=last_msg_seq),
+                "last_notif": max((n["id"] for n in notifications),
+                                  default=last_notif_id),
+            },
         }

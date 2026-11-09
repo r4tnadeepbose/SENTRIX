@@ -162,6 +162,26 @@ class ExtStorage(Storage, HubsStorage):
                 self._db.execute(f"UPDATE users SET {key}=? WHERE username=?", (value, username))
             self._db.commit()
 
+    def delete_user(self, username):
+        """Remove an account and every trace of it (sessions, tokens, Hubs)."""
+        with self._lock:
+            self._db.execute("DELETE FROM users WHERE username=?", (username,))
+            self._db.execute("DELETE FROM sessions WHERE username=?", (username,))
+            self._db.execute("DELETE FROM tokens WHERE created_by=?", (username,))
+            # Remove the person from operational records so no stale name
+            # survives in findings, history, reports or logs.
+            self._db.execute("UPDATE findings SET owner='' WHERE owner=?", (username,))
+            self._db.execute("UPDATE finding_extra SET assignee='' WHERE assignee=?", (username,))
+            self._db.execute("DELETE FROM status_history WHERE username=?", (username,))
+            self._db.execute("DELETE FROM audit WHERE username=?", (username,))
+            self._db.execute("DELETE FROM system_log WHERE instr(message, ?) > 0", (username,))
+            self._db.execute("DELETE FROM coordination_pings WHERE username=?", (username,))
+            self._db.execute(
+                "UPDATE report_history SET body=replace(body, ?, 'removed account')",
+                (username,))
+            self._db.commit()
+        self.hubs_purge_user(username)
+
     def add_session(self, token, username, role, expires):
         with self._lock:
             self._db.execute("INSERT OR REPLACE INTO sessions VALUES (?,?,?,?)",

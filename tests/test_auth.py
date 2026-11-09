@@ -25,6 +25,9 @@ class AuthTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.cfg = load_config()
         self.cfg["auth"]["login_rate_limit"] = 5
+        # These tests exercise custom accounts; the fixed company roster is
+        # covered separately below.
+        self.cfg["auth"]["fixed_roster"] = False
         self.storage = ExtStorage(Path(self._tmp.name) / "auth.db")
         self.addCleanup(self.storage.close)
         self.auth = AuthManager(self.storage, self.cfg)
@@ -135,6 +138,27 @@ class AuthTests(unittest.TestCase):
         tid = self.storage.list_tokens()[0]["id"]
         self.auth.revoke_token("alice", tid)
         self.assertIsNone(self.auth.bearer_user(f"Bearer {raw}"))
+
+    def test_fixed_roster_prunes_extra_accounts_and_blocks_creation(self):
+        cfg = load_config()
+        cfg["auth"]["fixed_roster"] = True
+        storage = ExtStorage(Path(self._tmp.name) / "roster.db")
+        self.addCleanup(storage.close)
+        # Simulate a legacy database with an account outside the roster.
+        storage.add_user("intruder", hash_password(PASSWORD, SALT), SALT, "viewer")
+        storage.add_session("intruder-session", "intruder", "viewer", time.time() + 3600)
+        auth = AuthManager(storage, cfg)
+        auth.ensure_admin()
+        users = {u["username"] for u in storage.list_users()}
+        self.assertEqual(users, {"admin", "r.sharma", "p.patel", "a.kumar",
+                                 "n.singh", "v.iyer"})
+        self.assertIsNone(storage.get_session("intruder-session"))
+        with self.assertRaises(AuthError):
+            auth.add_user("admin", "new.person", "new-person-pass-123", "viewer")
+        self.assertIsNone(storage.get_user("new.person"))
+        # The shared channel exists and every roster member belongs to it.
+        members = {m["username"] for m in storage.hubs_channel_members("open-chat")}
+        self.assertEqual(members, users)
 
 
 if __name__ == "__main__":

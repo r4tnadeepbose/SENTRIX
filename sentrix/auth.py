@@ -22,6 +22,10 @@ TEAM = (
     ("n.singh", "auditor", "Compliance Officer"),
     ("v.iyer", "developer", "Software Developer"),
 )
+ADMIN_USER = "admin"
+ADMIN_TITLE = "Platform Administrator"
+# The company roster is fixed: one administrator plus the five-person team.
+ROSTER = (ADMIN_USER,) + tuple(username for username, _, _ in TEAM)
 
 
 class AuthError(Exception):
@@ -41,7 +45,7 @@ class AuthManager:
         self.session_hours = cfg_get(cfg, "auth.session_hours", 12)
 
     def ensure_admin(self):
-        if not self.storage.list_users():
+        if not self.storage.get_user("admin"):
             password = os.environ.get("SENTRIX_ADMIN_PASSWORD")
             generated = not password
             if not password:
@@ -51,7 +55,7 @@ class AuthManager:
                     password = secrets.token_urlsafe(9)
             salt = secrets.token_hex(16)
             self.storage.add_user("admin", hash_password(password, salt), salt, "super_admin",
-                                  title="Platform Administrator")
+                                  title=ADMIN_TITLE)
             if generated:
                 target = resolve_path(self.cfg, "data/INITIAL_ADMIN_PASSWORD.txt")
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -60,22 +64,76 @@ class AuthManager:
                     "Change this password in Settings after first login.\n", encoding="utf-8")
             self.log("warn", "auth", "Initial admin account created")
         self.seed_team()
+        self.enforce_roster()
+        self.storage.hubs_ensure_open_chat(self.roster_usernames())
+
+    def fixed_roster(self) -> bool:
+        """True when the workspace is locked to the six-person company roster."""
+        return bool(cfg_get(self.cfg, "auth.fixed_roster", True))
+
+    def roster_usernames(self) -> tuple[str, ...]:
+        """The usernames allowed to use this workspace."""
+        if self.fixed_roster():
+            return ROSTER
+        return tuple(u["username"] for u in self.storage.list_users())
 
     def seed_team(self):
-        """A full company roster so the console behaves like a real team tool."""
-        if not cfg_get(self.cfg, "auth.demo_mode", False):
+        """Provision the company roster so the console behaves like a real team tool."""
+        demo_mode = cfg_get(self.cfg, "auth.demo_mode", False)
+        if not (demo_mode or self.fixed_roster()):
             return
+        demo_password = cfg_get(self.cfg, "auth.demo_password", "sentrix-demo")
+        shared_password = os.environ.get("SENTRIX_TEAM_PASSWORD")
+        generated: list[tuple[str, str]] = []
         for username, role, title in TEAM:
             existing = self.storage.get_user(username)
             if existing:
                 if existing["role"] != role or existing.get("title", "") != title:
                     self.storage.update_user(username, role=role, title=title)
                 continue
-            password = f"{username}-demo"
+            if demo_mode:
+                password = f"{username}-demo"
+            elif shared_password:
+                password = shared_password
+            else:
+                password = secrets.token_urlsafe(9)
+                generated.append((username, password))
             salt = secrets.token_hex(16)
             self.storage.add_user(username, hash_password(password, salt), salt, role,
                                   title=title)
-        self.log("info", "auth", "Company demo roster ready (6 accounts)")
+        admin = self.storage.get_user(ADMIN_USER)
+        if admin and admin.get("title") != ADMIN_TITLE:
+            self.storage.update_user(ADMIN_USER, title=ADMIN_TITLE)
+        if generated:
+            target = resolve_path(self.cfg, "data/INITIAL_TEAM_PASSWORDS.txt")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                "SENTRIX team accounts (change these after first login):\n"
+                + "".join(f"username: {u}\npassword: {p}\n\n" for u, p in generated),
+                encoding="utf-8")
+        self.log("info", "auth", "Company roster ready (6 accounts)")
+
+    def enforce_roster(self):
+        """Prune every account outside the fixed company roster."""
+        if not self.fixed_roster():
+            return
+        removed = []
+        for user in self.storage.list_users():
+            if user["username"] not in ROSTER:
+                self.storage.delete_user(user["username"])
+                removed.append(user["username"])
+        # Keep names, roles and titles canonical even if they were edited.
+        canonical = {username: (role, title) for username, role, title in TEAM}
+        canonical[ADMIN_USER] = ("super_admin", ADMIN_TITLE)
+        for username, (role, title) in canonical.items():
+            existing = self.storage.get_user(username)
+            if existing and (existing["role"] != role or existing.get("title", "") != title):
+                self.storage.update_user(username, role=role, title=title)
+        if removed:
+            self.log("warn", "auth",
+                     f"Removed {len(removed)} account(s) outside the company roster")
+            self.audit("roster.pruned", "system",
+                       f"{len(removed)} legacy account(s) removed")
 
     def demo_accounts(self) -> list[dict]:
         accounts = []
@@ -162,6 +220,10 @@ class AuthManager:
         self.log("info", "auth", f"{username} changed their password")
 
     def add_user(self, by: str, username: str, password: str, role: str, title: str = ""):
+        if self.fixed_roster():
+            raise AuthError(
+                "This workspace uses a fixed company roster of six people; "
+                "new accounts cannot be created.")
         if role not in ROLES:
             raise AuthError(f"role must be one of {ROLES}")
         if self.storage.get_user(username):

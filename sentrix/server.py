@@ -24,6 +24,7 @@ from sentrix.core.pipeline import Pipeline
 from sentrix.core.util import at_least
 from sentrix.alerting.router import AlertRouter
 from sentrix.demo import seed_demo
+from sentrix.hubs.api import HubsAPI
 from sentrix.remediation import playbooks
 
 CONTENT_TYPES = {
@@ -39,6 +40,9 @@ FINDING_SUB = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)/(status|notes|tags|as
 ID_SUB = re.compile(r"^/api/(jobs|schedules|rules|tokens|users|filters)/([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)$")
 PUBLIC_GET = {"/", "/login", "/favicon.svg", "/logo.svg", "/api/health", "/api/auth/demo-info"}
 ADMIN_PREFIXES = ("/api/users/", "/api/tokens", "/api/ops/restore", "/api/ops/import", "/api/ops/purge")
+# Sentinel returned by response helpers so dispatchers can tell "handled"
+# from "route not found" without inspecting the socket.
+_HANDLED = object()
 
 
 class AppState:
@@ -75,9 +79,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(body)
+        # Return a non-None marker so helpers such as _extra_get/_extra_post
+        # signal "handled" and do_GET/do_POST do not append a second 404.
+        return _HANDLED
 
     def _json(self, payload, code=200):
-        self._send(code, json.dumps(payload).encode(), "application/json")
+        return self._send(code, json.dumps(payload).encode(), "application/json")
 
     def _body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -88,10 +95,20 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
-    def _user(self):
+    def _session_token(self):
+        """Per-tab token wins; the cookie remains for API clients/tests."""
+        header = (self.headers.get("X-Session-Token") or "").strip()
+        if header:
+            return header
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
         if "sx_session" in cookie:
-            user = self.state.auth.session_user(cookie["sx_session"].value)
+            return cookie["sx_session"].value
+        return ""
+
+    def _user(self):
+        token = self._session_token()
+        if token:
+            user = self.state.auth.session_user(token)
             if user:
                 return user
         return self.state.auth.bearer_user(self.headers.get("Authorization", ""))
@@ -128,12 +145,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         state = self.state
         if path == "/":
-            if not self._user():
-                self.send_response(302)
-                self.send_header("Location", "/login")
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
+            # The shell is public; the per-tab session is enforced by the API
+            # and by app.js. This keeps tab sessions independent of the shared
+            # browser cookie.
             return self._file(ROOT / "sentrix" / "dashboard" / "index.html")
         if path == "/login":
             return self._file(ROOT / "sentrix" / "dashboard" / "login.html")
@@ -367,15 +381,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie",
                              f"sx_session={token}; HttpOnly; Path=/; SameSite=Strict; "
                              f"Max-Age={int(state.auth.session_hours * 3600)}")
-            payload = json.dumps({"ok": True, "user": user}).encode()
+            payload = json.dumps({"ok": True, "user": user, "token": token}).encode()
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
             return
         if path == "/api/auth/logout":
-            cookie = SimpleCookie(self.headers.get("Cookie", ""))
-            if "sx_session" in cookie:
-                state.auth.logout(cookie["sx_session"].value)
+            token = self._session_token()
+            if token:
+                state.auth.logout(token)
             return self._json({"ok": True})
         if path == "/api/auth/password":
             state.auth.change_password(uname, body.get("old", ""), body.get("new", ""))
@@ -858,87 +872,10 @@ class Handler(BaseHTTPRequestHandler):
             ra = storage.get_risk_acceptance(m.group(1))
             return self._json({"risk_acceptance": ra}) if ra else self._json({"error": "not found"}, 404)
         # ── Hubs API ──────────────────────────────────────────────
-        if path == "/api/hubs/channels":
-            user = self._user()
-            storage.hubs_heartbeat(user["username"])
-            channels = storage.hubs_list_channels(user["username"])
-            online = storage.hubs_online_users()
-            notif_count = storage.hubs_unread_notification_count(user["username"])
-            return self._json({
-                "channels": channels,
-                "dms": storage.hubs_dm_list(user["username"]),
-                "online_users": online,
-                "unread_notifications": notif_count,
-            })
-        if path == "/api/hubs/users":
-            user = self._user()
-            storage.hubs_heartbeat(user["username"])
-            online = {u["username"] for u in storage.hubs_online_users()}
-            users = [{"username": u["username"], "title": u.get("title", ""),
-                      "role": u["role"], "online": u["username"] in online}
-                     for u in storage.list_users()
-                     if u["username"] != user["username"] and not u.get("disabled")]
-            return self._json({"users": users})
-        m = re.match(r"^/api/hubs/channels/([A-Za-z0-9_\-]+)/messages$", path)
-        if m:
-            user = self._user()
-            cid = m.group(1)
-            storage.hubs_heartbeat(user["username"])
-            # Open Chat is open to all; team channels require explicit membership.
-            channel = self._db_fetch_channel(cid, storage)
-            if not channel:
-                return self._json({"error": "channel not found"}, 404)
-            if channel.get("is_default") == 1:
-                storage.hubs_join_channel(cid, user["username"])
-            elif not storage.hubs_is_channel_member(cid, user["username"]):
-                return self._json({"error": "channel membership required"}, 403)
-            before = query.get("before")
-            msgs = storage.hubs_get_messages(cid, None, before_id=before, limit=50)
-            members = storage.hubs_channel_members(cid)
-            return self._json({"messages": msgs, "members": members})
-        m = re.match(r"^/api/hubs/dm/([A-Za-z0-9_\-]+)/messages$", path)
-        if m:
-            user = self._user()
-            peer = m.group(1)
-            dm_key = self._dm_key(user["username"], peer)
-            storage.hubs_heartbeat(user["username"])
-            before = query.get("before")
-            msgs = storage.hubs_get_messages(None, dm_key, before_id=before, limit=50)
-            peer_info = storage.get_user(peer)
-            return self._json({"messages": msgs, "peer": peer_info})
-        if path == "/api/hubs/notifications":
-            user = self._user()
-            notifs = storage.hubs_list_notifications(user["username"])
-            return self._json({"notifications": notifs,
-                               "unread": sum(1 for n in notifs if not n["read"])})
-        if path == "/api/hubs/events":
-            # Long-poll / SSE-style: return new events since last known IDs
-            user = self._user()
-            storage.hubs_heartbeat(user["username"])
-            last_msg = int(query.get("last_msg", 0))
-            last_ping = int(query.get("last_ping", 0))
-            last_notif = int(query.get("last_notif", 0))
-            events = storage.hubs_events_since(
-                user["username"], last_msg, last_ping, last_notif
-            )
-            return self._json(events)
-        if path == "/api/hubs/online":
-            user = self._user()
-            storage.hubs_heartbeat(user["username"])
-            return self._json({"online": storage.hubs_online_users()})
-        if path == "/api/hubs/prefs":
-            user = self._user()
-            return self._json({"prefs": storage.hubs_get_prefs(user["username"])})
-        if path == "/api/hubs/users":
-            # All users with online presence — for the Hubs user directory
-            user = self._user()
-            storage.hubs_heartbeat(user["username"])
-            all_users = storage.list_users()
-            online_set = {u["username"] for u in storage.hubs_online_users()}
-            return self._json({"users": [
-                {**u, "online": u["username"] in online_set}
-                for u in all_users if not u.get("disabled")
-            ]})
+        result = HubsAPI(state).handle_get(path, query, self._user())
+        if result is not None:
+            payload, code = result
+            return self._json(payload, code)
         return None
 
     def _extra_post(self, path, body, uname):
@@ -950,170 +887,11 @@ class Handler(BaseHTTPRequestHandler):
             ping_id = storage.add_ping(uname, message)
             state.auth.audit("coordination.ping", uname, message)
             return self._json({"ok": True, "id": ping_id})
-        # ── Hubs POST routes ───────────────────────────────────────────────
-        if path == "/api/hubs/channels":
-            import secrets as _sec
-            name = str(body.get("name", "")).strip()[:80]
-            if not name:
-                return self._json({"error": "name required"}, 400)
-            cid = "ch-" + _sec.token_hex(5)
-            storage.hubs_create_channel(cid, name, body.get("description", "")[:200], uname)
-            state.auth.audit("hubs.channel.created", uname, name)
-            return self._json({"ok": True, "id": cid})
-        m = re.match(r"^/api/hubs/channels/([A-Za-z0-9_\-]+)/join$", path)
-        if m:
-            channel = self._db_fetch_channel(m.group(1), storage)
-            if not channel:
-                return self._json({"error": "channel not found"}, 404)
-            storage.hubs_join_channel(m.group(1), uname)
-            return self._json({"ok": True})
-        m = re.match(r"^/api/hubs/channels/([A-Za-z0-9_\-]+)/leave$", path)
-        if m:
-            ok = storage.hubs_leave_channel(m.group(1), uname)
-            return self._json({"ok": ok, "error": "owners cannot leave" if not ok else ""})
-        m = re.match(r"^/api/hubs/channels/([A-Za-z0-9_\-]+)/messages$", path)
-        if m:
-            import secrets as _sec
-            cid = m.group(1)
-            body_text = str(body.get("body", "")).strip()[:4000]
-            if not body_text:
-                return self._json({"error": "body required"}, 400)
-            channel = self._db_fetch_channel(cid, storage)
-            if not channel:
-                return self._json({"error": "channel not found"}, 404)
-            if channel.get("is_default") == 1:
-                storage.hubs_join_channel(cid, uname)
-            elif not storage.hubs_is_channel_member(cid, uname):
-                return self._json({"error": "not a member"}, 403)
-            mid = "msg-" + _sec.token_hex(8)
-            msg = storage.hubs_post_message(
-                mid, cid, None, uname, body_text,
-                reply_to=body.get("reply_to"),
-            )
-            # Notify channel members (not sender)
-            for member in storage.hubs_channel_members(cid):
-                if member["username"] != uname:
-                    prefs = storage.hubs_get_prefs(member["username"])
-                    if cid not in prefs.get("muted_channels", []):
-                        storage.hubs_add_notification(
-                            member["username"], "channel_message", uname,
-                            channel_id=cid, message_id=mid,
-                            body=body_text[:120],
-                        )
-            return self._json({"ok": True, "message": msg})
-        m = re.match(r"^/api/hubs/dm/([A-Za-z0-9_\-]+)/messages$", path)
-        if m:
-            import secrets as _sec
-            peer = m.group(1)
-            if peer == uname:
-                return self._json({"error": "cannot DM yourself"}, 400)
-            if not storage.get_user(peer):
-                return self._json({"error": "user not found"}, 404)
-            body_text = str(body.get("body", "")).strip()[:4000]
-            if not body_text:
-                return self._json({"error": "body required"}, 400)
-            dm_key = self._dm_key(uname, peer)
-            mid = "msg-" + _sec.token_hex(8)
-            msg = storage.hubs_post_message(
-                mid, None, dm_key, uname, body_text,
-                reply_to=body.get("reply_to"),
-            )
-            prefs = storage.hubs_get_prefs(peer)
-            if dm_key not in prefs.get("muted_dms", []):
-                storage.hubs_add_notification(
-                    peer, "direct_message", uname,
-                    dm_key=dm_key, message_id=mid, body=body_text[:120],
-                )
-            return self._json({"ok": True, "message": msg})
-        m = re.match(r"^/api/hubs/messages/([A-Za-z0-9_\-]+)/edit$", path)
-        if m:
-            ok = storage.hubs_edit_message(m.group(1), uname, str(body.get("body", "")).strip()[:4000])
-            return self._json({"ok": ok})
-        m = re.match(r"^/api/hubs/messages/([A-Za-z0-9_\-]+)/delete$", path)
-        if m:
-            user = self._user()
-            ok = storage.hubs_delete_message(m.group(1), uname, user["role"] in ADMIN_ROLES)
-            return self._json({"ok": ok})
-        if path == "/api/hubs/ping":
-            to_user = str(body.get("to_user", "")).strip()
-            message = str(body.get("message", "")).strip()[:200]
-            if not to_user:
-                return self._json({"error": "to_user required"}, 400)
-            if to_user == uname:
-                return self._json({"error": "cannot ping yourself"}, 400)
-            if not storage.get_user(to_user):
-                return self._json({"error": "user not found"}, 404)
-            ok, reason = storage.hubs_send_ping(uname, to_user, message)
-            if not ok:
-                return self._json({"error": reason}, 429)
-            # Notification for the ping
-            storage.hubs_add_notification(to_user, "ping", uname, body=message or f"{uname} pinged you")
-            state.auth.audit("hubs.ping", uname, f"→ {to_user}")
-            return self._json({"ok": True})
-        if path == "/api/hubs/ping-all":
-            user = self._user()
-            if user["role"] not in ADMIN_ROLES:
-                return self._json({"error": "security administrator role required"}, 403)
-            message = str(body.get("message", "")).strip()[:200]
-            delivered = 0
-            for recipient in storage.list_users():
-                target = recipient["username"]
-                if target == uname or recipient.get("disabled"):
-                    continue
-                ok, _ = storage.hubs_send_ping(uname, target, message)
-                if ok:
-                    storage.hubs_add_notification(target, "ping", uname,
-                                                  body=message or f"{uname} pinged the organization")
-                    delivered += 1
-            state.auth.audit("hubs.ping_all", uname, f"recipients={delivered}")
-            return self._json({"ok": True, "delivered": delivered})
-        if path == "/api/hubs/mark-read":
-            channel_id = body.get("channel_id")
-            dm_key = body.get("dm_key")
-            last_id = str(body.get("last_id", ""))
-            if not last_id:
-                return self._json({"error": "last_id required"}, 400)
-            storage.hubs_mark_read(uname, channel_id, dm_key, last_id)
-            return self._json({"ok": True})
-        if path == "/api/hubs/notifications/read":
-            ids = body.get("ids")
-            storage.hubs_mark_notifications_read(uname, ids if isinstance(ids, list) else None)
-            return self._json({"ok": True})
-        if path == "/api/hubs/prefs":
-            prefs = {}
-            if "sound_enabled" in body:
-                prefs["sound_enabled"] = bool(body["sound_enabled"])
-            if "notif_desktop" in body:
-                prefs["notif_desktop"] = bool(body["notif_desktop"])
-            if "muted_channels" in body and isinstance(body["muted_channels"], list):
-                prefs["muted_channels"] = [str(c)[:80] for c in body["muted_channels"][:50]]
-            if "muted_dms" in body and isinstance(body["muted_dms"], list):
-                prefs["muted_dms"] = [str(d)[:80] for d in body["muted_dms"][:50]]
-            if prefs:
-                storage.hubs_set_prefs(uname, **prefs)
-            return self._json({"ok": True})
-        if path == "/api/hubs/heartbeat":
-            storage.hubs_heartbeat(uname)
-            return self._json({"ok": True})
-        if path == "/api/hubs/ping-all":
-            # Admin only: ping every active user
-            user = self._user()
-            if user["role"] not in ADMIN_ROLES:
-                return self._json({"error": "admin required"}, 403)
-            message = str(body.get("message", "")).strip()[:200]
-            all_users = storage.list_users()
-            delivered = 0
-            for u in all_users:
-                if u["username"] == uname or u.get("disabled"):
-                    continue
-                ok, _ = storage.hubs_send_ping(uname, u["username"], message)
-                if ok:
-                    storage.hubs_add_notification(
-                        u["username"], "ping", uname, body=message or f"{uname} pinged you"
-                    )
-                    delivered += 1
-            state.auth.audit("hubs.ping-all", uname, f"{delivered} users")
-            return self._json({"ok": True, "delivered": delivered})
+        # ── Hubs API ──────────────────────────────────────────────
+        result = HubsAPI(state).handle_post(path, body, self._user())
+        if result is not None:
+            payload, code = result
+            return self._json(payload, code)
         # ── Risk Acceptances POST ────────────────────────────────
         if path == "/api/risk-acceptances":
             import secrets as _sec
@@ -1286,17 +1064,6 @@ class Handler(BaseHTTPRequestHandler):
         if not path.is_file():
             return self._json({"error": "not found"}, 404)
         self._send(200, path.read_bytes(), CONTENT_TYPES.get(path.suffix, "application/octet-stream"))
-
-    @staticmethod
-    def _dm_key(a: str, b: str) -> str:
-        """Canonical DM key — always smaller username first for consistency."""
-        return f"{min(a, b)}:{max(a, b)}"
-
-    def _db_fetch_channel(self, cid: str, storage) -> dict | None:
-        row = storage._db.execute(
-            "SELECT * FROM hubs_channels WHERE id=?", (cid,)
-        ).fetchone()
-        return dict(row) if row else None
 
 
 def make_server(cfg: dict) -> ThreadingHTTPServer:

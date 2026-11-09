@@ -23,7 +23,7 @@ Research completed against the official OASM and OWASP DefectDojo repositories o
 | Scheduled local scan jobs | Already implemented | Local worker-pool jobs are present; distributed workers are not claimed. |
 | Finding lifecycle, deduplication, remediation and reports | Already implemented | Existing records remain the system of record. |
 | Risk acceptance | Implemented but incomplete | Explicit persisted acceptance records are being added; approval workflow is still a future increment. |
-| Hubs channels, DMs, notifications and pings | Implemented but incomplete | Persistent SQLite messages, channel authorization, DMs, recipient notifications, presence and rate-limited pings are implemented. Attachment handling, desktop notifications and administrative membership management remain future work. |
+| Hubs channels, DMs, notifications and pings | Implemented but incomplete | Persistent SQLite messages, channel authorization, DMs, recipient notifications, presence and unlimited person-to-person pings are implemented. Attachment handling, desktop notifications and administrative membership management remain future work. |
 | OASM-style external worker fleet, container connectors and browser agents | Not appropriate yet | They require an explicit deployment and isolation design beyond the standard-library modular monolith. |
 
 ## License boundary

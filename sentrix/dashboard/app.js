@@ -63,13 +63,30 @@ const state = {
   logQ: "", logLevel: "", logSource: "", logRange: "all", logCorr: "", logTab: "system",
   auditTab: "audit", settingsTab: "profile", mobileSheet: false,
   hubs: { kind: "channel", id: "open-chat", title: "Open Chat", timer: null, rightOpen: true },
-  hubsEvents: { lastMsg: 0, lastNotif: 0 },
+  hubsEvents: { lastMsg: 0, lastNotif: 0, primed: false },
 };
 
+function authToken() {
+  try { return sessionStorage.getItem("sx.token") || ""; } catch { return ""; }
+}
+
+function setAuthToken(token) {
+  try {
+    if (token) sessionStorage.setItem("sx.token", token);
+    else sessionStorage.removeItem("sx.token");
+  } catch { /* storage can be unavailable; the login redirect handles it */ }
+}
+
 async function api(path, opts = {}) {
+  // Every browser tab keeps its own signed-in account. The token lives in
+  // sessionStorage (per-tab) and travels in a header, so two tabs can be two
+  // different people without the shared cookie overwriting one another.
+  const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+  const token = authToken();
+  if (token) headers["X-Session-Token"] = token;
   const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" }, credentials: "same-origin",
-    ...opts, body: opts.body ? JSON.stringify(opts.body) : undefined,
+    ...opts, headers, credentials: "same-origin",
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (res.status === 401) { location.href = "/login"; throw new Error("unauthenticated"); }
   const data = await res.json().catch(() => ({}));
@@ -663,9 +680,8 @@ async function renderAccess() {
   const [u, t] = await Promise.all([api("/api/users"), api("/api/tokens")]);
   const roles = ["super_admin", "security_admin", "security_analyst", "appsec_engineer", "devsecops_engineer", "developer", "auditor", "viewer"];
   $("#main").innerHTML = pagehead("Access Management", "Eight-role RBAC, accounts and API tokens.") +
-    panel("Users", `${isAdmin() ? `<div class="formrow" style="margin-bottom:10px"><div class="field"><input class="input" id="us-name" placeholder="username"></div><div class="field"><input class="input" id="us-pw" type="password" placeholder="password (10+)"></div><div class="field"><select class="input" id="us-role">${roles.map((r) => `<option>${r}</option>`).join("")}</select></div><button class="btn sm primary" id="us-add">Add user</button></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>User</th><th>Title</th><th>Role</th><th>Disabled</th><th></th></tr></thead><tbody>${u.users.map((x) => `<tr><td>${esc(x.username)}</td><td>${esc(x.title || "-")}</td><td>${isAdmin() ? `<select class="input" data-urole="${esc(x.username)}">${roles.map((r) => `<option ${x.role === r ? "selected" : ""}>${r}</option>`).join("")}</select>` : esc(x.role)}</td><td>${x.disabled ? "yes" : "no"}</td><td>${isAdmin() ? `<button class="btn sm ghost" data-udis="${esc(x.username)}" data-dis="${x.disabled ? 0 : 1}">${x.disabled ? "Enable" : "Disable"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`, "", true) +
+    panel("Users", `${isAdmin() ? `<div class="banner" style="margin-bottom:10px">Company roster is fixed at six people. New accounts cannot be created, and roles or titles are restored to the canonical roster on restart.</div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>User</th><th>Title</th><th>Role</th><th>Disabled</th><th></th></tr></thead><tbody>${u.users.map((x) => `<tr><td>${esc(x.username)}</td><td>${esc(x.title || "-")}</td><td>${isAdmin() ? `<select class="input" data-urole="${esc(x.username)}">${roles.map((r) => `<option ${x.role === r ? "selected" : ""}>${r}</option>`).join("")}</select>` : esc(x.role)}</td><td>${x.disabled ? "yes" : "no"}</td><td>${isAdmin() ? `<button class="btn sm ghost" data-udis="${esc(x.username)}" data-dis="${x.disabled ? 0 : 1}">${x.disabled ? "Enable" : "Disable"}</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`, "", true) +
     panel("API tokens", `${isAdmin() ? `<div class="formrow" style="margin-bottom:10px"><div class="field"><input class="input" id="tk-name" placeholder="token name"></div><div class="field"><select class="input" id="tk-role">${roles.map((r) => `<option>${r}</option>`).join("")}</select></div><button class="btn sm primary" id="tk-create">Create token</button></div><div id="tk-reveal"></div>` : ""}<div class="twrap"><table class="tbl"><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Revoked</th><th></th></tr></thead><tbody>${t.tokens.map((x) => `<tr><td class="mono">${esc(x.id)}</td><td>${esc(x.name)}</td><td>${esc(x.role)}</td><td>${x.revoked ? "yes" : "no"}</td><td>${isAdmin() && !x.revoked ? `<button class="btn sm ghost" data-trev="${esc(x.id)}">Revoke</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="5">No tokens.</td></tr>'}</tbody></table></div>`, "", true);
-  const ua = $("#us-add"); if (ua) ua.onclick = async () => { try { await api("/api/users", { method: "POST", body: { username: $("#us-name").value, password: $("#us-pw").value, role: $("#us-role").value } }); toast("User added", "ok"); renderAccess(); } catch (e) { toast(e.message, "error"); } };
   $$("[data-urole]").forEach((s) => (s.onchange = () => api(`/api/users/${s.dataset.urole}/role`, { method: "POST", body: { role: s.value } })));
   $$("[data-udis]").forEach((b) => (b.onclick = async () => { await api(`/api/users/${b.dataset.udis}/disable`, { method: "POST", body: { disabled: b.dataset.dis === "1" } }); renderAccess(); }));
   const tc = $("#tk-create"); if (tc) tc.onclick = async () => { const r = await api("/api/tokens", { method: "POST", body: { name: $("#tk-name").value || "ci", role: $("#tk-role").value } }); $("#tk-reveal").innerHTML = `<div class="okbox mono">${esc(r.token)}</div><p style="color:var(--warn);font-size:11.5px">Copy now - shown once.</p>`; };
@@ -769,51 +785,298 @@ async function loadDrawer() {
 
 /* ================= Hubs ================= */
 
-function hubsAvatar(name) { return `<span class="hubs-avatar">${esc((name || "?")[0].toUpperCase())}</span>`; }
+const HUBS_TICK_MS = 3000;
+
+function hubsAvatar(name) {
+  return `<span class="hubs-avatar">${esc((name || "?")[0].toUpperCase())}</span>`;
+}
 function hubsTime(value) { return value ? utc(value) : ""; }
-function hubsPingTone() { try { const Ctx = window.AudioContext || window.webkitAudioContext; const c = new Ctx(); const o = c.createOscillator(); const g = c.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(.05, c.currentTime); g.gain.exponentialRampToValueAtTime(.001, c.currentTime + .22); o.connect(g).connect(c.destination); o.start(); o.stop(c.currentTime + .22); } catch (_) { /* browser interaction policy may block sound */ } }
+function dmKey(a, b) { return [a, b].sort().join(":"); }
+
+let hubsAudio = null;
+let hubsTonePending = false;
+function hubsAudioContext() {
+  if (hubsAudio) return hubsAudio;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try { hubsAudio = new Ctx(); } catch (_) { return null; }
+  return hubsAudio;
+}
+function hubsPlayTone(ctx) {
+  const now = ctx.currentTime;
+  [0, 0.16].forEach((offset, index) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(index ? 1046.5 : 880, now + offset);
+    gain.gain.setValueAtTime(0.0001, now + offset);
+    gain.gain.exponentialRampToValueAtTime(0.14, now + offset + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now + offset);
+    osc.stop(now + offset + 0.15);
+  });
+}
+function hubsAudioUnlock() {
+  const ctx = hubsAudioContext();
+  if (!ctx) return null;
+  if (ctx.state === "suspended") {
+    ctx.resume().then(() => {
+      if (hubsTonePending && ctx.state === "running") {
+        hubsTonePending = false;
+        hubsPlayTone(ctx);
+      }
+    }).catch(() => {});
+  } else if (ctx.state === "running" && hubsTonePending) {
+    hubsTonePending = false;
+    hubsPlayTone(ctx);
+  }
+  return ctx;
+}
+function hubsInstallAudioUnlock() {
+  const unlock = () => hubsAudioUnlock();
+  ["pointerdown", "keydown", "touchstart"].forEach((event) => {
+    document.addEventListener(event, unlock, { passive: true });
+  });
+}
+function hubsPingTone() {
+  try {
+    const ctx = hubsAudioContext();
+    if (!ctx) return;
+    if (ctx.state === "running") {
+      hubsTonePending = false;
+      hubsPlayTone(ctx);
+      return;
+    }
+    // A ping can arrive before the first user gesture. Remember it and play
+    // the tone the moment the browser allows audio to start.
+    hubsTonePending = true;
+    ctx.resume().then(() => {
+      if (hubsTonePending && ctx.state === "running") {
+        hubsTonePending = false;
+        hubsPlayTone(ctx);
+      }
+    }).catch(() => {});
+  } catch (_) { /* audio is decorative; never break a ping because of it */ }
+}
+function hubsSenderTitle(name, people) {
+  const person = people.get(name);
+  if (person) return person.title || person.role || "";
+  if (state.user && name === state.user.username) {
+    return state.user.title || state.user.role || "";
+  }
+  return "";
+}
+
 async function renderHubs() {
-  const [data, prefsResult, usersResult, notificationsResult] = await Promise.all([api("/api/hubs/channels"), api("/api/hubs/prefs"), api("/api/hubs/users"), api("/api/hubs/notifications")]);
-  const prefs = prefsResult.prefs;
   const h = state.hubs;
-  const active = h.kind === "channel" ? data.channels.find((c) => c.id === h.id) : data.dms.find((d) => d.dm_key === h.id);
-  if (h.kind === "channel" && !active) { h.id = "open-chat"; h.title = "Open Chat"; return renderHubs(); }
-  h.title = active?.name || active?.peer || h.title;
-  const msgPath = h.kind === "channel" ? `/api/hubs/channels/${h.id}/messages` : `/api/hubs/dm/${h.peer}/messages`;
+  if (h.timer) { clearTimeout(h.timer); h.timer = null; }
+
+  const [workspace, prefsResult, directory, inbox] = await Promise.all([
+    api("/api/hubs/channels"),
+    api("/api/hubs/prefs"),
+    api("/api/hubs/users"),
+    api("/api/hubs/notifications"),
+  ]);
+  const prefs = prefsResult.prefs || {};
+  const people = (directory.users || []).slice().sort(
+    (a, b) => a.username.localeCompare(b.username));
+  const peopleByName = new Map(people.map((person) => [person.username, person]));
+  const dms = (workspace.dms || []).filter((dm) => peopleByName.has(dm.peer));
+  const openChat = (workspace.channels || []).find((c) => c.id === "open-chat")
+    || { id: "open-chat", name: "Open Chat", unread: 0 };
+
+  // Keep the selected conversation valid even after an account or thread
+  // disappears, so polling never strands the page on a dead route.
+  if (h.kind === "dm" && (!h.peer || h.peer === state.user.username || !peopleByName.has(h.peer))) {
+    h.kind = "channel"; h.id = "open-chat"; h.peer = null;
+  }
+  if (h.kind !== "dm") { h.kind = "channel"; h.id = "open-chat"; }
+  if (h.kind === "dm" && (!h.id || !String(h.id).includes(":"))) {
+    h.id = dmKey(state.user.username, h.peer);
+  }
+  const isChannel = h.kind === "channel";
+  h.title = isChannel ? (openChat.name || "Open Chat") : h.peer;
+
+  const threadUrl = isChannel
+    ? `/api/hubs/channels/${encodeURIComponent("open-chat")}/messages`
+    : `/api/hubs/dm/${encodeURIComponent(h.peer)}/messages`;
   let thread;
-  try { thread = await api(msgPath); } catch (e) { thread = { messages: [], members: [], error: e.message }; }
+  try { thread = await api(threadUrl); }
+  catch (err) { thread = { messages: [], members: [], error: err.message }; }
+  if (!isChannel && thread.dm_key) h.id = thread.dm_key;
   const messages = thread.messages || [];
-  if (messages.length) api("/api/hubs/mark-read", { method: "POST", body: h.kind === "channel" ? { channel_id: h.id, last_id: messages.at(-1).id } : { dm_key: h.id, last_id: messages.at(-1).id } }).catch(() => {});
-  $("#main").innerHTML = `<div class="hubs-shell">
-    <aside class="hubs-left"><div class="hubs-brand"><strong>HUBS</strong><span>Secure collaboration</span></div><input class="input" id="hubs-search" placeholder="Search conversations">
-      <button class="hubs-open ${h.kind === "channel" && h.id === "open-chat" ? "active" : ""}" data-hchannel="open-chat">Open Chat</button>
-      <div class="hubs-section">TEAM CHANNELS ${isAdmin() ? '<button class="btn sm" id="hubs-new-channel">New</button>' : ""}</div>
-      <div id="hubs-channel-list">${data.channels.filter((c) => c.id !== "open-chat").map((c) => `<button class="hubs-item ${h.kind === "channel" && h.id === c.id ? "active" : ""}" data-hchannel="${esc(c.id)}"><span># ${esc(c.name)}</span>${c.unread ? `<b>${c.unread}</b>` : ""}<small>${c.joined ? "member" : "join to view"}</small></button>`).join("")}</div>
-      <div class="hubs-section">DIRECT MESSAGES</div>
-      <div>${data.dms.map((d) => `<button class="hubs-item ${h.kind === "dm" && h.id === d.dm_key ? "active" : ""}" data-hdm="${esc(d.peer)}" data-hdmkey="${esc(d.dm_key)}">${hubsAvatar(d.peer)}<span>${esc(d.peer)}<small>${esc(d.last_message?.body || "")}</small></span>${d.unread ? `<b>${d.unread}</b>` : ""}</button>`).join("") || '<span class="hubs-empty">No direct messages yet.</span>'}</div>
-      <div class="hubs-section">PEOPLE</div><div id="hubs-user-directory">${usersResult.users.map((u) => `<button class="hubs-user" data-hdm="${esc(u.username)}" data-huser="${esc(`${u.username} ${u.title} ${u.role}`.toLowerCase())}">${hubsAvatar(u.username)}<span>${esc(u.username)}<small>${esc(u.title || u.role)}</small></span>${u.online ? "<i></i>" : ""}</button>`).join("") || '<span class="hubs-empty">No colleagues available.</span>'}</div>
+
+  if (messages.length) {
+    const last = messages[messages.length - 1];
+    api("/api/hubs/mark-read", {
+      method: "POST",
+      body: isChannel
+        ? { channel_id: "open-chat", last_id: last.id }
+        : { dm_key: h.id, last_id: last.id },
+    }).catch(() => {});
+  }
+
+  // Live refresh replaces the whole panel; carry the draft, caret and scroll
+  // position across so polling never interrupts typing or reading.
+  const threadKey = `${h.kind}:${isChannel ? "open-chat" : h.peer}`;
+  const oldShell = $("#main .hubs-shell");
+  const sameThread = oldShell?.dataset.thread === threadKey;
+  const oldInput = $("#hubs-body");
+  const draft = sameThread ? (oldInput?.value || "") : "";
+  const hadFocus = sameThread && oldInput === document.activeElement;
+  const caret = hadFocus ? oldInput.selectionStart : 0;
+  const oldScroller = $("#hubs-messages");
+  const wasAtBottom = !oldScroller
+    || oldScroller.scrollHeight - oldScroller.scrollTop - oldScroller.clientHeight < 60;
+  const previousScroll = oldScroller?.scrollTop || 0;
+
+  const notifications = inbox.notifications || [];
+  const messageList = messages.map((message) => {
+    const mine = message.sender === state.user.username;
+    const title = hubsSenderTitle(message.sender, peopleByName);
+    return `<article class="hubs-message ${mine ? "mine" : ""}">${hubsAvatar(message.sender)}<div class="hubs-msg-body"><div class="hubs-msg-meta"><strong>${esc(message.sender)}</strong>${title ? `<span class="hubs-msg-role">${esc(title)}</span>` : ""}<time>${hubsTime(message.created_at)}${message.edited ? " · edited" : ""}</time>${mine ? `<button class="hubs-msg-delete" data-hdelete="${esc(message.id)}" title="Delete message" aria-label="Delete message">×</button>` : ""}</div><p>${esc(message.body).replace(/\n/g, "<br>")}</p></div></article>`;
+  }).join("");
+  const emptyState = `<div class="hubs-empty-state">${icon(isChannel ? "message" : "lock")}<strong>${isChannel ? "No messages yet" : "This conversation is private"}</strong><span>${isChannel ? "Say hello — everyone in the company can read and reply here." : `Only you and ${esc(h.peer)} can read this conversation.`}</span></div>`;
+
+  const dmList = dms.map((dm) => {
+    const active = !isChannel && (h.id === dm.dm_key || h.peer === dm.peer);
+    return `<button class="hubs-item hubs-dm-row ${active ? "active" : ""}" data-hdm="${esc(dm.peer)}" data-hdmkey="${esc(dm.dm_key)}" data-hsearch="${esc(`${dm.peer} ${peopleByName.get(dm.peer)?.title || ""}`.toLowerCase())}">${hubsAvatar(dm.peer)}<span>${esc(dm.peer)}<small>${esc(dm.last_message?.body || "No messages yet")}</small></span>${dm.unread ? `<b>${dm.unread}</b>` : ""}</button>`;
+  }).join("");
+
+  const peopleList = people.map((person) => `<div class="hubs-person" data-hsearch="${esc(`${person.username} ${person.title || ""} ${person.role || ""}`.toLowerCase())}"><button class="hubs-user" data-hdm="${esc(person.username)}" data-hdmkey="${esc(dmKey(state.user.username, person.username))}" title="Message ${esc(person.username)}">${hubsAvatar(person.username)}<span>${esc(person.username)}<small>${esc(person.title || person.role)}</small></span>${person.online ? '<i title="Online"></i>' : ""}</button><button class="hubs-mini" data-hping="${esc(person.username)}" title="Ping ${esc(person.username)}" aria-label="Ping ${esc(person.username)}">Ping</button></div>`).join("");
+
+  const context = isChannel
+    ? `<div class="hubs-section">PARTICIPANTS<span class="hubs-pill">${(thread.members || []).length}</span></div><div class="hubs-roster">${(thread.members || []).map((member) => `<div class="hubs-user hubs-static">${hubsAvatar(member.username)}<span>${esc(member.username)}<small>${esc(member.title || member.user_role || "member")}</small></span></div>`).join("")}</div>`
+    : `<div class="hubs-section">PROFILE</div><div class="hubs-profile">${hubsAvatar(h.peer)}<div><strong>${esc(h.peer)}</strong><small>${esc(thread.peer?.title || peopleByName.get(h.peer)?.title || "SENTRIX user")}</small></div></div><button class="btn sm hubs-wide" id="hubs-ping-panel" data-hping-dm="${esc(h.peer || "")}">Ping ${esc(h.peer || "user")}</button><p class="hubs-privacy">${icon("lock", 12)} Only you and ${esc(h.peer)} can read this conversation.</p>`;
+
+  const notificationsHtml = notifications.slice(0, 12).map((note) => `<button class="hubs-item hubs-notif ${note.read ? "" : "unread"}" data-hnotif="${note.id}">${hubsAvatar(note.sender)}<span>${esc(note.sender)}<small>${esc(note.body || note.type.replace(/_/g, " "))}</small></span>${note.read ? "" : '<i class="hubs-dot"></i>'}</button>`).join("") || '<span class="hubs-empty">All caught up.</span>';
+
+  $("#main").innerHTML = `<div class="hubs-shell" data-thread="${esc(threadKey)}">
+    <aside class="hubs-left">
+      <div class="hubs-brand"><div><strong>HUBS</strong><span>Private team messaging</span></div><span class="hubs-roster-pill">${people.length + 1} people</span></div>
+      <input class="input hubs-search" id="hubs-search" placeholder="Search conversations and people" autocomplete="off" aria-label="Search Hubs">
+      <div class="hubs-section">COMPANY CHAT</div>
+      <button class="hubs-open ${isChannel ? "active" : ""}" data-hchannel="open-chat"><span class="hubs-hash">#</span><span class="hubs-open-label">${esc(openChat.name || "Open Chat")}<small>Everyone · company-wide</small></span>${openChat.unread ? `<b>${openChat.unread}</b>` : ""}</button>
+      <div class="hubs-section">DIRECT MESSAGES <button class="btn sm ghost" id="hubs-new-dm" title="Start a direct message">New</button></div>
+      <div class="hubs-list">${dmList || '<span class="hubs-empty">No private conversations yet. Pick a person to start one.</span>'}</div>
+      <div class="hubs-section">PEOPLE</div>
+      <div class="hubs-list" id="hubs-people">${peopleList || '<span class="hubs-empty">No colleagues available.</span>'}</div>
     </aside>
-    <section class="hubs-center"><header class="hubs-head"><div><strong>${h.kind === "channel" ? "# " : ""}${esc(h.title)}</strong><small>${h.kind === "channel" ? (active?.description || "Shared security collaboration") : "Private direct message"}</small></div><button class="btn sm" id="hubs-right-toggle">Context</button></header>
-      <div class="hubs-messages" id="hubs-messages">${thread.error ? `<div class="errbox">${esc(thread.error)}</div>` : messages.map((m) => `<article class="hubs-message ${m.sender === state.user.username ? "mine" : ""}">${hubsAvatar(m.sender)}<div><strong>${esc(m.sender)}</strong><time>${hubsTime(m.created_at)}${m.edited ? " · edited" : ""}</time>${(m.sender === state.user.username || isAdmin()) ? `<button class="hubs-msg-delete" data-hdelete="${esc(m.id)}" title="Delete message">×</button>` : ""}<p>${esc(m.body).replace(/\n/g, "<br>")}</p></div></article>`).join("") || '<div class="hubs-empty">No messages yet. Start the conversation.</div>'}</div>
-      <form class="hubs-compose" id="hubs-compose"><textarea class="input" id="hubs-body" rows="2" placeholder="Write a secure message…" ${canWrite() ? "" : "disabled"}></textarea><button class="btn primary" ${canWrite() ? "" : "disabled"}>Send</button></form>
+    <section class="hubs-center">
+      <header class="hubs-head"><div class="hubs-head-main"><div class="hubs-head-title"><strong>${isChannel ? "# " : ""}${esc(h.title)}</strong><div class="hubs-head-tags">${isChannel ? '<span class="hubs-tag">Company-wide</span>' : '<span class="hubs-tag private">Private</span>'}</div></div><small>${isChannel ? "Everyone in the company can read and reply here." : `Private conversation between you and ${esc(h.peer)}.`}</small></div><div class="hubs-head-actions">${isChannel ? "" : `<button class="btn sm" id="hubs-ping-head" data-hping-dm="${esc(h.peer || "")}">Ping</button>`}<button class="btn sm ghost" id="hubs-right-toggle">${h.rightOpen ? "Hide context" : "Context"}</button></div></header>
+      <div class="hubs-messages" id="hubs-messages">${thread.error ? `<div class="errbox">${esc(thread.error)}</div>` : (messageList || emptyState)}</div>
+      <div class="hubs-compose-wrap"><form class="hubs-compose" id="hubs-compose"><textarea class="input" id="hubs-body" rows="2" placeholder="${isChannel ? "Message the whole company…" : `Message ${esc(h.peer)}…`}" ${canWrite() ? "" : "disabled"}></textarea><button class="btn primary" ${canWrite() ? "" : "disabled"}>Send</button></form><div class="hubs-compose-hint">Enter to send · Shift + Enter for a new line</div></div>
     </section>
-    <aside class="hubs-right ${h.rightOpen ? "" : "collapsed"}"><div class="hubs-section">${h.kind === "channel" ? "PARTICIPANTS" : "PROFILE"}</div>${h.kind === "channel" ? (thread.members || []).map((m) => `<div class="hubs-user">${hubsAvatar(m.username)}<span>${esc(m.username)}<small>${esc(m.title || m.user_role || "member")}</small></span></div>`).join("") + (isAdmin() ? '<button class="btn sm" id="hubs-ping-all">Ping everyone</button>' : "") : `<div class="hubs-user">${hubsAvatar(h.peer)}<span>${esc(h.peer)}<small>${esc(thread.peer?.title || "SENTRIX user")}</small></span></div><button class="btn sm" id="hubs-ping">Ping user</button>`}<div class="hubs-section">NOTIFICATIONS <button class="btn sm" id="hubs-read-all">Read all</button></div><label><input type="checkbox" id="hubs-sound" ${prefs.sound_enabled ? "checked" : ""}> Play ping sound</label><div class="hubs-notifications">${notificationsResult.notifications.slice(0, 8).map((n) => `<button class="hubs-item ${n.read ? "" : "active"}" data-hnotif="${n.id}">${hubsAvatar(n.sender)}<span>${esc(n.sender)}<small>${esc(n.body || n.type.replace(/_/g, " "))}</small></span></button>`).join("") || '<span class="hubs-empty">All caught up</span>'}</div></aside>
+    <aside class="hubs-right ${h.rightOpen ? "" : "collapsed"}">
+      ${context}
+      <div class="hubs-section">NOTIFICATIONS <button class="btn sm ghost" id="hubs-read-all">Read all</button></div>
+      <div class="hubs-notifications">${notificationsHtml}</div>
+      <div class="hubs-section">PREFERENCES</div>
+      <label class="hubs-check"><input type="checkbox" id="hubs-sound" ${prefs.sound_enabled ? "checked" : ""}> Play ping sound</label>
+    </aside>
   </div>`;
-  $("#hubs-messages")?.scrollTo(0, 999999);
-  $$('[data-hchannel]').forEach((b) => b.onclick = async () => { const cid = b.dataset.hchannel; const ch = data.channels.find((c) => c.id === cid); if (ch && !ch.joined && cid !== "open-chat") await api(`/api/hubs/channels/${cid}/join`, { method: "POST", body: {} }); state.hubs = { ...h, kind: "channel", id: cid, title: ch?.name || "Open Chat" }; renderHubs(); });
-  $$('[data-hdm]').forEach((b) => b.onclick = () => { state.hubs = { ...h, kind: "dm", id: b.dataset.hdmkey || "", peer: b.dataset.hdm, title: b.dataset.hdm }; renderHubs(); });
-  $("#hubs-search").oninput = (e) => { const q = e.target.value.trim().toLowerCase(); $$('[data-huser], [data-hdmkey]').forEach((item) => { item.hidden = Boolean(q && !((item.dataset.huser || item.textContent).toLowerCase().includes(q))); }); };
+
+  const newInput = $("#hubs-body");
+  if (newInput && draft) newInput.value = draft;
+  if (newInput && hadFocus) {
+    newInput.focus();
+    try { newInput.setSelectionRange(caret, caret); } catch (_) { /* not a text input */ }
+  }
+  const newScroller = $("#hubs-messages");
+  if (newScroller) {
+    newScroller.scrollTop = wasAtBottom
+      ? newScroller.scrollHeight
+      : Math.min(previousScroll, newScroller.scrollHeight);
+  }
+
+  const open = (next) => {
+    state.hubs = { ...h, ...next };
+    renderHubs().catch((err) => toast(err.message || "Could not open conversation", "error"));
+  };
+  $$('[data-hchannel]').forEach((button) => {
+    button.onclick = () => open({ kind: "channel", id: "open-chat", peer: null, title: "Open Chat" });
+  });
+  $$('[data-hdm]').forEach((button) => {
+    button.onclick = () => {
+      const peer = button.dataset.hdm;
+      open({ kind: "dm", id: button.dataset.hdmkey || dmKey(state.user.username, peer), peer, title: peer });
+    };
+  });
+  $("#hubs-new-dm").onclick = () => {
+    $("#hubs-people")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#hubs-search")?.focus();
+  };
+  $("#hubs-search").oninput = (event) => {
+    const query = event.target.value.trim().toLowerCase();
+    $$(".hubs-dm-row, .hubs-person").forEach((row) => {
+      row.hidden = Boolean(query && !(row.dataset.hsearch || "").includes(query));
+    });
+  };
   $("#hubs-right-toggle").onclick = () => { h.rightOpen = !h.rightOpen; renderHubs(); };
-  $("#hubs-compose").onsubmit = async (e) => { e.preventDefault(); const body = $("#hubs-body").value.trim(); if (!body) return; await api(msgPath, { method: "POST", body: { body } }); renderHubs(); };
-  $$('[data-hdelete]').forEach((el) => el.onclick = async () => { if (!confirm("Delete this message?")) return; await api(`/api/hubs/messages/${el.dataset.hdelete}/delete`, { method: "POST", body: {} }); renderHubs(); });
-  $("#hubs-ping")?.addEventListener("click", async () => { await api("/api/hubs/ping", { method: "POST", body: { to_user: h.peer } }); toast(`Ping sent to ${h.peer}`, "ok"); });
-  $("#hubs-ping-all")?.addEventListener("click", async () => { const message = prompt("Message for all users", "Please review Hubs."); if (message === null) return; const r = await api("/api/hubs/ping-all", { method: "POST", body: { message } }); toast(`Pinged ${r.delivered} user(s)`, "ok"); });
-  $("#hubs-read-all")?.addEventListener("click", async () => { await api("/api/hubs/notifications/read", { method: "POST", body: {} }); updateHubsNotificationBadge(); renderHubs(); });
-  $$('[data-hnotif]').forEach((el) => el.onclick = async () => { const n = notificationsResult.notifications.find((x) => String(x.id) === el.dataset.hnotif); await api("/api/hubs/notifications/read", { method: "POST", body: { ids: [n.id] } }); openHubsNotification(n); updateHubsNotificationBadge(); renderHubs(); });
-  $("#hubs-sound")?.addEventListener("change", (e) => api("/api/hubs/prefs", { method: "POST", body: { sound_enabled: e.target.checked } }));
-  $("#hubs-new-channel")?.addEventListener("click", async () => { const name = prompt("Channel name"); if (!name) return; await api("/api/hubs/channels", { method: "POST", body: { name } }); renderHubs(); });
-  if (h.timer) clearTimeout(h.timer);
-  h.timer = setTimeout(() => { if (state.view === "hubs") renderHubs().catch(() => {}); }, 3000);
+  $("#hubs-compose")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = $("#hubs-body");
+    const body = input.value.trim();
+    if (!body) return;
+    try {
+      await api(threadUrl, { method: "POST", body: { body } });
+      input.value = "";
+      renderHubs();
+    } catch (err) { toast(err.message || "Could not send message", "error"); }
+  });
+  $("#hubs-body")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      $("#hubs-compose").requestSubmit();
+    }
+  });
+  $$('[data-hdelete]').forEach((button) => {
+    button.onclick = async () => {
+      if (!confirm("Delete this message?")) return;
+      try {
+        await api(`/api/hubs/messages/${button.dataset.hdelete}/delete`, { method: "POST", body: {} });
+        renderHubs();
+      } catch (err) { toast(err.message || "Could not delete message", "error"); }
+    };
+  });
+  const ping = async (target) => {
+    if (!target) return;
+    hubsAudioUnlock();
+    try {
+      await api("/api/hubs/ping", { method: "POST", body: { to_user: target } });
+      toast(`Ping sent to ${target}`, "ok");
+    } catch (err) { toast(err.message || "Could not send ping", "error"); }
+  };
+  $$('[data-hping], [data-hping-dm]').forEach((button) => {
+    button.onclick = (event) => {
+      event.stopPropagation();
+      ping(button.dataset.hping || button.dataset.hpingDm);
+    };
+  });
+  $("#hubs-read-all")?.addEventListener("click", async () => {
+    await api("/api/hubs/notifications/read", { method: "POST", body: {} });
+    updateHubsNotificationBadge();
+    renderHubs();
+  });
+  $$('[data-hnotif]').forEach((button) => {
+    button.onclick = async () => {
+      const note = notifications.find((item) => String(item.id) === button.dataset.hnotif);
+      if (!note) return;
+      await api("/api/hubs/notifications/read", { method: "POST", body: { ids: [note.id] } });
+      openHubsNotification(note);
+      updateHubsNotificationBadge();
+      renderHubs();
+    };
+  });
+  $("#hubs-sound")?.addEventListener("change", (event) => {
+    api("/api/hubs/prefs", { method: "POST", body: { sound_enabled: event.target.checked } })
+      .catch((err) => toast(err.message, "error"));
+  });
+
+  h.timer = setTimeout(() => {
+    if (state.view === "hubs") renderHubs().catch(() => {});
+  }, HUBS_TICK_MS);
 }
 
 /* ================= shell ================= */
@@ -855,15 +1118,21 @@ async function updateHubsNotificationBadge() {
   badge.hidden = !count; badge.textContent = count > 99 ? "99+" : count;
 }
 function openHubsNotification(n) {
-  const direct = Boolean(n.dm_key || n.type === "ping");
-  state.hubs = { ...state.hubs, kind: direct ? "dm" : "channel", id: n.dm_key || "", peer: direct ? n.sender : undefined, title: n.sender };
+  const direct = n.type === "direct_message" || n.type === "ping" || Boolean(n.dm_key);
+  state.hubs = {
+    ...state.hubs,
+    kind: direct ? "dm" : "channel",
+    id: direct ? (n.dm_key || dmKey(state.user.username, n.sender)) : (n.channel_id || "open-chat"),
+    peer: direct ? n.sender : undefined,
+    title: n.sender,
+  };
   location.hash = "#/hubs";
 }
 function buildShell() {
   $("#topbar").innerHTML = `<a class="brand" href="#/overview"><img src="/logo.svg" alt=""><span><span class="word">SENTRIX</span><span class="sub" style="display:block">Security Intelligence</span></span></a>
     <span class="topspacer" style="flex:1"></span>
     <span class="livedot" id="livedot"><span class="dot"></span><span id="livetxt">Live</span></span>
-    <button class="iconbtn" id="hubs-messages" aria-label="Open Hubs messages" title="Messages">${icon("message")}<b class="notif-badge" id="hubs-notif-count" hidden></b></button>
+    <button class="iconbtn" id="hubs-messages-btn" aria-label="Open Hubs messages" title="Messages">${icon("message")}<b class="notif-badge" id="hubs-notif-count" hidden></b></button>
     <button class="iconbtn" id="theme-toggle" aria-label="Toggle dark / white theme" title="Toggle theme">${icon("moon")}</button>
     <button class="userbtn" id="userbtn" aria-haspopup="menu"><span class="avatar">${esc(state.user.username[0].toUpperCase())}</span><span><span class="uname">${esc(state.user.username)}</span><span class="urole" style="display:block">${esc(state.user.role)}</span></span></button>`;
   $("#sidebar").innerHTML = NAV.map(([group, items], gi) => `<div class="navgroup" data-group="${gi}"><button class="navhead">${esc(group)} ${icon("chev", 12)}</button><div class="navitems">${items.map(([id, label]) => `<a class="navitem" href="#/${id}" data-nav="${id}">${icon(VIEW_ICON[id])} ${esc(label)}</a>`).join("")}</div></div>`).join("") + `<div class="navfoot" style="padding:10px 12px;color:var(--faint);font-size:10px">SENTRIX · One Intelligence. Every Exposure. Total Control.</div>`;
@@ -887,10 +1156,14 @@ function buildShell() {
     pop.style.top = `${r.bottom + 6}px`; pop.style.left = `${Math.max(8, r.right - 240)}px`;
     $("#um-settings", pop).onclick = () => { pop.remove(); location.hash = "#/settings"; };
     $("#um-access", pop).onclick = () => { pop.remove(); location.hash = "#/access"; };
-    $("#um-out", pop).onclick = async () => { await api("/api/auth/logout", { method: "POST", body: {} }); location.href = "/login"; };
+    $("#um-out", pop).onclick = async () => {
+      await api("/api/auth/logout", { method: "POST", body: {} }).catch(() => {});
+      setAuthToken("");
+      location.href = "/login";
+    };
     setTimeout(() => { const off = (ev) => { if (!pop.contains(ev.target) && ev.target !== $("#userbtn")) { pop.remove(); document.removeEventListener("click", off); } }; document.addEventListener("click", off); }, 0);
   };
-  $("#hubs-messages").onclick = () => { location.hash = "#/hubs"; };
+  $("#hubs-messages-btn").onclick = () => { location.hash = "#/hubs"; };
   /* The Hubs page is the notification inbox; this helper remains available to
      route a message notification to the relevant secure conversation. */
   const showHubsNotifications = async (e) => {
@@ -928,20 +1201,39 @@ function openSheet() {
 function closeSheet() { state.mobileSheet = false; $("#sheet")?.remove(); }
 
 async function boot() {
+  // A tab without its own token is not signed in, even if another tab (or a
+  // stale cookie) is. Send it to the login page instead of inheriting an
+  // account from the shared browser session.
+  if (!authToken()) { location.href = "/login"; return; }
   try { state.user = (await api("/api/auth/me")).user; } catch { return; }
+  hubsInstallAudioUnlock();
   buildShell();
   updateHubsNotificationBadge();
   route();
   setInterval(async () => {
     const e = await api(`/api/hubs/events?last_msg=${state.hubsEvents.lastMsg}&last_notif=${state.hubsEvents.lastNotif}`).catch(() => null);
     if (!e) return;
-    const maxNotif = Math.max(0, ...e.notifications.map((n) => n.id));
-    state.hubsEvents.lastNotif = Math.max(state.hubsEvents.lastNotif, maxNotif);
-    const prefs = e.pings.length ? await api("/api/hubs/prefs").catch(() => null) : null;
-    e.pings.forEach((p) => { if (prefs?.prefs?.sound_enabled) hubsPingTone(); toast(`${p.from_user} pinged you${p.message ? `: ${p.message}` : ""}`, "info"); });
-    if (e.notifications.length && state.view !== "hubs") toast("New Hubs activity", "info");
-    if (e.notifications.length) updateHubsNotificationBadge();
-    if (state.view === "hubs" && e.messages.length) renderHubs().catch(() => {});
+    // The first poll primes the cursors so existing history is not replayed
+    // as brand-new activity on every page load.
+    const priming = !state.hubsEvents.primed;
+    const messages = Array.isArray(e.messages) ? e.messages : [];
+    const notifications = Array.isArray(e.notifications) ? e.notifications : [];
+    const prefs = e.pings?.length ? await api("/api/hubs/prefs").catch(() => null) : null;
+    (e.pings || []).forEach((p) => { if (prefs?.prefs?.sound_enabled) hubsPingTone(); toast(`${p.from_user} pinged you${p.message ? `: ${p.message}` : ""}`, "info"); });
+    state.hubsEvents.lastMsg = Math.max(
+      state.hubsEvents.lastMsg,
+      Number(e.cursor?.last_msg) || 0,
+      ...messages.map((m) => Number(m.seq) || 0),
+    );
+    state.hubsEvents.lastNotif = Math.max(
+      state.hubsEvents.lastNotif,
+      Number(e.cursor?.last_notif) || 0,
+      ...notifications.map((n) => Number(n.id) || 0),
+    );
+    state.hubsEvents.primed = true;
+    if (!priming && notifications.length && state.view !== "hubs") toast("New Hubs activity", "info");
+    if (notifications.length) updateHubsNotificationBadge();
+    if (!priming && state.view === "hubs" && messages.length) renderHubs().catch(() => {});
   }, 3000);
 }
 boot();
