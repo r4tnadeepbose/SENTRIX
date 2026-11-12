@@ -47,6 +47,25 @@ It detects credentials, API keys, tokens, and other sensitive values wherever th
 
 ---
 
+## Screenshots
+
+A walkthrough of SENTRIX from sign-in to key operational views.
+
+| | |
+| --- | --- |
+| **1. Sign In**<br>Secure entry point to the SENTRIX Command Center. | ![Sign In](docs/screenshots/01-login.png) |
+| **2. Home Dashboard**<br>At-a-glance posture, activity, and navigation hub. | ![Home Dashboard](docs/screenshots/02-home.png) |
+| **3. Overview**<br>Executive rollup of findings, sources, and outcomes. | ![Overview](docs/screenshots/03-overview.png) |
+| **4. Intelligence Dashboard**<br>Prioritized intelligence and risk context. | ![Intelligence Dashboard](docs/screenshots/04-intelligence.png) |
+| **5. Findings Queue**<br>Central queue for triage and workflow actions. | ![Findings Queue](docs/screenshots/05-findings.png) |
+| **6. Integrations**<br>SENTRIX Connect providers and connection states. | ![Integrations](docs/screenshots/06-integrations.png) |
+| **7. Detection Sources**<br>Coverage across repositories, surfaces, and inputs. | ![Detection Sources](docs/screenshots/07-sources.png) |
+| **8. Hubs**<br>Collaboration via company chat and direct messages. | ![Hubs](docs/screenshots/08-hubs.png) |
+| **9. Employee Operations**<br>Assignments, workload balancing, and accountability. | ![Employee Operations](docs/screenshots/09-employee-operations.png) |
+| **10. Remediation Center**<br>Playbooks, tasks, verification, and closure tracking. | ![Remediation Center](docs/screenshots/10-remediation.png) |
+
+---
+
 ## Quick Start
 
 ### Prerequisites
