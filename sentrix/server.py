@@ -45,7 +45,7 @@ FINDING_ID = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)$")
 FINDING_SUB = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)/(status|notes|tags|assign|severity|pin|mute|related|checklist|history)$")
 ID_SUB = re.compile(r"^/api/(jobs|schedules|rules|tokens|users|filters)/([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)$")
 PUBLIC_GET = {"/", "/login", "/favicon.svg", "/home-favicon.svg", "/home-favicon.png", "/logo.svg", "/api/health", "/api/auth/demo-info"}
-PUBLIC_POST = {"/api/auth/login", "/api/webhooks/github"}
+PUBLIC_POST = {"/api/auth/login", "/api/webhooks/github", "/api/webhooks/jira", "/api/webhooks/confluence", "/api/webhooks/aws/lambda"}
 ADMIN_PREFIXES = ("/api/users/", "/api/tokens", "/api/ops/restore", "/api/ops/import", "/api/ops/purge")
 # Sentinel returned by response helpers so dispatchers can tell "handled"
 # from "route not found" without inspecting the socket.

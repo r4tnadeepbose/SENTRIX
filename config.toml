@@ -154,3 +154,15 @@ enabled = true
 
 [features.realtime_monitoring]
 interval_seconds = 300
+
+[features.jira_webhook]
+enabled = true
+secret_env = "SENTRIX_JIRA_WEBHOOK_SECRET"
+
+[features.confluence_webhook]
+enabled = true
+secret_env = "SENTRIX_CONFLUENCE_WEBHOOK_SECRET"
+
+[features.aws_deployment_webhook]
+enabled = true
+token_env = "SENTRIX_AWS_WEBHOOK_TOKEN"

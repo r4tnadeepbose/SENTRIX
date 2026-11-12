@@ -502,20 +502,28 @@ def integration_health_snapshot(state):
     webhooks = list_webhook_events(storage, limit=50)
     missed = []
     now = time.time()
-    # Missed webhook detection: if github webhook feature enabled but none received recently
-    if _enabled(state.cfg, "missed_webhook_detection", True) and _enabled(state.cfg, "github_webhooks", True):
-        gh = [w for w in webhooks if w.get("provider") == "github" and w.get("status") in ("processed", "ignored")]
-        if not gh:
-            missed.append({"provider": "github", "issue": "no webhook events recorded", "severity": "medium"})
-        else:
-            # check recency (24h)
-            try:
-                ts = gh[0].get("received_at", "")
-                t = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
-                if now - t > 24 * 3600:
-                    missed.append({"provider": "github", "issue": "no recent webhook events (>24h)", "severity": "low"})
-            except Exception:
-                pass
+    # Missed webhook detection (config-driven)
+    if _enabled(state.cfg, "missed_webhook_detection", True):
+        checks = [
+            ("github", _enabled(state.cfg, "github_webhooks", True)),
+            ("jira", _enabled(state.cfg, "realtime_jira_monitoring", True)),
+            ("confluence", _enabled(state.cfg, "realtime_confluence_monitoring", True)),
+            ("aws", _enabled(state.cfg, "aws_lambda_monitoring", True)),
+        ]
+        for provider, enabled in checks:
+            if not enabled:
+                continue
+            evs = [w for w in webhooks if w.get("provider") == provider and w.get("status") in ("processed", "ignored")]
+            if not evs:
+                missed.append({"provider": provider, "issue": "no webhook events recorded", "severity": "medium"})
+            else:
+                try:
+                    ts = evs[0].get("received_at", "")
+                    t = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+                    if now - t > 24 * 3600:
+                        missed.append({"provider": provider, "issue": "no recent webhook events (>24h)", "severity": "low"})
+                except Exception:
+                    pass
     coverage = {
         "surfaces_with_findings": len({f.surface for f in storage.list_findings(limit=5000)}),
         "integrations_connected": sum(1 for i in inv if i.get("status") == "connected"),
@@ -602,9 +610,113 @@ def handle_feature_get(state, path: str, query: dict, user: dict | None):
     return None
 
 
+def _extract_strings(node, limit=2000):
+    out = []
+    stack = [node]
+    while stack and len(out) < limit:
+        cur = stack.pop()
+        if isinstance(cur, str):
+            if cur.strip():
+                out.append(cur)
+        elif isinstance(cur, dict):
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+    return out
+
+
+def _verify_shared_token(headers: dict, body: dict, expected: str) -> bool:
+    if not expected:
+        return True
+    token = headers.get("X-Sentrix-Token", "") or headers.get("x-sentrix-token", "") or headers.get("X-Webhook-Token", "") or headers.get("x-webhook-token", "")
+    if not token:
+        token = str(body.get("token", "") or "")
+    auth = headers.get("Authorization", "") or headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = token or auth.split(" ", 1)[1].strip()
+    return hmac.compare_digest(str(token), str(expected))
+
+
+def handle_jira_webhook(state, headers: dict, raw_body: bytes, body: dict):
+    cfg, storage = state.cfg, state.storage
+    if not _enabled(cfg, "realtime_jira_monitoring", True):
+        return {"ok": False, "error": "jira webhook monitoring disabled"}, 403
+    secret = env_secret(cfg, "features.jira_webhook.secret_env")
+    if secret and not _verify_shared_token(headers, body, secret):
+        record_webhook(storage, "jira", body.get("webhookEvent", "unknown"), body.get("timestamp", ""), "rejected", "invalid token")
+        return {"ok": False, "error": "invalid token"}, 401
+    event = body.get("webhookEvent") or body.get("issue_event_type_name") or "jira.event"
+    issue = body.get("issue") or {}
+    key = issue.get("key") or body.get("key") or "jira"
+    texts = _extract_strings(issue or body)
+    findings = []
+    for t in texts[:500]:
+        findings.extend(engine.scan_text(t, f"jira:{key}", "jira", state.pipeline.allowlist))
+    state.pipeline.ingest(findings, kind="webhook.jira", provenance={"issue": key, "event": event})
+    record_webhook(storage, "jira", str(event), str(body.get("timestamp") or key), "processed", "", {"issue": key, "findings": len(findings)})
+    _event(storage, "webhook.jira", "jira", {"issue": key, "event": event, "findings": len(findings)})
+    return {"ok": True, "event": event, "issue": key, "findings": len(findings)}, 200
+
+
+def handle_confluence_webhook(state, headers: dict, raw_body: bytes, body: dict):
+    cfg, storage = state.cfg, state.storage
+    if not _enabled(cfg, "realtime_confluence_monitoring", True):
+        return {"ok": False, "error": "confluence webhook monitoring disabled"}, 403
+    secret = env_secret(cfg, "features.confluence_webhook.secret_env")
+    if secret and not _verify_shared_token(headers, body, secret):
+        record_webhook(storage, "confluence", body.get("event", "unknown"), str(body.get("timestamp", "")), "rejected", "invalid token")
+        return {"ok": False, "error": "invalid token"}, 401
+    event = body.get("event") or body.get("webhookEvent") or "confluence.event"
+    page = body.get("page") or body.get("content") or {}
+    page_id = str(page.get("id") or body.get("pageId") or body.get("id") or "page")
+    texts = _extract_strings(page or body)
+    findings = []
+    for t in texts[:500]:
+        findings.extend(engine.scan_text(t, f"confluence:{page_id}", "confluence", state.pipeline.allowlist))
+    state.pipeline.ingest(findings, kind="webhook.confluence", provenance={"page": page_id, "event": event})
+    record_webhook(storage, "confluence", str(event), str(body.get("timestamp") or page_id), "processed", "", {"page": page_id, "findings": len(findings)})
+    _event(storage, "webhook.confluence", "confluence", {"page": page_id, "event": event, "findings": len(findings)})
+    return {"ok": True, "event": event, "page": page_id, "findings": len(findings)}, 200
+
+
+def handle_aws_deployment_webhook(state, headers: dict, raw_body: bytes, body: dict):
+    cfg, storage = state.cfg, state.storage
+    if not _enabled(cfg, "aws_lambda_monitoring", True):
+        return {"ok": False, "error": "aws deployment monitoring disabled"}, 403
+    token = env_secret(cfg, "features.aws_deployment_webhook.token_env")
+    if token and not _verify_shared_token(headers, body, token):
+        record_webhook(storage, "aws", body.get("detail-type") or "lambda.deployment", body.get("id", ""), "rejected", "invalid token")
+        return {"ok": False, "error": "invalid token"}, 401
+    detail = body.get("detail") or {}
+    function_name = detail.get("functionName") or detail.get("FunctionName") or body.get("functionName") or body.get("FunctionName")
+    event = body.get("detail-type") or body.get("eventName") or "lambda.deployment"
+    # Trigger targeted or full cloud realtime scan to detect secrets post-deployment
+    findings = []
+    try:
+        findings_objs = aws_lambda_advanced_scan(cfg, storage, state.pipeline.allowlist)
+        if function_name:
+            # keep findings for the function if identifiable, else include all from scan
+            filtered = [f for f in findings_objs if str(function_name) in (f.path or "")]
+            findings_objs = filtered or findings_objs
+        findings = findings_objs
+    except Exception:
+        res = realtime_surface_scan(state, "cloud")
+        findings = []
+    result = state.pipeline.ingest(findings, kind="webhook.aws.lambda", provenance={"function": function_name, "event": event})
+    record_webhook(storage, "aws", str(event), str(body.get("id") or function_name or time.time_ns()), "processed", "", {"function": function_name, "findings": len(result.get("new", []))})
+    _event(storage, "webhook.aws.lambda", "cloud", {"function": function_name, "event": event, "new": len(result.get("new", []))})
+    return {"ok": True, "event": event, "function": function_name, "new": len(result.get("new", []))}, 200
+
+
 def handle_feature_post(state, path: str, body: dict, headers: dict, raw_body: bytes, user: dict | None):
     if path == "/api/webhooks/github":
         return handle_github_webhook(state, headers, raw_body, body)
+    if path == "/api/webhooks/jira":
+        return handle_jira_webhook(state, headers, raw_body, body)
+    if path == "/api/webhooks/confluence":
+        return handle_confluence_webhook(state, headers, raw_body, body)
+    if path == "/api/webhooks/aws/lambda":
+        return handle_aws_deployment_webhook(state, headers, raw_body, body)
     if path == "/api/features/full-rescan":
         run_full_repo_rescans(state)
         return {"ok": True, "triggered": True}, 200

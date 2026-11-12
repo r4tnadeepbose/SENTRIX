@@ -167,10 +167,10 @@ Sync operations are recorded as audited events/logs (sync does not implicitly fe
 - Handles `pull_request` actions (e.g. opened/synchronize/reopened/edited/ready_for_review)
 - Scans changed/added diff content (from payload patches and/or fetched PR files when GitHub API access is configured)
 - Ingests findings with provenance (`webhook.github.pull_request`, repo/PR metadata)
-- Supports optional webhook signature verification (`X-Hub-Signature-256`)
+- Supports optional webhook signature verification (`X-Hub-Signature-256`, via `SENTRIX_GITHUB_WEBHOOK_SECRET`)
 
 ### 2) GitHub Push Event Secret Scanner
-- Handles `push` webhook events
+- Handles `push` webhook events on the same GitHub webhook endpoint
 - Scans commit patch hunks and/or fetches changed file content (when configured/tokenized API access is available)
 - Ingests findings with provenance (`webhook.github.push`, repo/ref metadata)
 
@@ -179,6 +179,12 @@ Sync operations are recorded as audited events/logs (sync does not implicitly fe
 - Gate outcome is returned in webhook response and recorded in logs/events for CI/automation consumption
 - Complements existing CLI/CI gate workflows (`sentrix gate`, hooks, pipeline templates)
 
+### 3a) Real-Time SaaS and Deployment Webhooks (create/update & post-deploy)
+- **Jira webhook:** `POST /api/webhooks/jira` scans issue/content payloads on create/update-style events in near real time (optional shared token verification via `SENTRIX_JIRA_WEBHOOK_SECRET`)
+- **Confluence webhook:** `POST /api/webhooks/confluence` scans page/content payloads on create/update events in near real time (optional shared token verification via `SENTRIX_CONFLUENCE_WEBHOOK_SECRET`)
+- **AWS Lambda deployment webhook:** `POST /api/webhooks/aws/lambda` triggers post-deployment Lambda/environment/artifact scans (optional shared token verification via `SENTRIX_AWS_WEBHOOK_TOKEN`) to support real-time deployment monitoring workflows
+- All webhook deliveries are tracked for observability and missed-webhook detection; payload scanning flows through the unified detection pipeline (masking, fingerprinting, dedupe, risk, workflow/alerts)
+
 ### 4) Automatic Full Repository Rescanning
 - Scheduler-triggered periodic repository/path rescans (`features.full_repo_rescan`)
 - On-demand trigger: `POST /api/features/full-rescan`
@@ -186,6 +192,7 @@ Sync operations are recorded as audited events/logs (sync does not implicitly fe
 
 ### 5) Real-Time AWS Lambda Deployment Monitoring
 - Periodic real-time cloud scanning via scheduler tick (`features.aws_lambda_monitoring`, `features.realtime_monitoring.interval_seconds`)
+- Event-driven post-deployment trigger support via `POST /api/webhooks/aws/lambda` (e.g. deployment/update events)
 - Detects changes in Lambda configuration/environment and scanned artifacts over time (ingested through normal pipeline/dedupe flow)
 
 ### 6) AWS Multi-Account Secret Scanning
@@ -233,7 +240,7 @@ Sync operations are recorded as audited events/logs (sync does not implicitly fe
 ### 16) Missed Webhook and Failed Scan Detection
 - Tracks webhook deliveries in `webhook_events` (provider/event/delivery/status/reason/timestamps/metadata)
 - Tracks scan/job/webhook processing failures in `scan_failures`
-- Detects missing/recently absent webhook activity (e.g. GitHub) and surfaces signals in health endpoints
+- Detects missing/recently absent webhook activity across enabled providers (e.g. GitHub/Jira/Confluence/AWS) and surfaces signals in health endpoints
 
 ### 17) Integration Health and Coverage Monitoring
 - **Primary endpoint:** `GET /api/features/health`
@@ -442,6 +449,18 @@ token_env = "SENTRIX_GITHUB_TOKEN"
 webhook_secret_env = "SENTRIX_GITHUB_WEBHOOK_SECRET"
 api_base = "https://api.github.com"
 
+[features.jira_webhook]
+enabled = true
+secret_env = "SENTRIX_JIRA_WEBHOOK_SECRET"
+
+[features.confluence_webhook]
+enabled = true
+secret_env = "SENTRIX_CONFLUENCE_WEBHOOK_SECRET"
+
+[features.aws_deployment_webhook]
+enabled = true
+token_env = "SENTRIX_AWS_WEBHOOK_TOKEN"
+
 [features.github_webhooks]
 enabled = true
 
@@ -516,6 +535,9 @@ interval_seconds = 300
 | `SENTRIX_TEAM_PASSWORD` | Team bootstrap support (where applicable) |
 | `SENTRIX_GITHUB_TOKEN` | GitHub API access for webhook enrichment/scans (optional) |
 | `SENTRIX_GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC signature verification secret (recommended) |
+| `SENTRIX_JIRA_WEBHOOK_SECRET` | Shared token for Jira webhook verification (optional but recommended) |
+| `SENTRIX_CONFLUENCE_WEBHOOK_SECRET` | Shared token for Confluence webhook verification (optional but recommended) |
+| `SENTRIX_AWS_WEBHOOK_TOKEN` | Shared token for AWS deployment webhook verification (optional but recommended) |
 | `SENTRIX_SLACK_TOKEN` | Slack API token (live scans/monitoring) |
 | `SENTRIX_JIRA_TOKEN` | Jira API token (live scans/ticketing) |
 | `SENTRIX_CONFLUENCE_TOKEN` | Confluence API token (live scans) |
@@ -540,8 +562,11 @@ SENTRIX exposes a JSON-first API (same host/port as the console). Authentication
 - **Collaboration:** `/api/hubs/*`
 
 ### Advanced feature endpoints (additive)
-- **Webhook ingestion (public, signature-verifiable):**
+- **Webhook ingestion (public, signature/token-verifiable as configured):**
   - `POST /api/webhooks/github` — GitHub PR/push/ping webhook receiver (PR/push scanning, gate result, event tracking)
+  - `POST /api/webhooks/jira` — Jira create/update webhook receiver (real-time payload scanning)
+  - `POST /api/webhooks/confluence` — Confluence create/update webhook receiver (real-time payload scanning)
+  - `POST /api/webhooks/aws/lambda` — AWS Lambda deployment/update webhook receiver (post-deploy scan trigger)
 - **Feature health & monitoring (authenticated API access per server policy):**
   - `GET /api/features/status` — feature enablement snapshot
   - `GET /api/features/health` — integration health/coverage, failed scans/jobs, recent/missed webhooks, scan failures

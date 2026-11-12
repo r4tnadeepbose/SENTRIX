@@ -45,7 +45,8 @@ class AlertRouter:
             return []
         message = (
             f"[{finding.severity.upper()}] {finding.title} on {finding.surface} "
-            f"at {finding.path}:{finding.line} (masked: {finding.secret_masked})"
+            f"at {finding.path}:{finding.line} (masked: {finding.secret_masked}). "
+            "Action: rotate/revoke the exposed credential and remove it from source/systems, then verify remediation."
         )
         sent: list[Alert] = []
         for channel in alert_cfg.get("channels", ["console", "outbox"]):
