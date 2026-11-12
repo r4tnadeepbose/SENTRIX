@@ -45,6 +45,28 @@ DEFAULTS = {
         "postman": {"api_key_env": "SENTRIX_POSTMAN_KEY", "workspaces": []},
         "cloud": {"provider": "local", "lambda_dir": "examples/lambda"},
     },
+    "features": {
+        "github_webhooks": {"enabled": True},
+        "github_pr_scanner": {"enabled": True},
+        "github_push_scanner": {"enabled": True},
+        "github_actions_gate": {"enabled": True},
+        "github": {"token_env": "SENTRIX_GITHUB_TOKEN", "webhook_secret_env": "SENTRIX_GITHUB_WEBHOOK_SECRET", "api_base": "https://api.github.com"},
+        "full_repo_rescan": {"enabled": True, "paths": [], "interval_seconds": 86400},
+        "aws_lambda_monitoring": {"enabled": True},
+        "aws_multi_account": {"enabled": True, "accounts": []},
+        "lambda_env_scan": {"enabled": True},
+        "lambda_zip_scan": {"enabled": True},
+        "realtime_slack_monitoring": {"enabled": True},
+        "slack_private_consent": {"enabled": False, "allowed_channels": []},
+        "realtime_jira_monitoring": {"enabled": True},
+        "realtime_confluence_monitoring": {"enabled": True},
+        "postman_monitoring": {"enabled": True, "export_paths": []},
+        "secret_validation": {"enabled": False, "github_api": False},
+        "s3_audit_archival": {"enabled": False, "bucket": "", "prefix": "sentrix/audit/", "interval_seconds": 3600},
+        "missed_webhook_detection": {"enabled": True},
+        "integration_health_monitoring": {"enabled": True},
+        "realtime_monitoring": {"interval_seconds": 300},
+    },
 }
 
 

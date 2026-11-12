@@ -40,6 +40,21 @@ def scan_lambda_dir(directory: str | Path, cfg: dict, allowlist=None) -> list[Fi
 def live_scan(cfg: dict, allowlist=None) -> list[Finding]:
     if cfg_get(cfg, "surfaces.cloud.provider", "local") != "aws":
         return []
+    # Advanced multi-account/env/zip scanning (additive, feature-gated)
+    try:
+        from sentrix.features.platform import aws_lambda_advanced_scan, _enabled
+        if _enabled(cfg, "aws_lambda_monitoring", True) or _enabled(cfg, "aws_multi_account", True) or _enabled(cfg, "lambda_zip_scan", True):
+            # storage not required for scanning; pass a minimal shim if needed
+            class _Noop:
+                def add_log(self,*a,**k): pass
+                _lock = __import__("threading").Lock()
+                _db = None
+            storage = _Noop()
+            findings = aws_lambda_advanced_scan(cfg, storage, allowlist)
+            if findings is not None:
+                return findings
+    except Exception:
+        pass
     try:
         import boto3
     except ImportError:

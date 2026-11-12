@@ -28,7 +28,12 @@ def live_scan(cfg: dict, allowlist=None) -> list[Finding]:
     if not token:
         return []
     headers = {"Authorization": f"Bearer {token}"}
-    channels = cfg_get(cfg, "surfaces.slack.channels", [])
+    channels = list(cfg_get(cfg, "surfaces.slack.channels", []) or [])
+    # Private channel monitoring with explicit consent (additive)
+    if cfg_get(cfg, "features.slack_private_consent.enabled", False):
+        allowed = set(cfg_get(cfg, "features.slack_private_consent.allowed_channels", []) or [])
+        if allowed:
+            channels = [c for c in channels if c in allowed]
     findings: list[Finding] = []
     for channel in channels:
         cursor = None

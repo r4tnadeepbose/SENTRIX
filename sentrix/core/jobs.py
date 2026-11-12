@@ -79,6 +79,11 @@ class JobRunner:
                     self.storage.update_job(jid, status="failed", finished=_now(), error=str(exc))
                 except Exception:
                     pass
+                try:
+                    from sentrix.features.platform import record_scan_failure
+                    record_scan_failure(self.storage, "job", jid, str(exc))
+                except Exception:
+                    pass
                 self.log("error", "jobs", f"Job {jid} failed: {exc}")
 
 
@@ -121,6 +126,14 @@ def start_scheduler(runner: JobRunner, storage, cfg: dict, router=None, log=None
                     if reactivated:
                         log("info", "risk_acceptance",
                             f"Expired risk acceptances reactivated {reactivated} findings")
+                except Exception:
+                    pass
+                # Advanced features scheduler tick (additive, non-breaking)
+                try:
+                    from sentrix.features.platform import scheduler_tick
+                    class _S: pass
+                    _s = _S(); _s.cfg = cfg; _s.storage = storage; _s.runner = runner; _s.pipeline = runner.pipeline; _s.alert_router = router
+                    scheduler_tick(_s)
                 except Exception:
                     pass
             except sqlite3.ProgrammingError:

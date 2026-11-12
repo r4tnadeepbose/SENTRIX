@@ -83,3 +83,74 @@ workspaces = []
 [surfaces.cloud]
 provider = "local"
 lambda_dir = "examples/lambda"
+# --- Advanced features (additive) ---
+[features.github]
+token_env = "SENTRIX_GITHUB_TOKEN"
+webhook_secret_env = "SENTRIX_GITHUB_WEBHOOK_SECRET"
+api_base = "https://api.github.com"
+
+[features.github_webhooks]
+enabled = true
+
+[features.github_pr_scanner]
+enabled = true
+
+[features.github_push_scanner]
+enabled = true
+
+[features.github_actions_gate]
+enabled = true
+
+[features.full_repo_rescan]
+enabled = true
+paths = []
+interval_seconds = 86400
+
+[features.aws_lambda_monitoring]
+enabled = true
+
+[features.aws_multi_account]
+enabled = true
+accounts = []
+
+[features.lambda_env_scan]
+enabled = true
+
+[features.lambda_zip_scan]
+enabled = true
+
+[features.realtime_slack_monitoring]
+enabled = true
+
+[features.slack_private_consent]
+enabled = false
+allowed_channels = []
+
+[features.realtime_jira_monitoring]
+enabled = true
+
+[features.realtime_confluence_monitoring]
+enabled = true
+
+[features.postman_monitoring]
+enabled = true
+export_paths = []
+
+[features.secret_validation]
+enabled = false
+github_api = false
+
+[features.s3_audit_archival]
+enabled = false
+bucket = ""
+prefix = "sentrix/audit/"
+interval_seconds = 3600
+
+[features.missed_webhook_detection]
+enabled = true
+
+[features.integration_health_monitoring]
+enabled = true
+
+[features.realtime_monitoring]
+interval_seconds = 300

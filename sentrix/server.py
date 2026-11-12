@@ -45,6 +45,7 @@ FINDING_ID = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)$")
 FINDING_SUB = re.compile(r"^/api/findings/([A-Za-z0-9\-]+)/(status|notes|tags|assign|severity|pin|mute|related|checklist|history)$")
 ID_SUB = re.compile(r"^/api/(jobs|schedules|rules|tokens|users|filters)/([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)$")
 PUBLIC_GET = {"/", "/login", "/favicon.svg", "/home-favicon.svg", "/home-favicon.png", "/logo.svg", "/api/health", "/api/auth/demo-info"}
+PUBLIC_POST = {"/api/auth/login", "/api/webhooks/github"}
 ADMIN_PREFIXES = ("/api/users/", "/api/tokens", "/api/ops/restore", "/api/ops/import", "/api/ops/purge")
 # Sentinel returned by response helpers so dispatchers can tell "handled"
 # from "route not found" without inspecting the socket.
@@ -60,6 +61,11 @@ class AppState:
         self.auth.ensure_admin()
         self.router = AlertRouter(cfg, self.storage)
         self.pipeline = Pipeline(cfg, self.storage, self.router)
+        try:
+            from sentrix.features.platform import ensure_features_schema
+            ensure_features_schema(self.storage)
+        except Exception:
+            pass
         if self.storage.stats()["total"] == 0:
             seeded = seed_demo(self.pipeline)
             self.auth.log("info", "demo", f"First run: seeded {seeded} demo findings")
@@ -102,10 +108,13 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self):
         length = int(self.headers.get("Content-Length", 0))
         if not length:
+            self._raw_body = b""
             return {}
+        raw = self.rfile.read(length)
+        self._raw_body = raw
         try:
-            return json.loads(self.rfile.read(length).decode())
-        except json.JSONDecodeError:
+            return json.loads(raw.decode())
+        except Exception:
             return {}
 
     def _session_token(self):
@@ -129,7 +138,7 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self, method, path):
         if path in PUBLIC_GET or path.startswith("/static/"):
             return True
-        if method == "POST" and path == "/api/auth/login":
+        if method == "POST" and path in PUBLIC_POST:
             return True
         user = self._user()
         if not user:
@@ -154,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
         if any(path.startswith(p) for p in ADMIN_PREFIXES) and user["role"] not in ADMIN_ROLES:
             self._json({"error": "security administrator role required"}, 403)
             return False
+        if method == "POST" and path.startswith("/api/webhooks/"):
+            return True
         if method == "POST" and "Cookie" in self.headers and \
                 not self.headers.get("Authorization", "").startswith("Bearer "):
             origin = self.headers.get("Origin", "")
@@ -484,6 +495,15 @@ class Handler(BaseHTTPRequestHandler):
         if path != "/api/auth/login":
             state.auth.log("info", "http", f"{uname} POST {path}")
         try:
+            # Webhook and advanced feature endpoints (additive)
+            if path.startswith("/api/webhooks/") or path.startswith("/api/features/"):
+                from sentrix.features import platform as features
+                headers = {k: v for k, v in self.headers.items()}
+                raw = getattr(self, "_raw_body", b"")
+                result = features.handle_feature_post(state, path, body, headers, raw, user)
+                if result is not None:
+                    payload, code = result
+                    return self._json(payload, code)
             return self._dispatch_post(path, body, uname)
         except AuthError as exc:
             return self._json({"error": str(exc)}, 400)
@@ -1310,6 +1330,14 @@ class Handler(BaseHTTPRequestHandler):
             ra = storage.get_risk_acceptance(m.group(1))
             return self._json({"risk_acceptance": ra}) if ra else self._json({"error": "not found"}, 404)
         # ── Hubs API ──────────────────────────────────────────────
+        # Advanced features (additive)
+        if path.startswith("/api/features/"):
+            from sentrix.features import platform as features
+            result = features.handle_feature_get(state, path, query, self._user())
+            if result is not None:
+                payload, code = result
+                return self._json(payload, code)
+
         result = HubsAPI(state).handle_get(path, query, self._user())
         if result is not None:
             payload, code = result
