@@ -14,346 +14,331 @@
 [![Version](https://img.shields.io/badge/version-2.0.0-informational.svg)](pyproject.toml)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-lightgrey.svg)](#installation--quick-start)
 
-A self-hosted, offline-first security intelligence platform that **finds, explains, prioritizes, routes, remediates, and verifies** exposed secrets across your engineering footprint — delivered as a single Python application with **no required runtime dependencies**.
+A self-hosted, offline-first security intelligence platform that **finds, explains, prioritizes, routes, remediates, verifies, and monitors** exposed secrets across your engineering footprint — delivered as a single Python application with **no required runtime dependencies**.
 
-[What is SENTRIX?](#what-is-sentrix) • [Problem it solves](#the-problem-sentrix-solves) • [Screenshots](#product-tour-screenshots) • [Architecture](#architecture) • [Quick start](#installation--quick-start) • [Documentation](#documentation)
+[Overview](#overview) • [Problem](#problem-statement) • [Screenshots](#product-tour) • [Features](#core-capabilities) • [Advanced Features](#advanced-features-webhooks-monitoring-validation--archival) • [Architecture](#architecture) • [Quick Start](#installation--quick-start) • [Configuration](#configuration) • [API](#api-reference-overview) • [Security](#security-privacy-and-access-control) • [Docs](#documentation)
 
 </div>
 
 ---
 
-## What is SENTRIX?
+## Overview
 
-SENTRIX is an enterprise-oriented **secret exposure and response platform** built as a local modular monolith: one Python 3.11+ process serves the **Command Center (web console)**, **JSON API**, **detection engine**, **alert router**, **background job/scheduler**, and **SQLite-backed storage**.
+**SENTRIX** is an enterprise-oriented **secret exposure detection and response platform** built as a local modular monolith. One Python 3.11+ process serves the:
 
-It detects credentials, API keys, tokens, private keys, connection strings, and other sensitive values wherever they appear (source, git/CI, developer surfaces, cloud artifacts, and supported SaaS/collaboration exports or live polls), then turns raw detections into an operational workflow:
+- **Command Center** (web console / SPA)
+- **JSON API** (for automation, integrations, and UI)
+- **Detection engine** (shared intelligence across surfaces)
+- **Alerting & response pipeline**
+- **Background job runner and scheduler**
+- **SQLite-backed operational datastore**
 
-- **Detect** with a shared intelligence core (26 built-in detectors, custom rules, entropy/format heuristics)
-- **Contextualize** with provenance, environment hints, explainable risk scoring, and deduplication
-- **Assign & review** with accountable ownership, workload-aware routing, and structured review stages
-- **Respond** with alerts, rotation playbooks, redaction/quarantine/ticketing, and verification rescans
-- **Govern** with audit trails, structured logs, reports, compliance evidence mapping, and retention/backup controls
+SENTRIX is designed to help security, AppSec, DevSecOps, platform, and incident-response teams continuously discover leaked credentials and sensitive material, understand blast radius and provenance, prioritize remediation using explainable risk, enforce accountable workflows, and verify closure — while preserving strict data-handling guarantees.
 
-### Core safety & honesty principles
+### Design principles
 
-- **Raw secrets never persist.** Storage, logs, alerts, exports, and AI prompts carry **masked previews** and **SHA-256 fingerprints** only.
-- **Offline-first by default.** Core detection, lifecycle management, jobs, alert outbox, reporting, and governance work without network access or third-party services.
-- **Honest system states.** Integrations report `connected` / `demo` / `disconnected` truthfully; risk scores do **not** claim provider-confirmed validity; compliance views are evidence mappings (not certifications).
-- **No silent closure.** A secret disappearing from a file is not proof of rotation. Verification is an explicit rescan, and closure/verification decisions are human-accountable actions.
-
----
-
-## The problem SENTRIX solves
-
-Modern teams leak secrets in many places at once: local files and IDEs, git history and pull/merge diffs, CI pipelines, cloud function configs, and collaboration/SaaS tools. That creates recurring operational pain:
-
-- **Fragmented visibility:** different scanners and ad-hoc checks produce isolated findings with no single source of truth.
-- **Duplicate noise:** the same credential appears across files/surfaces/scans, overwhelming responders.
-- **Unclear priority:** teams lack explainable context (severity, exposure surface, environment, confidence, repetition) to decide what to fix first.
-- **Weak ownership and accountability:** findings are discovered but not reliably assigned, acknowledged, reviewed, or tracked to closure.
-- **Unverified remediation:** secrets are “removed” from code without proof of rotation/revocation or re-exposure checks.
-- **Governance gaps:** organizations struggle to produce auditable evidence of detection, response, and control operation.
-
-SENTRIX addresses this by unifying **collection, intelligence, workflow, response, and governance** in one platform that can run entirely locally, while supporting optional live integrations and AI-assisted triage where explicitly configured.
+- **One intelligence, many surfaces:** detection logic is centralized; collection adapters only extract text/context.
+- **No raw secret persistence:** findings are stored as **masked previews** and **SHA-256 fingerprints** (not plaintext secrets) across DB, logs, alerts, exports, and AI prompts.
+- **Offline-first, dependency-light:** core functionality runs with Python stdlib only; optional integrations/features degrade gracefully.
+- **Honest state reporting:** integrations and health views distinguish `connected` / `demo` / `disconnected` and other operational states without overstating certainty.
+- **No silent closure:** disappearance is not proof of rotation; verification is explicit and closure decisions are auditable.
+- **Additive evolution:** schema/config/API extensions are designed to be backward-compatible and migration-safe.
 
 ---
 
-## Product tour (screenshots)
+## Problem statement
 
-A walkthrough of SENTRIX from sign-in to key operational views.
+Secret sprawl is a cross-system problem. Credentials leak into source code, git history, CI logs/config, local developer files, cloud function environments/artifacts, collaboration tools, and API workspaces. Organizations commonly struggle with:
+
+- **Fragmented detection and visibility** across tools and teams
+- **High noise and duplicate findings** for the same exposed secret
+- **Poor prioritization** without explainable risk and exposure context
+- **Unclear ownership and delayed response** due to weak assignment/review workflows
+- **Unverified remediation** (removed from code but not rotated/revoked)
+- **Limited auditability and evidence** for governance/compliance programs
+
+SENTRIX unifies **collection → intelligence → workflow → response → governance** so teams can move from detection to verified closure with accountability and operational visibility.
+
+---
+
+## Product tour
+
+A walkthrough of SENTRIX from sign-in through key operational views (10 screenshots).
 
 | View | Screenshot |
 | --- | --- |
 | **1. Sign In**<br>Secure entry point to the SENTRIX Command Center. | ![Sign In](docs/screenshots/01-login.png) |
 | **2. Home Dashboard**<br>At-a-glance posture, activity, and navigation hub. | ![Home Dashboard](docs/screenshots/02-home.png) |
 | **3. Overview**<br>Executive rollup of findings, sources, and outcomes. | ![Overview](docs/screenshots/03-overview.png) |
-| **4. Intelligence Dashboard**<br>Prioritized intelligence and risk context. | ![Intelligence Dashboard](docs/screenshots/04-intelligence.png) |
-| **5. Findings Queue**<br>Central queue for triage and workflow actions. | ![Findings Queue](docs/screenshots/05-findings.png) |
-| **6. Integrations**<br>SENTRIX Connect providers and connection states. | ![Integrations](docs/screenshots/06-integrations.png) |
-| **7. Detection Sources**<br>Coverage across repositories, surfaces, and inputs. | ![Detection Sources](docs/screenshots/07-sources.png) |
+| **4. Intelligence Dashboard**<br>Prioritized intelligence and explainable risk context. | ![Intelligence Dashboard](docs/screenshots/04-intelligence.png) |
+| **5. Findings Queue**<br>Central queue for triage, review, and workflow actions. | ![Findings Queue](docs/screenshots/05-findings.png) |
+| **6. Integrations**<br>SENTRIX Connect providers, states, and operational metadata. | ![Integrations](docs/screenshots/06-integrations.png) |
+| **7. Detection Sources**<br>Coverage across surfaces, repositories, and ingestion paths. | ![Detection Sources](docs/screenshots/07-sources.png) |
 | **8. Hubs**<br>Collaboration via company chat and direct messages. | ![Hubs](docs/screenshots/08-hubs.png) |
 | **9. Employee Operations**<br>Assignments, workload balancing, and accountability. | ![Employee Operations](docs/screenshots/09-employee-operations.png) |
-| **10. Remediation Center**<br>Playbooks, tasks, verification, and closure tracking. | ![Remediation Center](docs/screenshots/10-remediation.png) |
+| **10. Remediation Center**<br>Playbooks, response actions, verification, and closure tracking. | ![Remediation Center](docs/screenshots/10-remediation.png) |
 
 ---
 
-## Capabilities at a glance
+## Core capabilities
 
-| Area | What SENTRIX provides |
-| --- | --- |
-| **Detection intelligence** | 26 built-in detectors (cloud/crypto/SaaS/AI/generic), custom rules (config/runtime), keyword-prefiltered regex matching, Shannon entropy, format/validator checks, masking, stable fingerprinting, allowlisting |
-| **Surface coverage** | IDE/watch, filesystem scans, git diff/history-aware gates, pre-commit/pre-push, CI diffs, cloud/Lambda artifacts (local or optional live AWS), Slack/Confluence/Jira (export + live REST when configured), Postman exports |
-| **Risk & deduplication** | Explainable 0–100 risk score with factor breakdown (severity, category, exposure, confidence, validation, environment, age, repetition), cross-scan dedupe by fingerprint+path+line, occurrence/last-seen tracking, no alert storms on known sightings |
-| **Workflow & governance** | 12-state finding lifecycle (compatibility superset), notes/tags/history/checklists/bulk actions/saved filters, exceptions, structured logs + audit trail, 11 report types (CSV/JSON), retention purge/vacuum, backup/restore/import/export |
-| **Assignment & review** | Explainable auto/recommended/manual assignment, primary owner + secondary reviewer, RBAC-aware routing, skill/domain/workload/capacity/availability/SLA considerations, enforced multi-stage review path with admin final disposition and audited transitions |
-| **Remediation & response** | 11 rotation playbooks, rotate guidance, preview/redact, quarantine/restore, ticketing (live Jira or outbox draft), verification rescans, alert routing (console/outbox/slack/webhook) with rules/quiet hours/dedupe/retries, SLA/escalation support |
-| **Integrations** | SENTRIX Connect hub for 9 providers with honest states; live-capable where configured (e.g. Slack/Jira/Confluence polling, Jira tickets, optional AWS Lambda), export-based/coverage paths for others; sync events are audited (sync does not implicitly fetch provider data) |
-| **Collaboration** | Hubs with Open Chat and private 1:1 DMs, presence/heartbeats, read markers, notifications/pings, per-user preferences; DM privacy scoped to participants |
-| **Security model** | 8-role RBAC (server-enforced), PBKDF2-HMAC-SHA256 passwords, HttpOnly SameSite sessions, CSRF/origin checks for cookie-auth mutations, per-IP login rate limiting, hashed bearer API tokens, hardened response headers, outbound SSRF guard for configured targets |
+### 1) Unified secret detection intelligence
+- **26 built-in detectors** across cloud, crypto, SaaS/dev, AI, and generic families
+- **Custom detection rules** (config-defined and runtime-managed)
+- Keyword-prefiltered regex matching, Shannon entropy analysis, format/validator heuristics
+- Deterministic masking and stable **SHA-256 fingerprinting**
+- Allowlisting (fingerprint registry, built-in safe placeholders, configurable regex patterns)
+- Environment/path heuristics and provenance metadata (origin/surface/event context)
+
+**Detector families (built-in):**
+- **Cloud (6):** AWS access key/secret, GCP API key/service account, Azure storage connection/client secret
+- **Crypto (5):** private key, SSH private key body, JWT, basic-auth URL, DB URI with password
+- **SaaS/Dev (10):** GitHub/GitLab/Slack/Stripe/SendGrid/Twilio/npm/PyPI/Mailchimp tokens and webhooks
+- **AI (2):** OpenAI and Anthropic keys
+- **Generic (3):** generic secret assignment, high-entropy string, env-secret patterns
+
+### 2) Multi-surface coverage (10 surfaces)
+- **Filesystem** scans (file/tree, on-demand)
+- **IDE/watch** ingestion (on-save and polling watcher)
+- **Git diff scanning** (added-lines focus), **pre-commit/pre-push hooks**, and **CI diff gates**
+- **Cloud/Lambda artifacts** (local exports by default; optional live AWS scanning)
+- **Slack / Confluence / Jira** ingestion via exports and/or live REST polling (when configured)
+- **Postman** collection/environment export scanning
+
+### 3) Explainable risk scoring and deduplication
+- **0–100 explainable risk score** with factor breakdown:
+  - severity baseline, secret category, exposure surface, confidence, format validation, environment, age, repetition
+- Risk banding for prioritization (critical/high/medium/low/info)
+- **Dedupe strategy:**
+  - in-scan dedupe by `(detector_id, fingerprint, path, line)`
+  - cross-scan upsert by `fingerprint + path + line` with occurrence/last-seen tracking
+- Prevents alert storms on repeated sightings while preserving visibility
+
+### 4) Findings lifecycle, workflow, and governance
+- **12-state lifecycle model** (compatibility superset) spanning intake, active handling, resolution, and exceptions
+- Status history, notes, tags, pin/mute, checklists, saved filters, bulk actions, related findings
+- **Structured review and accountability flows** (assignment, primary/secondary review, admin final disposition, reassessment/verification paths) with audited transitions
+- Closed findings retained for audit/history
+- **Governance artifacts:** audit trail, structured system logs/events, 11 report types (CSV/JSON), compliance evidence mapping views, retention purge/vacuum, backup/restore/import/export
+
+### 5) Intelligent assignment and workload management
+- Explainable **automatic / recommended / manual** assignment modes
+- **Primary owner + secondary reviewer** model with RBAC-aware eligibility
+- Considers severity/urgency, technical domain inference, skills/expertise, severity-weighted workload/capacity, availability, ownership context, conflicts, and SLA targets
+- Assignment history, acknowledgements, reassignment/assist/escalation workflows
+- Server-side enforcement of role permissions and admin-override auditing
+
+### 6) Remediation, response, and verification
+- **11 rotation playbooks** (AWS/GCP/Azure/GitHub/GitLab/Slack/Stripe/OpenAI/DB/keypair/generic)
+- Actions: rotate guidance, preview-redact, redact, quarantine/restore, ticket creation, verification rescan
+- **Ticketing:** live Jira integration when configured; outbox draft fallback otherwise
+- **Alerting:** console/outbox and optional Slack/webhook channels with rules, dedupe window, quiet hours, retries/backoff, acknowledgements, and escalation behavior
+- **Verification-first closure:** explicit rescans and human-accountable decisions (no automatic provider revocation)
+
+### 7) SENTRIX Connect (integrations hub)
+Tracks 9 providers with honest operational states (`connected`, `demo`, `disconnected`):
+- **GitHub, GitLab, Bitbucket, Jenkins** (coverage via hooks/gates/scans/exports; no live API connector in Connect inventory)
+- **AWS** (local artifact scans by default; optional live Lambda scanning with `boto3`/credentials)
+- **Slack, Jira, Confluence** (export ingestion and live REST polling when configured; Jira ticketing supported)
+- **Postman** (export-based ingestion/monitoring paths)
+
+Sync operations are recorded as audited events/logs (sync does not implicitly fetch provider data unless explicitly implemented by the configured ingestion path).
+
+### 8) Collaboration (Hubs)
+- Shared **Open Chat** and private **1:1 DMs**
+- Presence/heartbeats, read markers, notifications, and pings
+- Per-user preferences (notification/sound/mute behavior)
+- Message posting with edit/delete API support
+- Privacy-aware access controls (DMs scoped to participants; role-aware write restrictions)
+
+### 9) Command Center experience
+- Hash-routed SPA (no frontend build step), dark/light themes, role-aware UI
+- 27 primary views across Command Center, Detection, Attack Surface, Response, Collaboration, Operations, and Governance
+- Finding drill-down, bulk operations, saved filters, reports/exports, telemetry dashboards, and contextual help
+
+---
+
+## Advanced features (webhooks, monitoring, validation & archival)
+
+> These capabilities are implemented additively and exposed through configuration flags, scheduler tasks, and feature endpoints. They are designed to be non-breaking and to degrade gracefully when credentials/dependencies are unavailable.
+
+### 1) GitHub Pull Request Secret Scanner
+- **Webhook endpoint:** `POST /api/webhooks/github`
+- Handles `pull_request` actions (e.g. opened/synchronize/reopened/edited/ready_for_review)
+- Scans changed/added diff content (from payload patches and/or fetched PR files when GitHub API access is configured)
+- Ingests findings with provenance (`webhook.github.pull_request`, repo/PR metadata)
+- Supports optional webhook signature verification (`X-Hub-Signature-256`)
+
+### 2) GitHub Push Event Secret Scanner
+- Handles `push` webhook events
+- Scans commit patch hunks and/or fetches changed file content (when configured/tokenized API access is available)
+- Ingests findings with provenance (`webhook.github.push`, repo/ref metadata)
+
+### 3) GitHub Actions Automated Security Gates
+- PR webhook scans compute a **gate result** (`pass`/`fail`) using `scan.fail_on` severity threshold
+- Gate outcome is returned in webhook response and recorded in logs/events for CI/automation consumption
+- Complements existing CLI/CI gate workflows (`sentrix gate`, hooks, pipeline templates)
+
+### 4) Automatic Full Repository Rescanning
+- Scheduler-triggered periodic repository/path rescans (`features.full_repo_rescan`)
+- On-demand trigger: `POST /api/features/full-rescan`
+- Uses existing bounded job runner (`queued/running/done/failed/cancelled`) for safe background execution
+
+### 5) Real-Time AWS Lambda Deployment Monitoring
+- Periodic real-time cloud scanning via scheduler tick (`features.aws_lambda_monitoring`, `features.realtime_monitoring.interval_seconds`)
+- Detects changes in Lambda configuration/environment and scanned artifacts over time (ingested through normal pipeline/dedupe flow)
+
+### 6) AWS Multi-Account Secret Scanning
+- Multi-account/profile/assume-role session support via `features.aws_multi_account.accounts`
+- Enables centralized scanning across configured AWS accounts (when `boto3` and credentials/roles are available)
+
+### 7) Lambda Environment Variable Scanning
+- Scans Lambda environment variables from local artifacts and/or live AWS function configuration
+- Preserves existing behavior and extends it in advanced monitoring paths
+
+### 8) Lambda ZIP Artifact Scanning
+- Downloads/scans Lambda deployment package contents (ZIP artifacts) for code/config secrets when enabled (`features.lambda_zip_scan`)
+- Skips unsupported/oversized entries and scans common text/code/config file types
+
+### 9) Real-Time Slack Secret Monitoring
+- Scheduled real-time Slack live scans (configured token/channels) via feature scheduler (`features.realtime_slack_monitoring`)
+- Uses existing Slack adapter semantics and degrades gracefully when unconfigured
+
+### 10) Private Slack Channel Monitoring with Consent
+- Consent-gated channel filtering via `features.slack_private_consent`
+- When enabled, monitoring can be restricted to explicitly allowed channels (`allowed_channels`) to enforce operator consent boundaries
+
+### 11) Real-Time Jira Secret Scanning
+- Scheduled real-time Jira live scans (`features.realtime_jira_monitoring`) using configured Jira credentials/base URL
+- Ingests detections through the unified pipeline (including SaaS handling paths)
+
+### 12) Real-Time Confluence Secret Scanning
+- Scheduled real-time Confluence live scans (`features.realtime_confluence_monitoring`) using configured credentials/base URL
+
+### 13) Postman Workspace and Collection Monitoring
+- Monitors configured local export paths (`features.postman_monitoring.export_paths`) on schedule
+- Scans collections and environments (export-based monitoring path; additive to existing Postman ingest capabilities)
+
+### 14) Automated API-Based Secret Validation
+- **Endpoint:** `POST /api/features/validate-finding` (`{"id":"<finding_id>"}`)
+- Opt-in feature (`features.secret_validation`) records validation outcomes in an additive `validation_results` store
+- **Important privacy/implementation note:** SENTRIX does not persist raw secret values. As a result, live provider-API validation that requires transmitting the original secret cannot be performed from stored findings alone and is recorded as unavailable/format-only where applicable. The framework is additive and safe-by-default.
+
+### 15) AWS S3 Centralized Audit Archival
+- Archives audit/log/event bundles to S3 (`features.s3_audit_archival`) via `boto3`
+- **On-demand:** `POST /api/features/archive-audit`
+- **Scheduled:** periodic archival when enabled (`interval_seconds`, bucket/prefix configured)
+- Records success/failure in logs and scan-failure tracking (non-fatal)
+
+### 16) Missed Webhook and Failed Scan Detection
+- Tracks webhook deliveries in `webhook_events` (provider/event/delivery/status/reason/timestamps/metadata)
+- Tracks scan/job/webhook processing failures in `scan_failures`
+- Detects missing/recently absent webhook activity (e.g. GitHub) and surfaces signals in health endpoints
+
+### 17) Integration Health and Coverage Monitoring
+- **Primary endpoint:** `GET /api/features/health`
+- Returns additive operational telemetry:
+  - integration inventory states and metadata
+  - coverage summary (surfaces with findings, integration state counts)
+  - failed jobs/scans and recent scan failures
+  - recent webhook events and missed-webhook indicators
+- Supporting endpoints:
+  - `GET /api/features/status` (feature enablement snapshot)
+  - `GET /api/features/webhooks?provider=&limit=`
+  - `GET /api/features/scan-failures?limit=`
 
 ---
 
 ## Architecture
 
-SENTRIX is implemented as a **stdlib-only modular monolith** (no build step) with clear internal boundaries:
+### Runtime model
+- **Single-process modular monolith** (Python 3.11+, stdlib-first)
+- **HTTP server:** stdlib `ThreadingHTTPServer` serving console + API
+- **Background execution:** bounded job runner (scan slots) + scheduler loop (schedules, escalations, maintenance, feature ticks)
+- **Storage:** SQLite with thread-local connections, write locking, additive/idempotent migrations
 
-- **Process model:** `ThreadingHTTPServer` (thread-per-request) + daemon job/scheduler threads
-- **Storage:** single SQLite database (`data/sentrix.db`) with thread-local connections and a global write lock
-- **Concurrency controls:** background scan execution bounded by a two-slot semaphore; cooperative job cancellation
-- **Schema evolution:** additive, idempotent migrations with legacy compatibility handling
+### Logical layers
+1. **Collection** — surface adapters, hooks, CI/gates, watchers, exports/live polling, webhooks
+2. **Ingestion** — unified pipeline normalization (`pipeline.ingest`)
+3. **Intelligence Core** — detectors, engine, entropy/validation/masking/fingerprinting, risk scoring, triage
+4. **Security Management** — lifecycle, workflow state, notes/tags/history/checklists, assignment metadata
+5. **Response** — alerting, escalation, remediation playbooks/actions, verification
+6. **Control Plane** — API, auth/RBAC, jobs/schedules, integrations, reports, ops, feature endpoints
+7. **Storage** — SQLite schema, migrations, events/audit/logs, operational records
 
-### Seven logical layers
-
-| # | Layer | Responsibility | Primary implementation |
-| --- | --- | --- | --- |
-| 1 | **Collection** | Capture text where secrets appear (edits, diffs, scans, exports, polls) | `sentrix/surfaces/*`, `sentrix/watch.py`, `hooks/`, `ci/`, `editors/vscode/` |
-| 2 | **Ingestion** | Normalize and persist detections through one pipeline | `sentrix/core/pipeline.py` |
-| 3 | **Intelligence Core** | Detect, validate, mask, fingerprint, score, and triage | `sentrix/detectors/*`, `sentrix/core/{engine,entropy,risk,allowlist}.py`, `sentrix/ai/*` |
-| 4 | **Security Management** | Lifecycle operations, notes/tags/filters, history, workflow state | `sentrix/core/extensions.py`, finding endpoints in `sentrix/server.py` |
-| 5 | **Response** | Alerting, escalation, remediation actions/playbooks, verification | `sentrix/alerting/router.py`, `sentrix/remediation/playbooks.py`, `sentrix/core/jobs.py` |
-| 6 | **Control Plane** | API/console, auth/RBAC, jobs/schedules, integrations, reports, ops | `sentrix/{server,auth,cli}.py`, `sentrix/core/{jobs,reports,integrations}.py`, `sentrix/dashboard/` |
-| 7 | **Storage** | Durable state, schema/migrations, dedupe and query primitives | `sentrix/core/{storage,extensions}.py`, `sql/schema.sql` |
-
-### End-to-end flow
-
+### High-level data flow
 ```text
-Surface event (save / hook / CI diff / schedule / export / poll / API)
+Event source
+  (save/watch, git/CI diff, webhook, export/live poll, scheduled scan, API)
         │
         ▼
-Collection adapter extracts text or diff lines
+Surface adapter / webhook handler
         │
         ▼
-Intelligence Core (engine)
-  detectors → entropy → validation → allowlist → mask + fingerprint
+Detection engine (scan_text/scan_file/scan_tree)
+  detector match → validation/entropy → allowlist → mask + fingerprint
         │
         ▼
-Pipeline ingest
-  provenance + risk score → dedupe upsert → event
-    • new finding  → alerting / auto-ticket (policy-driven)
-    • known finding → occurrences & last_seen updated (no alert storm)
+Pipeline ingest (single normalization path)
+  provenance + risk → dedupe upsert → events/logs
+    • new finding  → alerting / auto-ticket (policy) / assignment hooks
+    • known finding → occurrences & last_seen updated
         │
         ▼
-Security Management
-  triage, assignment, review stages, notes/checklists/history
+Workflow & response
+  assignment/review → remediation/playbooks → verification rescan → closure
         │
         ▼
-Response
-  rotate guidance / redact / quarantine / ticket → verification rescan
-        │
-        ▼
-Closure (human-accountable decisions, audited)
+Governance & monitoring
+  audit/logs/reports/compliance + integration health/webhook/failure tracking
 ```
 
----
-
-## Detection engine
-
-### How scanning works
-
-- **Single scan path:** `scan_text`, `scan_file`, and `scan_tree` power IDE/watch, filesystem, git/CI gates, jobs/schedules, and ingestion flows.
-- **Per-detector evaluation:** keyword prefilter → regex match → optional validator/format checks → masking → SHA-256 fingerprint → allowlist checks → finding emission with metadata.
-- **In-scan dedupe:** suppresses duplicates by `(detector_id, fingerprint, path, line)` within the same scan.
-- **Cross-scan dedupe:** pipeline upserts by `fingerprint + path + line`, preserving identity/status while incrementing occurrences and `last_seen`.
-- **File hygiene:** UTF-8 decode with replacement, binary-file skip (NUL heuristic), max file size guard (default 1,000,000 bytes), ignore dirs/files (configurable, fnmatch-supported).
-- **Incremental scans:** background jobs can reuse cached file state (mtime/size) for efficiency.
-
-### Detectors (26 built-in)
-
-| Family | Count | Detectors |
-| --- | ---: | --- |
-| **Cloud** | 6 | `aws-access-key-id`, `aws-secret-access-key`, `gcp-api-key`, `gcp-service-account`, `azure-storage-connection`, `azure-client-secret` |
-| **Crypto** | 5 | `private-key`, `jwt`, `basic-auth-url`, `postgres-uri` (DB URI with password: postgres/postgresql/mysql/mongodb(+srv)/redis/amqp), `ssh-private-key-body` |
-| **SaaS / Dev** | 10 | `github-token`, `gitlab-token`, `slack-token`, `slack-webhook`, `stripe-key`, `sendgrid-key`, `twilio-key`, `npm-token`, `pypi-token`, `mailchimp-key` |
-| **AI** | 2 | `openai-key`, `anthropic-key` |
-| **Generic** | 3 | `generic-secret-assignment`, `high-entropy-string` (entropy-gated), `env-secret` |
-
-**Custom detection:** supports config-defined `[[custom_detectors]]` and runtime detection rules (validated regex) for organization-specific patterns.
-
-### Risk scoring, confidence, and environment context
-
-SENTRIX computes an **explainable 0–100 risk score** with factor breakdown:
-
-- Severity baseline, secret category, and exposure surface
-- Confidence and format-validation signals
-- Environment heuristic (e.g. production-like paths increase risk)
-- Exposure age and repetition/occurrence signals
-
-Risk bands are surfaced in the UI/API (critical/high/medium/low/info). Scores are explainable and intentionally do **not** claim external provider-confirmed validity.
-
-### Allowlisting and false-positive control
-
-- Fingerprint allowlist (API/CLI/UI workflows) to suppress confirmed safe matches
-- Built-in safe/example placeholder filtering and configurable `scan.allowlist_patterns` (regex)
-- Exceptions/false-positive workflow states with auditability
-
----
-
-## Surfaces and ingestion coverage
-
-| Surface | Coverage mode | Notes |
-| --- | --- | --- |
-| **Filesystem** | Live/local | On-demand file/tree scans with ignore/size/binary protections |
-| **IDE / Watch** | Live/local | On-save scans and polling watcher for changed files |
-| **Git / Pre-commit / Pre-push** | Live/local (diff-only) | Scans added lines in diffs/ranges; blocking gates based on `scan.fail_on` threshold |
-| **CI** | Live/local (diff-only) | Pipeline diff gates (templates/examples provided for GitLab/Jenkins integration patterns) |
-| **Cloud (Lambda artifacts)** | Local by default; optional live AWS | Scans local exported artifacts; optional live AWS Lambda config/env scan with `boto3` + ambient credentials (read-only) |
-| **Slack** | Export and/or live REST (configured) | Export JSON ingestion and live channel history polling when configured |
-| **Confluence** | Export and/or live REST (configured) | Export ingestion and live content polling when configured |
-| **Jira** | Export and/or live REST (configured) | Export ingestion, live issue polling, and ticket creation path (when configured) |
-| **Postman** | Export-based | Collection/environment JSON ingestion (live connector not implemented) |
-
-> **Honesty note:** some providers in SENTRIX Connect are represented for inventory/coverage tracking even when live connector ingestion is not implemented (e.g. GitHub/GitLab/Bitbucket/Jenkins). Coverage for those is achieved through hooks, CI gates, scans, and exports.
-
----
-
-## Workflow: assignment, review, remediation, verification
-
-### Finding lifecycle (management states)
-
-SENTRIX tracks a compatibility-oriented lifecycle (12-state superset) including intake, active handling, resolved, and exception states (e.g. `open/new`, `triaged/assigned/in_progress/reopened`, `remediated/verified/closed`, `false_positive/accepted_risk/suppressed`). Status history, notes, tags, checklists, bulk actions, and saved filters support day-to-day operations.
-
-### Intelligent assignment and accountability
-
-Assignment is a first-class workflow layer (separate from finding lifecycle state) with explainable decisions and audited changes:
-
-- **Methods:** automatic, recommended, and manual assignment
-- **Ownership model:** primary owner (accountable) + secondary reviewer (independent oversight)
-- **Inputs considered:** severity/urgency, technical domain inference, RBAC eligibility, skills/expertise, severity-weighted workload vs capacity, availability, ownership context, conflicts/existing assignments
-- **Operational controls:** acknowledgements, in-progress/blocked states, reassignment requests, SLA targets and escalation checks, bulk and approve/reject flows for recommendations
-- **RBAC-aware behavior:** read-only roles cannot mutate; admin override requires reason and is audited
-
-### Structured review flow
-
-SENTRIX enforces a multi-stage review path (as implemented in server/UI workflows): assignment → primary assessment → secondary review → admin final decision, with reassessment loops where required. Key properties:
-
-- Independent assessments with reasoning/evidence capture
-- Admin performs final disposition (not primary/secondary assessment roles)
-- True-positive decisions route to remediation/verification; false-positive decisions can be closed with recorded rationale
-- All transitions are recorded with actor/timestamp/reason and surfaced in history
-
-### Remediation and verification
-
-**Remediation actions** include rotate guidance, redaction preview/redaction, quarantine/restore, ticket creation, and verification rescans.
-
-**Playbooks (11):** `rotate-aws`, `rotate-gcp`, `rotate-azure`, `rotate-github`, `rotate-gitlab`, `rotate-slack`, `rotate-stripe`, `rotate-openai`, `rotate-db`, `rotate-keypair`, `rotate` (generic).
-
-**Important operational truth:** redaction/quarantine reduces exposure, but **credential rotation/revocation at the provider** is what neutralizes the secret. SENTRIX supports guided response and verification; it does not auto-revoke provider credentials.
-
----
-
-## Integrations (SENTRIX Connect)
-
-SENTRIX Connect tracks **9 providers** with explicit, honest states (`connected`, `demo`, `disconnected`).
-
-| Provider | Surface | State / capability notes |
-| --- | --- | --- |
-| **GitHub** | git | Inventory/coverage via hooks, CI gates, scans/exports (no live API connector) |
-| **GitLab** | git | Inventory/coverage via hooks, CI gates, scans/exports (no live API connector) |
-| **Bitbucket** | git | Inventory/coverage via hooks/scans/exports (no live API connector) |
-| **Jenkins** | ci | Inventory/coverage via CI/gate workflows (no live API connector) |
-| **AWS** | cloud | Local artifact scans by default; optional live Lambda config/env scan with `boto3` + ambient credentials |
-| **Slack** | slack | Export ingestion and/or live polling when configured; alert channel support available |
-| **Jira** | jira | Export ingestion and/or live polling when configured; ticket creation live-capable or outbox draft |
-| **Confluence** | confluence | Export ingestion and/or live polling when configured |
-| **Postman** | postman | Export-based collection/environment scanning |
-
-- **Sync semantics:** `POST /api/integrations/{id}/sync` records an audited sync event/log entry; it does **not** itself fetch provider data.
-- **Credentials:** sourced from environment variables named in config (e.g. `SENTRIX_SLACK_TOKEN`, `SENTRIX_JIRA_TOKEN`, `SENTRIX_CONFLUENCE_TOKEN`, `SENTRIX_POSTMAN_KEY`) and/or standard AWS credential chain.
-
----
-
-## Hubs (collaboration)
-
-SENTRIX includes **Hubs** for team collaboration directly in the console:
-
-- **Open Chat** (shared channel) and **private 1:1 direct messages**
-- Presence/heartbeat-based online indicators
-- Read markers, notifications, and pings (audited actions)
-- Per-user preferences (sound/desktop notification behavior, mutes)
-- Message posting with edit/delete support in the API layer
-
-**Privacy model:** DMs are scoped to participants. Access is controlled server-side; read-only roles are restricted from content-writing operations but can manage personal read/notification/prefs/heartbeat actions.
-
----
-
-## Security, privacy, and access control
-
-### Authentication and sessions
-
-- **Password hashing:** PBKDF2-HMAC-SHA256 (200,000 iterations, random salt), constant-time verification
-- **Sessions:** server-side session records, `HttpOnly` + `SameSite=Strict` cookie (`sx_session`), configurable expiry (default 12h), optional remember-me extension (server-side)
-- **Login protection:** per-IP failed-login rate limiting (rolling window, default 5 attempts/minute)
-- **Initial bootstrap:** creates initial admin on first run (from `SENTRIX_ADMIN_PASSWORD` or demo/random bootstrap path; protect/delete generated initial password files if created)
-
-### RBAC (8 roles)
-
-`super_admin`, `security_admin`, `security_analyst`, `appsec_engineer`, `devsecops_engineer`, `developer`, `auditor`, `viewer`
-
-- Server-enforced route/operation authorization
-- Write-capable operational roles vs read-only roles (UI and API enforcement)
-- Admin-only operations for user/token and sensitive ops endpoints
-- Legacy role migration support for older databases
-
-### API tokens and request protections
-
-- **Bearer tokens:** admin-created, `sxt_`-prefixed, raw token shown once, only hash stored; revocable
-- **CSRF/origin controls:** cookie-authenticated mutations require matching Origin/Host; Bearer-auth flows exempt
-- **Response hardening:** `no-store`, `nosniff`, `DENY` frame policy, restrictive referrer/CSP/permissions/COOP/CORP headers
-- **Outbound safety:** explicit configured targets only; SSRF guard blocks loopback/private/link-local/multicast/reserved resolved hosts for outbound requests
-
-### Data handling and privacy
-
-- No raw secret persistence (masked values + fingerprints only)
-- No external credential validation calls to providers
-- Alerts, logs, reports, and AI triage inputs (when enabled) use masked data
-- Quarantine files may retain original content for operator-controlled remediation workflows and must be protected accordingly
-
-### Production posture (summary)
-
-- Disable demo mode (`auth.demo_mode = false`) and use `config.local.toml`
-- Set a strong `SENTRIX_ADMIN_PASSWORD`
-- Keep the service on loopback or behind a TLS-terminating reverse proxy
-- Change/remove/disable demo accounts and protect `data/` (DB, backups, quarantine, generated initial password files)
-- Review `docs/SECURITY.md` hardening checklist before exposure beyond local/dev use
-
----
-
-## Command Center (web console)
-
-SENTRIX ships a hash-routed SPA (no frontend build step) with dark/light themes, role-aware controls, contextual help, and live operational views.
-
-**Primary navigation groups and views (27):**
-
-- **Command Center:** Home, Overview, My Workspace, Security Posture, Intelligence Dashboard
-- **Detection:** Findings Queue, Closed Findings, Vulnerabilities / Exposures, Detection Sources, Detection Rules, Detection Playground, Scan Management
-- **Attack Surface:** Repository Security, Developer Security, Cloud Security, CI/CD Security, SaaS Security, Asset Inventory, Technologies, Groups
-- **Response:** Employee Operations, Remediation Center, Security Alerts, Investigation Center, Exception Management
-- **Collaboration:** Hubs
-- **Operations:** Architecture, Workers & Agents, AI Agents, MCP, Tools & Connectors, Integrations, Job Registry, System Logs, Activity & Audit, System Health
-- **Governance:** Reports, Compliance, Access Management, Settings
-
-The console includes finding drill-down/detail workflows, bulk actions, saved filters, assignment/review/remediation interactions, report/export actions, and operational telemetry views.
+### Repository structure
+```text
+SENTRIX/
+├── sentrix/
+│   ├── core/                # Engine, pipeline, storage, risk, jobs, assignment, integrations, reports
+│   ├── detectors/           # Built-in detector registry and implementations
+│   ├── surfaces/            # Filesystem/IDE/Git/Cloud/Slack/Confluence/Jira/Postman adapters
+│   ├── alerting/            # Alert routing and delivery
+│   ├── remediation/         # Playbooks and response actions
+│   ├── ai/                  # Heuristic and optional GPT triage (masked-only)
+│   ├── hubs/                # Collaboration (channels/DMs/presence/notifications)
+│   ├── dashboard/           # SPA assets (HTML/CSS/JS)
+│   ├── features/            # Additive advanced features (webhooks, monitoring, validation, archival)
+│   ├── server.py            # HTTP server, routing, auth/RBAC, API dispatch
+│   ├── auth.py              # Auth, sessions, RBAC, tokens, audit helpers
+│   └── cli.py               # CLI entrypoint and commands
+├── hooks/                   # Git hooks (pre-commit/pre-push)
+├── ci/                      # CI templates (GitLab, Jenkins)
+├── editors/vscode/          # VS Code integration
+├── docs/                    # Product/architecture/API/security/deployment documentation
+├── examples/                # Demo fixtures and sample exports/artifacts
+├── tests/                   # Automated tests
+├── sql/                     # SQL/schema assets
+├── assets/                  # Branding/static assets
+├── config.toml              # Default configuration
+├── run.py / run.bat / run.sh
+└── pyproject.toml
+```
 
 ---
 
 ## Installation & quick start
 
 ### Prerequisites
-
 - **Python 3.11+**
-- **Windows, Linux, or macOS** (Kali supported for local/dev workflows)
-- No required runtime pip dependencies (`boto3` optional for live AWS Lambda scanning)
+- **Windows / Linux / macOS** (local/dev use supported on Kali as well)
+- No required third-party runtime packages (stdlib-only core)
 
-### Run locally
+### Start the server
 
 **Windows**
-
 ```bat
 run.bat
 ```
 
 **Linux / macOS**
-
 ```sh
 chmod +x run.sh
 ./run.sh
@@ -362,16 +347,22 @@ python3 run.py
 ```
 
 **Any platform**
-
 ```sh
 python run.py serve --port 8710
 ```
 
-Open: **http://127.0.0.1:8710**
+Open the Command Center: **http://127.0.0.1:8710**
 
-On first run (demo mode enabled by default), SENTRIX can bootstrap a local demo environment (admin/team accounts and demo data) for exploration.
+### Optional dependencies (feature-specific)
+```sh
+# Optional: live AWS Lambda scanning / multi-account / ZIP scan / S3 archival
+pip install boto3
+# or
+pip install .[aws]
+```
 
 ### Local demo accounts (loopback/demo installs only)
+On first run in demo mode, SENTRIX may bootstrap local demo accounts/data for exploration.
 
 | Username | Role | Demo password |
 | --- | --- | --- |
@@ -382,152 +373,233 @@ On first run (demo mode enabled by default), SENTRIX can bootstrap a local demo 
 | `n.singh` | `auditor` (read-only) | `n.singh-demo` |
 | `v.iyer` | `developer` (read-only) | `v.iyer-demo` |
 
-> Demo credentials are intended only for local demonstration installs and are hidden/invalidated by production-mode and non-loopback conditions as implemented. Change passwords immediately and disable/remove demo accounts before any non-demo use.
-
-### Optional extras
-
-```sh
-# Optional: live AWS Lambda scanning support
-pip install boto3
-# or, if installing as a package
-pip install .[aws]
-```
+> Demo credentials are intended for local demonstration only. Disable demo mode, change/remove demo accounts, and harden configuration before any non-demo or shared deployment.
 
 ---
 
-## CLI reference (overview)
+## CLI usage
 
-SENTRIX provides a single CLI entry point (`sentrix` / `python run.py ...`).
+```sh
+# Start server (default)
+python run.py
+python run.py serve --port 8710
 
-| Command | Purpose |
-| --- | --- |
-| `serve [--port N]` | Start Command Center + API server |
-| `scan PATH [--surface S] [--json] [--no-store] [--strict]` | Scan files/trees (optionally fail on threshold) |
-| `gate [--staged \| --range BASE..HEAD \| --base B --head H] [--repo R] [--json]` | Diff-only blocking gate for hooks/CI |
-| `hooks {install\|uninstall} [--repo R]` | Install/uninstall git pre-commit/pre-push gates |
-| `watch PATH [--interval SEC]` | Poll files and ingest IDE/watch findings |
-| `demo` | Seed synthetic demo findings |
-| `selftest` | Run basic sanity checks (registry, detection, allowlist, dedupe) |
-| `report [--format md\|json]` | Generate findings report |
-| `ingest --surface ... [--file PATH] [--json]` | Ingest exports/live-capable surface inputs (`slack`, `confluence`, `jira`, `postman`, `postman-env`, `cloud`, `ide`) |
-| `allowlist {add\|list} ...` | Manage fingerprint allowlist entries |
-| `triage ID` | Run triage for a finding |
-| `remediate ID --action ...` | Execute remediation action (`rotate-guide`, `redact`, `quarantine`, `ticket`) |
-| `users {add\|list} ...` | Manage users (CLI utility) |
-| `tokens {create\|list\|revoke} ...` | Manage API tokens |
-| `backup [--dest PATH]` | Create SQLite backup |
-| `schedules {add\|list} ...` | Manage recurring scan schedules |
-| `jobs` | List scan jobs |
-| `surfaces` | List supported surfaces |
+# Scan files/directories
+python run.py scan PATH [--surface filesystem] [--json] [--no-store] [--strict]
 
-> Run `python run.py --help` and `python run.py <command> --help` for exact flags and behavior in your version.
+# Diff-based blocking gate (hooks/CI)
+python run.py gate --staged
+python run.py gate --range BASE..HEAD
+python run.py hooks install --repo .
+python run.py hooks uninstall --repo .
+
+# Watch local paths (polling)
+python run.py watch PATH [--interval 2.0]
+
+# Ingest supported surfaces/exports
+python run.py ingest --surface {slack,confluence,jira,postman,postman-env,cloud,ide} [--file PATH] [--json]
+
+# Operations and utilities
+python run.py demo
+python run.py selftest
+python run.py report [--format md|json]
+python run.py surfaces
+python run.py jobs
+python run.py schedules {add|list} ...
+python run.py allowlist {add FINGERPRINT [--reason]|list}
+python run.py triage ID
+python run.py remediate ID --action {redact,quarantine,ticket,rotate-guide}
+python run.py users {add USERNAME|list} [--password] [--role ...]
+python run.py tokens {create|list|revoke} ...
+python run.py backup [--dest PATH]
+```
 
 ---
 
 ## Configuration
 
-SENTRIX loads layered configuration: **defaults < `config.toml` < `config.local.toml`** (plus environment variables for secrets).
+SENTRIX uses layered configuration:
 
-### Common configuration areas
+1. Built-in defaults (`sentrix/config.py`)
+2. `config.toml`
+3. `config.local.toml` (recommended for local/production overrides; keep secrets out of VCS)
+4. Environment variables for secrets and selected runtime values
 
-- **`[server]`**: bind host/port (default `127.0.0.1:8710`)
-- **`[auth]`**: session duration, login rate limit, demo/fixed-roster behavior
-- **`[scan]`**: max file size, entropy threshold, fail-on severity, ignore dirs/files, allowlist regex patterns
-- **`[storage]`**: SQLite path (default `data/sentrix.db`)
-- **`[alerting]`**: channels (`console`, `outbox`, optional `slack`, `webhook`), dedupe window, escalation, quiet hours, auto-ticket policy
-- **`[detectors]`**: disabled detectors, severity overrides, custom detector definitions
-- **`[ai]`**: optional GPT-compatible triage (masked payloads only)
-- **`[surfaces.*]`**: Slack/Confluence/Jira/Postman/Cloud configuration (env-sourced tokens/keys)
+### Core sections
+- `[server]` — bind host/port
+- `[auth]` — session, rate limiting, demo/roster behavior
+- `[scan]` — scan limits, entropy threshold, ignore rules, fail threshold, allowlist patterns
+- `[storage]` — SQLite path
+- `[alerting]` — channels, dedupe, escalation, quiet hours, auto-ticket policy
+- `[detectors]` — enable/disable, severity overrides, custom detectors
+- `[ai]` — optional masked GPT triage (disabled by default)
+- `[surfaces.*]` — Slack/Confluence/Jira/Postman/Cloud connector configuration
 
-### Notable environment variables
+### Advanced feature sections (`[features.*]`)
+```toml
+[features.github]
+token_env = "SENTRIX_GITHUB_TOKEN"
+webhook_secret_env = "SENTRIX_GITHUB_WEBHOOK_SECRET"
+api_base = "https://api.github.com"
 
+[features.github_webhooks]
+enabled = true
+
+[features.github_pr_scanner]
+enabled = true
+
+[features.github_push_scanner]
+enabled = true
+
+[features.github_actions_gate]
+enabled = true
+
+[features.full_repo_rescan]
+enabled = true
+paths = []
+interval_seconds = 86400
+
+[features.aws_lambda_monitoring]
+enabled = true
+
+[features.aws_multi_account]
+enabled = true
+accounts = [] # e.g. [{ name="prod", profile="prod-readonly", region="us-east-1" }, { name="audit", role_arn="arn:aws:iam::123456789012:role/SentrixScan" }]
+
+[features.lambda_env_scan]
+enabled = true
+
+[features.lambda_zip_scan]
+enabled = true
+
+[features.realtime_slack_monitoring]
+enabled = true
+
+[features.slack_private_consent]
+enabled = false
+allowed_channels = []
+
+[features.realtime_jira_monitoring]
+enabled = true
+
+[features.realtime_confluence_monitoring]
+enabled = true
+
+[features.postman_monitoring]
+enabled = true
+export_paths = []
+
+[features.secret_validation]
+enabled = false
+github_api = false
+
+[features.s3_audit_archival]
+enabled = false
+bucket = ""
+prefix = "sentrix/audit/"
+interval_seconds = 3600
+
+[features.missed_webhook_detection]
+enabled = true
+
+[features.integration_health_monitoring]
+enabled = true
+
+[features.realtime_monitoring]
+interval_seconds = 300
+```
+
+### Environment variables (common)
 | Variable | Purpose |
 | --- | --- |
-| `SENTRIX_ADMIN_PASSWORD` | Initial/admin bootstrap password (recommended for non-demo setups) |
-| `SENTRIX_TEAM_PASSWORD` | Team bootstrap path (where applicable) |
-| `SENTRIX_SLACK_TOKEN` | Slack API token (when Slack surface/alerts configured) |
-| `SENTRIX_JIRA_TOKEN` | Jira API token (polling/ticketing) |
-| `SENTRIX_CONFLUENCE_TOKEN` | Confluence API token |
-| `SENTRIX_POSTMAN_KEY` | Postman API key (if configured/reserved paths) |
+| `SENTRIX_ADMIN_PASSWORD` | Bootstrap/admin password (recommended outside demo use) |
+| `SENTRIX_TEAM_PASSWORD` | Team bootstrap support (where applicable) |
+| `SENTRIX_GITHUB_TOKEN` | GitHub API access for webhook enrichment/scans (optional) |
+| `SENTRIX_GITHUB_WEBHOOK_SECRET` | GitHub webhook HMAC signature verification secret (recommended) |
+| `SENTRIX_SLACK_TOKEN` | Slack API token (live scans/monitoring) |
+| `SENTRIX_JIRA_TOKEN` | Jira API token (live scans/ticketing) |
+| `SENTRIX_CONFLUENCE_TOKEN` | Confluence API token (live scans) |
+| `SENTRIX_POSTMAN_KEY` | Postman API key (if configured paths/flows require it) |
 | `SENTRIX_AI_KEY` | Optional AI triage API key (masked-only usage) |
-| `SENTRIX_HOME` | Hook/runtime resolution support for git hooks |
+| `SENTRIX_HOME` | Hook/runtime resolution aid for git hooks |
+| AWS credentials / profile / role chain | Standard AWS SDK credential resolution for live AWS/S3 features |
 
 ---
 
-## API and integrations (developer/operator overview)
+## API reference (overview)
 
-- **API style:** JSON-first HTTP API served by the same process/port as the console (stdlib server)
-- **Auth:** session cookie and/or per-tab session token and/or `Authorization: Bearer sxt_...`
-- **Coverage (high level):** auth/identity, dashboard/telemetry aggregates, findings/lifecycle, scan/detection rules/triage/allowlist, jobs/schedules, alerts/events/logs/audit, integrations, remediation, reports/compliance/exports, ops/admin, assignment/help, Hubs, and static console assets
-- **Metrics:** Prometheus endpoint available (`/api/metrics`)
-- **Reports:** 11 report types generated as CSV/JSON and stored in report history
+SENTRIX exposes a JSON-first API (same host/port as the console). Authentication supports session cookie/session token flows and bearer API tokens (`Authorization: Bearer sxt_...`) with RBAC enforcement.
 
-See [`docs/API.md`](docs/API.md) for endpoint-level details and request/response behavior.
+### Core endpoint groups
+- **Auth & identity:** `/api/auth/*`, `/api/users*`, `/api/tokens*`
+- **Dashboard & telemetry:** `/api/home`, `/api/overview`, `/api/stats`, `/api/dashboard`, `/api/posture`, `/api/intelligence`, `/api/pipeline`, `/api/metrics`
+- **Findings & workflow:** `/api/findings*`, finding subresources/history/notes/checklists/bulk actions, triage/remediation endpoints
+- **Detection & scanning:** `/api/scan`, `/api/jobs*`, `/api/schedules*`, `/api/detectors*`, `/api/detection-rules*`, `/api/allowlist`, `/api/sources`, `/api/assets`
+- **Response & operations:** `/api/alerts*`, `/api/events`, `/api/logs*`, `/api/audit`, `/api/remediation*`, `/api/reports*`, `/api/exceptions`, `/api/compliance`, `/api/ops/*`
+- **Integrations & assignment:** `/api/integrations*`, `/api/assignment/*`, `/api/help*`
+- **Collaboration:** `/api/hubs/*`
+
+### Advanced feature endpoints (additive)
+- **Webhook ingestion (public, signature-verifiable):**
+  - `POST /api/webhooks/github` — GitHub PR/push/ping webhook receiver (PR/push scanning, gate result, event tracking)
+- **Feature health & monitoring (authenticated API access per server policy):**
+  - `GET /api/features/status` — feature enablement snapshot
+  - `GET /api/features/health` — integration health/coverage, failed scans/jobs, recent/missed webhooks, scan failures
+  - `GET /api/features/webhooks?provider=&limit=` — webhook event history
+  - `GET /api/features/scan-failures?limit=` — scan failure history
+- **Feature operations (authenticated; additive):**
+  - `POST /api/features/full-rescan` — trigger configured full repository rescans
+  - `POST /api/features/realtime-scan` — trigger a real-time scan for a supported surface (e.g. `{"surface":"slack"}`)
+  - `POST /api/features/archive-audit` — archive audit/log/event bundle to S3 (if configured)
+  - `POST /api/features/validate-finding` — record validation result for a finding (`{"id":"<finding_id>"}`)
+
+> For exact payloads, filters, and role requirements, refer to `docs/API.md` and server route behavior in `sentrix/server.py`.
 
 ---
 
-## Data, storage, and operations
+## Security, privacy, and access control
 
-- **Database:** SQLite (`data/sentrix.db` by default), additive schema/migrations, UTC timestamps
-- **Schema footprint:** 23 tables covering findings/events/alerts/remediations, identity/access, audit/logs, workflow/assignment, jobs/schedules/rules, reports/custom rules, hubs-related and operational metadata (see `docs/DATABASE.md`)
-- **Backups:** online SQLite backup via CLI/API; full DB backup recommended for complete fidelity
-- **Retention/maintenance:** purge (policy-driven), vacuum, import/export utilities
-- **Operational artifacts:** quarantine and remediation artifacts are written under `data/` paths; protect them appropriately
+### Data protection and privacy
+- **No raw secret persistence:** masked previews and SHA-256 fingerprints only
+- **No external secret exfiltration by default:** outbound calls are limited to explicitly configured services/features
+- **Masked telemetry:** alerts, logs, exports, and optional AI triage inputs avoid raw secret values
+- **Quarantine caution:** quarantine/remediation artifacts may contain sensitive original material under operator control; protect `data/` accordingly
+
+### Authentication, authorization, and request protections
+- **Password hashing:** PBKDF2-HMAC-SHA256 (200k iterations, random salt)
+- **Sessions:** server-side sessions with `HttpOnly`, `SameSite=Strict` cookie semantics and configurable expiry
+- **RBAC:** 8 roles with server-side enforcement (`super_admin`, `security_admin`, `security_analyst`, `appsec_engineer`, `devsecops_engineer`, `developer`, `auditor`, `viewer`)
+- **API tokens:** admin-managed bearer tokens (`sxt_`), hashed at rest, revocable
+- **Login protection:** per-IP rate limiting on failed attempts
+- **CSRF/origin controls:** enforced for cookie-authenticated mutations (with scoped exemptions for verified/public webhook flows)
+- **Security headers:** restrictive defaults (`no-store`, CSP, frame/referrer/permissions/COOP/CORP policies)
+- **Outbound safety:** SSRF guard checks for configured outbound HTTP targets
+
+### Production hardening (recommended)
+- Set `auth.demo_mode = false` in `config.local.toml`
+- Bind to loopback or place behind a TLS reverse proxy with strict access controls
+- Set strong `SENTRIX_ADMIN_PASSWORD`; rotate/remove demo credentials
+- Protect `data/` (SQLite DB, backups, quarantine, generated initial secrets/files)
+- Use least-privilege tokens/scopes for GitHub/Slack/Jira/Confluence/AWS/S3 integrations
+- Enable webhook signature verification (`SENTRIX_GITHUB_WEBHOOK_SECRET`) and monitor webhook/failure telemetry
+- Review `docs/SECURITY.md`, `docs/DEPLOYMENT.md`, and `docs/PRIVACY.md`
 
 ---
 
-## Deployment notes
-
-- **Default bind:** `127.0.0.1:8710` (local HTTP). Do not expose directly to untrusted networks without a hardened deployment model.
-- **Recommended production pattern:** loopback bind + TLS reverse proxy, `demo_mode=false`, strong admin credentials, demo accounts removed/disabled, protected `data/` directory, least-privilege integration tokens.
-- **Process model:** single-node application process per storage path (SQLite). Distributed workers / PostgreSQL are not implemented.
-
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), [`docs/INSTALL.md`](docs/INSTALL.md), and [`docs/SECURITY.md`](docs/SECURITY.md).
-
----
-
-## Testing and quality checks
+## Testing and validation
 
 ```sh
 # Built-in sanity checks
 python run.py selftest
 
-# Unit/integration tests (unittest)
+# Unit/integration tests
 python -m unittest discover -s tests -v
 
 # Pytest (if installed)
 python -m pytest tests -q
 ```
 
-The repository includes test suites covering core behavior, assignment/workflows, integrations, Hubs, browser/smoke flows, posture/scans, and review/remediation-related scenarios (see `tests/`).
-
----
-
-## Repository structure
-
-```text
-SENTRIX/
-├── sentrix/                 # Application package (server, CLI, core engine, dashboard, APIs)
-│   ├── core/                # Engine, pipeline, storage, risk, jobs, assignment, integrations, reports
-│   ├── detectors/           # Built-in detector registry and detector implementations
-│   ├── surfaces/            # Collection adapters (IDE, git, filesystem, cloud, SaaS exports/live)
-│   ├── alerting/            # Alert routing, rules, dedupe, delivery channels
-│   ├── remediation/         # Playbooks and remediation actions
-│   ├── ai/                  # Heuristic and optional masked GPT triage
-│   ├── hubs/                # Collaboration (chat/DM/presence/notifications)
-│   └── dashboard/           # SPA console (HTML/CSS/JS)
-├── hooks/                   # Git pre-commit/pre-push gates
-├── ci/                      # CI templates/examples (GitLab, Jenkins)
-├── editors/vscode/          # VS Code on-save integration
-├── docs/                    # Product, architecture, API, security, deployment, and feature docs
-├── examples/                # Sample data/exports and demo fixtures
-├── sql/                     # Schema/reference SQL assets
-├── tests/                   # Automated test suites
-├── assets/                  # Branding and static assets
-├── config.toml              # Default configuration
-├── run.py / run.bat / run.sh
-└── pyproject.toml
-```
+The repository includes tests covering core detection/pipeline behavior, workflows/assignment/review, integrations, Hubs, browser/smoke flows, posture/scans, and stress scenarios (see `tests/`).
 
 ---
 
@@ -536,34 +608,34 @@ SENTRIX/
 | Document | Description |
 | --- | --- |
 | [docs/OVERVIEW.md](docs/OVERVIEW.md) | Product overview, layers, lifecycle, design principles |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modular monolith design, boundaries, concurrency, flow |
-| [docs/INSTALL.md](docs/INSTALL.md) | Installation guidance |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment, production mode, backups, upgrades |
-| [docs/API.md](docs/API.md) | API reference and endpoint behavior |
-| [docs/DATABASE.md](docs/DATABASE.md) | Schema, tables, migrations, retention semantics |
-| [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | Scan pipeline, masking/fingerprinting, entropy, risk, dedupe |
-| [docs/DETECTORS.md](docs/DETECTORS.md) | Detector catalog and behavior notes |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, boundaries, concurrency, data flow |
+| [docs/INSTALL.md](docs/INSTALL.md) | Installation instructions |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment, production mode, backup/restore, upgrades |
+| [docs/API.md](docs/API.md) | API behavior and endpoint reference |
+| [docs/DATABASE.md](docs/DATABASE.md) | Schema, tables, migrations, retention/ops |
+| [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | Detection pipeline, entropy, masking, fingerprinting, risk, dedupe |
+| [docs/DETECTORS.md](docs/DETECTORS.md) | Detector catalog |
 | [docs/SURFACES.md](docs/SURFACES.md) | Surface adapters and ingestion modes |
-| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | SENTRIX Connect providers, states, sync semantics |
-| [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md) | Assignment engine, workload, SLA, accountability model |
-| [docs/REMEDIATION.md](docs/REMEDIATION.md) | Playbooks, remediation actions, verification |
-| [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md) | Heuristic and optional GPT triage behavior |
-| [docs/SECURITY.md](docs/SECURITY.md) | Threat model, controls, hardening, disclosure posture |
-| [docs/PRIVACY.md](docs/PRIVACY.md) | Data handling and privacy principles |
-| [docs/FLOWCHART.md](docs/FLOWCHART.md) | Flow diagrams and process views |
-| [docs/HELP_REGISTRY.md](docs/HELP_REGISTRY.md) | Contextual help definitions/registry |
-| [docs/RESEARCH_SYNTHESIS.md](docs/RESEARCH_SYNTHESIS.md) | Research/background synthesis |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common issues and fixes (if present in your checkout/docs set) |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | SENTRIX Connect providers and sync/state semantics |
+| [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md) | Assignment, workload, SLA, accountability model |
+| [docs/REMEDIATION.md](docs/REMEDIATION.md) | Remediation playbooks and verification flows |
+| [docs/AI_TRIAGE.md](docs/AI_TRIAGE.md) | Heuristic and optional GPT triage (masked-only) |
+| [docs/SECURITY.md](docs/SECURITY.md) | Security model, controls, and hardening guidance |
+| [docs/PRIVACY.md](docs/PRIVACY.md) | Privacy and data handling |
+| [docs/FLOWCHART.md](docs/FLOWCHART.md) | Flow diagrams |
+| [docs/HELP_REGISTRY.md](docs/HELP_REGISTRY.md) | Contextual help registry |
+| [docs/RESEARCH_SYNTHESIS.md](docs/RESEARCH_SYNTHESIS.md) | Research synthesis/background |
 
 ---
 
-## Responsible use and disclosure
+## Responsible use
 
-- **Do not use live secrets for testing.** Use synthetic fixtures and examples.
-- **Do not paste real credentials** into issues, reports, or shared logs.
-- **Report vulnerabilities privately** through the project’s security/disclosure process (see [SECURITY.md](SECURITY.md) and [docs/SECURITY.md](docs/SECURITY.md)).
+- Never test with real production credentials; use synthetic fixtures/examples.
+- Never paste raw secrets into issues, tickets, chats, or logs.
+- Treat quarantine artifacts and backups as sensitive data.
+- Report vulnerabilities privately through the project’s security disclosure process ([SECURITY.md](SECURITY.md), [docs/SECURITY.md](docs/SECURITY.md)).
 
-SENTRIX is designed to reduce exposure risk and improve response accountability, but it does not replace organizational processes for secret rotation/revocation, incident response, or compliance certification.
+SENTRIX improves detection, triage, response, and governance for secret exposure — but it does **not** replace provider-side credential rotation/revocation, incident response procedures, or formal compliance certification.
 
 ---
 
@@ -571,7 +643,7 @@ SENTRIX is designed to reduce exposure risk and improve response accountability,
 
 SENTRIX is released under the [MIT License](LICENSE).
 
-**Third-party/demo assets:** demo avatars and certain bundled demo materials are for demonstration purposes only and should be reviewed/replaced for production deployments as appropriate. See repository assets and documentation for details.
+Demo assets (including avatars/fixtures) are intended for demonstration and should be reviewed or replaced for production use where appropriate.
 
 ---
 
