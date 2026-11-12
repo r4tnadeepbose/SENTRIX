@@ -80,6 +80,18 @@ A walkthrough of SENTRIX from sign-in through key operational views (10 screensh
 
 ---
 
+## Defense-in-depth coverage model
+
+SENTRIX applies overlapping detection and response controls across the full secret-exposure lifecycle:
+
+- **Developer & pre-commit stage:** IDE/on-save checks, local scans, and git pre-commit/pre-push hooks for early feedback before exposure spreads
+- **Source control & CI/CD:** diff-based PR/push scanning, webhook-driven repository scans, blocking gates, and scheduled/full rescans
+- **Cloud/serverless workloads:** Lambda environment/config and artifact (ZIP) scanning, multi-account coverage, and scheduled/event-driven post-deployment monitoring
+- **SaaS & collaboration surfaces:** Slack, Jira, Confluence, and Postman monitoring via exports, live polling, and real-time webhooks (where configured)
+- **Centralized response & governance:** unified ingestion/dedupe/risk, alerting with owner attribution and remediation guidance, assignment/review workflows, verification rescans, audit/log/event tracking, and optional S3 audit archival
+
+---
+
 ## Core capabilities
 
 ### 1) Unified secret detection intelligence
@@ -133,6 +145,7 @@ A walkthrough of SENTRIX from sign-in through key operational views (10 screensh
 - Actions: rotate guidance, preview-redact, redact, quarantine/restore, ticket creation, verification rescan
 - **Ticketing:** live Jira integration when configured; outbox draft fallback otherwise
 - **Alerting:** console/outbox and optional Slack/webhook channels with rules, dedupe window, quiet hours, retries/backoff, acknowledgements, and escalation behavior
+  - Alerts include context (severity, surface/path, masked value), **owner/responsible-user attribution/mention where available**, and explicit remediation guidance (rotate/revoke and remove, then verify)
 - **Verification-first closure:** explicit rescans and human-accountable decisions (no automatic provider revocation)
 
 ### 7) SENTRIX Connect (integrations hub)
@@ -180,9 +193,13 @@ Sync operations are recorded as audited events/logs (sync does not implicitly fe
 - Complements existing CLI/CI gate workflows (`sentrix gate`, hooks, pipeline templates)
 
 ### 3a) Real-Time SaaS and Deployment Webhooks (create/update & post-deploy)
-- **Jira webhook:** `POST /api/webhooks/jira` scans issue/content payloads on create/update-style events in near real time (optional shared token verification via `SENTRIX_JIRA_WEBHOOK_SECRET`)
-- **Confluence webhook:** `POST /api/webhooks/confluence` scans page/content payloads on create/update events in near real time (optional shared token verification via `SENTRIX_CONFLUENCE_WEBHOOK_SECRET`)
-- **AWS Lambda deployment webhook:** `POST /api/webhooks/aws/lambda` triggers post-deployment Lambda/environment/artifact scans (optional shared token verification via `SENTRIX_AWS_WEBHOOK_TOKEN`) to support real-time deployment monitoring workflows
+- **Jira webhook:** `POST /api/webhooks/jira` scans issue/content payloads on create/update-style events in near real time
+  - Optional shared-token verification: `X-Sentrix-Token` / `X-Webhook-Token` header, `Authorization: Bearer <token>`, or body `token` (matched against `SENTRIX_JIRA_WEBHOOK_SECRET`)
+- **Confluence webhook:** `POST /api/webhooks/confluence` scans page/content payloads on create/update events in near real time
+  - Optional shared-token verification via `SENTRIX_CONFLUENCE_WEBHOOK_SECRET` (same token header/body conventions)
+- **AWS Lambda deployment webhook:** `POST /api/webhooks/aws/lambda` triggers post-deployment Lambda/environment/artifact scans to support real-time deployment monitoring workflows
+  - Optional shared-token verification via `SENTRIX_AWS_WEBHOOK_TOKEN` (same token header/body conventions)
+- **GitHub webhook:** supports HMAC verification (`X-Hub-Signature-256`) via `SENTRIX_GITHUB_WEBHOOK_SECRET`
 - All webhook deliveries are tracked for observability and missed-webhook detection; payload scanning flows through the unified detection pipeline (masking, fingerprinting, dedupe, risk, workflow/alerts)
 
 ### 4) Automatic Full Repository Rescanning
@@ -232,7 +249,7 @@ Sync operations are recorded as audited events/logs (sync does not implicitly fe
 - **Important privacy/implementation note:** SENTRIX does not persist raw secret values. As a result, live provider-API validation that requires transmitting the original secret cannot be performed from stored findings alone and is recorded as unavailable/format-only where applicable. The framework is additive and safe-by-default.
 
 ### 15) AWS S3 Centralized Audit Archival
-- Archives audit/log/event bundles to S3 (`features.s3_audit_archival`) via `boto3`
+- Archives audit/log/event bundles to S3 (`features.s3_audit_archival`) via `boto3` for centralized retention and compliance-oriented audit trails
 - **On-demand:** `POST /api/features/archive-audit`
 - **Scheduled:** periodic archival when enabled (`interval_seconds`, bucket/prefix configured)
 - Records success/failure in logs and scan-failure tracking (non-fatal)
