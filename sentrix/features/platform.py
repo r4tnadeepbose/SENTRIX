@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import time
+import urllib.parse
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -198,7 +199,9 @@ def handle_github_webhook(state, headers: dict, raw_body: bytes, body: dict):
             if not pr_files and repo and pr.get("number") and _enabled(cfg, "github_pr_scanner", True):
                 api_base = cfg_get(cfg, "features.github.api_base", "https://api.github.com").rstrip("/")
                 try:
-                    url = f"{api_base}/repos/{repo}/pulls/{pr['number']}/files?per_page=100"
+                    repo_path = "/".join(urllib.parse.quote(part, safe="") for part in str(repo).split("/"))
+                    pr_num = int(pr.get("number", 0))
+                    url = f"{api_base}/repos/{repo_path}/pulls/{pr_num}/files?per_page=100"
                     data = rest_json(url, headers=_github_headers(cfg))
                     if isinstance(data, list):
                         pr_files = data
@@ -237,7 +240,10 @@ def handle_github_webhook(state, headers: dict, raw_body: bytes, body: dict):
                             try:
                                 api_base = cfg_get(cfg, "features.github.api_base", "https://api.github.com").rstrip("/")
                                 sha = c.get("id") or body.get("after") or "HEAD"
-                                url = f"{api_base}/repos/{repo}/contents/{p}?ref={sha}"
+                                repo_path = "/".join(urllib.parse.quote(part, safe="") for part in str(repo).split("/"))
+                                file_path = urllib.parse.quote(str(p).lstrip("/"), safe="/")
+                                ref = urllib.parse.quote(str(sha), safe="")
+                                url = f"{api_base}/repos/{repo_path}/contents/{file_path}?ref={ref}"
                                 data = rest_json(url, headers=_github_headers(cfg))
                                 if isinstance(data, dict) and data.get("encoding") == "base64" and data.get("content"):
                                     import base64
