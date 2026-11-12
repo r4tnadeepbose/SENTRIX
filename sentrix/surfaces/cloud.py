@@ -43,34 +43,41 @@ def live_scan(cfg: dict, allowlist=None) -> list[Finding]:
     # Advanced multi-account/env/zip scanning (additive, feature-gated)
     try:
         from sentrix.features.platform import aws_lambda_advanced_scan, _enabled
-        if _enabled(cfg, "aws_lambda_monitoring", True) or _enabled(cfg, "aws_multi_account", True) or _enabled(cfg, "lambda_zip_scan", True):
-            # storage not required for scanning; pass a minimal shim if needed
+        advanced_enabled = (
+            _enabled(cfg, "aws_lambda_monitoring", True)
+            or _enabled(cfg, "aws_multi_account", True)
+            or _enabled(cfg, "lambda_zip_scan", True)
+        )
+        if advanced_enabled:
             class _Noop:
-                def add_log(self,*a,**k): pass
-                _lock = __import__("threading").Lock()
-                _db = None
-            storage = _Noop()
-            findings = aws_lambda_advanced_scan(cfg, storage, allowlist)
-            if findings is not None:
-                return findings
+                def add_log(self, *a, **k): pass
+            try:
+                return aws_lambda_advanced_scan(cfg, _Noop(), allowlist) or []
+            except Exception:
+                # fall through to basic scan for resilience
+                pass
     except Exception:
         pass
+    # Basic env-var scan (legacy/default behavior)
     try:
         import boto3
     except ImportError:
         return []
     findings: list[Finding] = []
-    client = boto3.client("lambda")
-    paginator = client.get_paginator("list_functions")
-    for page in paginator.paginate():
-        for fn in page["Functions"]:
-            config = client.get_function_configuration(FunctionName=fn["FunctionName"])
-            for key, value in config.get("Environment", {}).get("Variables", {}).items():
-                for finding in scan_text(
-                        f"{key} = \"{value}\"", f"lambda:{fn['FunctionName']}/env",
-                        "cloud", allowlist):
-                    finding.meta["env_key"] = key
-                    findings.append(finding)
+    try:
+        client = boto3.client("lambda")
+        paginator = client.get_paginator("list_functions")
+        for page in paginator.paginate():
+            for fn in page["Functions"]:
+                config = client.get_function_configuration(FunctionName=fn["FunctionName"])
+                for key, value in config.get("Environment", {}).get("Variables", {}).items():
+                    for finding in scan_text(
+                            f"{key} = \"{value}\"", f"lambda:{fn['FunctionName']}/env",
+                            "cloud", allowlist):
+                        finding.meta["env_key"] = key
+                        findings.append(finding)
+    except Exception:
+        return findings
     return findings
 
 
